@@ -735,8 +735,8 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                     }
                                 }
 
-                                // 网页登录入口由平台能力描述决定，不再写死 MiMo。
-                                val webAuthProfile = WebAuthProfileRegistry.findByInstanceKey(platform)
+                                // 网页登录入口由平台能力描述决定，不再写死 platform == "xxx"。
+                                val webAuthProfile = WebAuthProfileRegistry.findFor(platform, configs[index].apiBase)
                                 if (webAuthProfile != null) {
                                     Button(
                                         onClick = {

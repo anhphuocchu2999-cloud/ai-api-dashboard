@@ -25,7 +25,7 @@ import com.java.myapplication.webauth.WebAuthProfileRegistry
  * 通用网页登录授权 Activity。
  *
  * Stage 7A-3A 只迁移已经验证过的 MiMo COOKIE 流程。
- * 未经真实验证，不在这里猜测或实现 Bearer Token 自动提取。
+ * Stage 7A-3C 扩展支持爱黄牛 localStorage auth_token 自动提取。
  */
 class WebAuthActivity : Activity() {
 
@@ -45,6 +45,10 @@ class WebAuthActivity : Activity() {
     private var loginDetected = false
     private var showCancelToast = false
 
+    /** 用于 localStorage 轮询的 Handler */
+    private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pollRunnable: Runnable? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -56,7 +60,9 @@ class WebAuthActivity : Activity() {
             return
         }
 
-        if (resolvedProfile.authType != BackgroundAuthType.COOKIE) {
+        if (resolvedProfile.authType != BackgroundAuthType.COOKIE &&
+            resolvedProfile.authType != BackgroundAuthType.BEARER_TOKEN
+        ) {
             Toast.makeText(this, "这个授权方式还没有完成验证", Toast.LENGTH_SHORT).show()
             finish()
             return
@@ -103,7 +109,13 @@ class WebAuthActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                checkAndSaveCookies()
+
+                // 根据认证类型选择检测策略
+                when (profile.authType) {
+                    BackgroundAuthType.COOKIE -> checkAndSaveCookies()
+                    BackgroundAuthType.BEARER_TOKEN -> startLocalStoragePolling()
+                    else -> { /* 不处理 */ }
+                }
             }
         }
 
@@ -112,6 +124,8 @@ class WebAuthActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 清理轮询
+        pollRunnable?.let { pollHandler.removeCallbacks(it) }
         if (showCancelToast && !loginDetected) {
             Toast.makeText(
                 this,
@@ -165,6 +179,37 @@ class WebAuthActivity : Activity() {
 
         refreshWidget(this)
         finish()
+    }
+
+    /**
+     * 启动 localStorage 轮询，用于 BEARER_TOKEN 自动提取。
+     * 每 2 秒读取一次 localStorage，直到获取到非空 token。
+     */
+    private fun startLocalStoragePolling() {
+        if (loginDetected) return
+        val key = profile.localStorageKey ?: return
+
+        val runnable = object : Runnable {
+            override fun run() {
+                if (loginDetected) return
+                webView.evaluateJavascript(
+                    "localStorage.getItem('$key')",
+                    android.webkit.ValueCallback { value ->
+                        if (loginDetected) return@ValueCallback
+                        val token = value?.trim()?.removeSurrounding("\"")?.trim()
+                        if (!token.isNullOrBlank() && token != "null") {
+                            loginDetected = true
+                            saveCredentialAndRefresh(token)
+                        }
+                    }
+                )
+                if (!loginDetected) {
+                    pollHandler.postDelayed(this, 2000)
+                }
+            }
+        }
+        pollRunnable = runnable
+        pollHandler.postDelayed(runnable, 2000)
     }
 
     private fun refreshWidget(context: Context) {

@@ -359,6 +359,70 @@ Stage 7A-3A 已在用户本人真机验收通过后提交并推送。
 
 `f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
 
+---
+
+## 2026-07-12｜Stage 7A-3B + 7A-3C 爱黄牛 Bearer Token 来源确认与自动网页登录获取
+
+**目标与背景**
+
+Stage 7A-3B：确认爱黄牛 Bearer Token 的真实来源与稳定提取条件。
+Stage 7A-3C：基于已确认证据实现自动网页登录获取 Bearer Token。
+
+**已确认证据**
+
+- 爱黄牛 API Base：`https://sub2.aihuangniu.com`
+- 用户已在 Kiwi 浏览器控制台亲自验证：`localStorage.getItem('auth_token')` 返回有效 Bearer Token
+- Token 来源：localStorage `auth_token`
+- 登录入口：`https://sub2.aihuangniu.com`
+
+**方案与取舍**
+
+1. `WebAuthProfile` 扩展 `apiBaseHostContains` 和 `localStorageKey` 字段（可选，默认值 null，保持向后兼容）
+2. `WebAuthProfileRegistry` 注册爱黄牛 profile：
+   - instanceKey = "OpenAI"（爱黄牛实例位于 OpenAI 槽位）
+   - authType = BEARER_TOKEN
+   - apiBaseHostContains = "aihuangniu.com"
+   - localStorageKey = "auth_token"
+3. `WebAuthProfileRegistry.findFor(instanceKey, apiBase)`：优先精确匹配 instanceKey，其次按 apiBase 包含匹配
+4. `WebAuthActivity` 扩展：
+   - COOKIE 路径完全保留（MiMo 不受影响）
+   - BEARER_TOKEN 路径：启动 localStorage 轮询（每 2 秒读取一次）
+   - 检测到非空 token 后自动保存并刷新 Widget
+5. 配置页使用 `findFor(platform, apiBase)` 替代 `findByInstanceKey(platform)`，不重新写死 `platform == "xxx"`
+6. 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
+
+**起始基线**
+
+- 分支：`feature/stage-7a-3c-aihuangniu-web-auth`
+- 起始提交：`aee830d6da03d7610d3c3fa1bb87cdeeea6e13e4`
+
+**实际修改文件**
+
+- `webauth/WebAuthProfile.kt`：扩展 `apiBaseHostContains` 和 `localStorageKey`
+- `webauth/WebAuthProfileRegistry.kt`：注册爱黄牛 profile，新增 `findFor()`
+- `WebAuthActivity.kt`：扩展 BEARER_TOKEN localStorage 轮询（COOKIE 路径完全保留）
+- `MainActivity.kt`：配置页使用 `findFor(platform, apiBase)`
+- `AI_HANDOFF.md`：更新状态
+
+**明确未修改**
+
+- MiMo Cookie 路径完全保留，未改动任何 Cookie 检测/保存逻辑
+- 未修改 Adapter、Widget、缓存、布局逻辑
+- 未修改 AihuangniuAdapter 业务代码
+- 未修改 BalanceWidgetProvider
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 20s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 真机测试爱黄牛网页登录自动获取 Bearer Token：`待用户真机确认`
+
+**回滚位置**
+
+`aee830d6da03d7610d3c3fa1bb87cdeeea6e13e4`
+
 **下一项唯一任务**
 
-Stage 7A-3B：只摸排爱黄牛 Bearer Token 的真实来源与稳定提取条件；未取得证据前不实现自动提取。
+等待用户真机测试爱黄牛网页登录自动获取 Bearer Token 功能。
+
+---

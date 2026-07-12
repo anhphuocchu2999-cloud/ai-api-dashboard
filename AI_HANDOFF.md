@@ -177,15 +177,25 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ## 下一项唯一任务
 
-`Stage 7A-3B：爱黄牛 Bearer Token 真实来源摸排`
+`Stage 7A-3B + 3C：爱黄牛 Bearer Token 来源确认与自动网页登录获取`
 
-本阶段只做证据采集与来源确认，不直接猜测实现：
+### 已确认证据
+- 爱黄牛 API Base：`https://sub2.aihuangniu.com`
+- 用户已在 Kiwi 浏览器控制台亲自验证：`localStorage.getItem('auth_token')` 返回有效 Bearer Token
+- Token 来源：localStorage `auth_token`
 
-1. 确认登录入口与实际后台域名。
-2. 确认 Bearer Token 实际来自响应头、localStorage、sessionStorage、Cookie 或接口响应中的哪一种。
-3. 记录可稳定复现的提取位置与成功判定条件。
-4. 未取得真实证据前，不修改 `WebAuthActivity` 去自动提取 Bearer Token。
-5. 不修改 Adapter、Widget、缓存和布局。
+### 已实现
+1. `WebAuthProfile` 扩展 `apiBaseHostContains` 和 `localStorageKey` 字段
+2. `WebAuthProfileRegistry` 注册爱黄牛 profile（instanceKey=OpenAI，authType=BEARER_TOKEN）
+3. `WebAuthProfileRegistry.findFor(instanceKey, apiBase)` 支持按 apiBase 匹配
+4. `WebAuthActivity` 扩展 localStorage 轮询自动提取（COOKIE 路径完全保留）
+5. 配置页使用 `findFor(platform, apiBase)` 替代 `findByInstanceKey(platform)`，不重新写死 platform == "xxx"
+6. 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
+
+### 待验证
+- 编译是否成功
+- 覆盖安装是否成功
+- 用户真机测试爱黄牛网页登录自动获取 Bearer Token
 
 ## 严禁操作
 
