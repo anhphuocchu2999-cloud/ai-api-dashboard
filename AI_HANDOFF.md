@@ -18,8 +18,8 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`feature/stage-7a-3a-web-auth-mimo`
-- 当前业务基线提交：`c128144d836d7ba2da36b9ba1ab4552e18d7f420`
+- 当前业务基线分支：`feature/stage-7a-3c-aihuangniu-web-auth`
+- 当前业务基线提交：`08c7751`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -124,13 +124,13 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 - `AihuangniuAdapter` 支持模型 API Key + 后台 Bearer Token 分离使用。
 - `/v1/usage` 使用模型 Key；Profile/余额优先使用后台 Bearer Token。
-- 自动网页登录获取 Bearer Token 尚未实现。
-- 当前只能通过高级设置手工保存后台授权。
+- 自动网页登录获取 Bearer Token 已实现：WebAuthActivity 通过 localStorage 轮询读取 `auth_token`。
+- 配置页展开高级设置后，点击“连接账户”即可自动完成爱黄牛网页登录授权。
 
 ## 核心文件
 
 - `MainActivity.kt`：配置页、测试连接、高级授权入口。
-- `MiMoWebLoginActivity.kt`：MiMo Cookie 登录和提取。
+- `WebAuthActivity.kt`：通用网页登录授权（MiMo Cookie + 爱黄牛 localStorage Bearer Token）。
 - `BalanceWidgetProvider.kt`：刷新、Adapter 调用、缓存、Widget 渲染。
 - `adapter/AdapterFactory.kt`：平台路由唯一入口。
 - `adapter/AdapterRequest.kt`：模型 Key 与后台凭据分离输入。
@@ -156,46 +156,22 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ## 最近完成的阶段
 
-`Documentation Baseline` 已完成：四层文档、证据分级、历史回填和 AI 接手规则已落库。
+`Stage 7A-3B + 3C：爱黄牛 Bearer Token 来源确认与自动网页登录获取` 已完成。
 
-- 完成提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
-- 未改业务代码，因此未执行编译和安装。
-
-## 最近完成的阶段
-
-`Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）` 已完成。
-
-- 开发分支：`feature/stage-7a-3a-web-auth-mimo`
-- 最终提交：`c128144d836d7ba2da36b9ba1ab4552e18d7f420`
-- 提交信息：`Stage 7A-3A: Migrate MiMo web auth to generic WebAuthActivity with WebAuthProfile registry`
-- `WebAuthProfile`、`WebAuthProfileRegistry`、`WebAuthActivity` 已落地。
-- 第一版 Registry 只注册 MiMo。
-- 配置页已取消 `platform == "MiMo"` 写死判断，改为按 WebAuthProfile 能力显示“连接账户”。
-- `api_config / MiMo_auth` 保持兼容。
-- 用户本人已明确确认真机测试通过。
-- 最终汇报未单独复述编译和覆盖安装命令输出，因此不补写不存在的具体构建时长或终端输出。
+- 开发分支：`feature/stage-7a-3c-aihuangniu-web-auth`
+- 最终提交：`08c7751`
+- 提交信息：`Stage 7A-3B+3C: Add aihuangniu web auth with localStorage auth_token auto-extraction`
+- `WebAuthProfile` 扩展 `apiBaseHostContains` 和 `localStorageKey` 字段
+- `WebAuthProfileRegistry` 注册爱黄牛 profile（instanceKey=OpenAI，authType=BEARER_TOKEN）
+- `WebAuthProfileRegistry.findFor(instanceKey, apiBase)` 支持按 apiBase 匹配
+- `WebAuthActivity` 扩展 localStorage 轮询自动提取（COOKIE 路径完全保留）
+- 配置页使用 `findFor(platform, apiBase)` 替代 `findByInstanceKey(platform)`，不重新写死 platform == "xxx"
+- 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
+- 用户本人已明确确认真机测试通过（爱黄牛自动获取 + MiMo 不受影响）。
 
 ## 下一项唯一任务
 
-`Stage 7A-3B + 3C：爱黄牛 Bearer Token 来源确认与自动网页登录获取`
-
-### 已确认证据
-- 爱黄牛 API Base：`https://sub2.aihuangniu.com`
-- 用户已在 Kiwi 浏览器控制台亲自验证：`localStorage.getItem('auth_token')` 返回有效 Bearer Token
-- Token 来源：localStorage `auth_token`
-
-### 已实现
-1. `WebAuthProfile` 扩展 `apiBaseHostContains` 和 `localStorageKey` 字段
-2. `WebAuthProfileRegistry` 注册爱黄牛 profile（instanceKey=OpenAI，authType=BEARER_TOKEN）
-3. `WebAuthProfileRegistry.findFor(instanceKey, apiBase)` 支持按 apiBase 匹配
-4. `WebAuthActivity` 扩展 localStorage 轮询自动提取（COOKIE 路径完全保留）
-5. 配置页使用 `findFor(platform, apiBase)` 替代 `findByInstanceKey(platform)`，不重新写死 platform == "xxx"
-6. 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
-
-### 待验证
-- 编译是否成功
-- 覆盖安装是否成功
-- 用户真机测试爱黄牛网页登录自动获取 Bearer Token
+Stage 7A-3D（如有）：爱黄牛网页登录体验优化或已知问题修复；或进入 Stage 7B 其他平台扩展。
 
 ## 严禁操作
 
