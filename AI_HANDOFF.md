@@ -19,7 +19,7 @@
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
 - 当前业务基线分支：`fix/stage-7a-3d-web-auth-profile-match`
-- 当前业务基线提交：`eca4f97`
+- 当前业务基线提交：`5d707575a1c9f98ca603d645a1794ab74a2c950b`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -174,7 +174,8 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 `Stage 7A-3D：WebAuthProfile 匹配规则修复` 已完成。
 
 - 修复分支：`fix/stage-7a-3d-web-auth-profile-match`
-- 最终提交：待用户真机验收通过后记录
+- 最终提交：`5d707575a1c9f98ca603d645a1794ab74a2c950b`
+- 提交信息：`Fix WebAuthProfile API base matching`
 - `WebAuthProfileRegistry.findFor()` 匹配语义已修复：
   - Profile 无 `apiBaseHostContains`（如 MiMo）：仅按 `instanceKey` 匹配
   - Profile 有 `apiBaseHostContains`（如爱黄牛）：`instanceKey` + `apiBase` 同时匹配
@@ -195,14 +196,16 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ## 最近真机验证状态
 
-以 `db34e3e36beb889f1c259b45b0dd4f0a5d3501ad` 对应代码为业务基线：
+以 `5d707575a1c9f98ca603d645a1794ab74a2c950b` 对应代码为当前业务基线：
 
-- 配置页正常打开：用户确认。
-- 高级设置正常展开：用户确认。
-- MiMo 无需重新登录：用户确认。
-- MiMo 显示原余额：用户确认。
+- 配置页正常打开、高级设置正常展开：用户确认。
+- MiMo “连接账户”入口正常，无需重新登录，原余额正常：用户确认。
 - Kimi 显示原次数：用户确认。
-- Widget 无空白、崩溃或异常退出：用户确认。
+- 爱黄牛地址仍显示“连接账户”：用户确认。
+- 非爱黄牛 OpenAI 地址不再错误显示“连接账户”：用户确认。
+- 恢复爱黄牛 API Base 后“连接账户”重新出现：用户确认。
+- 爱黄牛自动网页登录授权能力保持正常：用户确认。
+- Widget 中爱黄牛、MiMo、Kimi 数据正常，无空白、崩溃或异常退出：用户确认。
 
 已知非阻断 Kotlin 警告仍存在，未专门清理。
 
