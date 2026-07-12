@@ -1,5 +1,6 @@
 package com.java.myapplication.adapter
 
+import com.java.myapplication.adapter.auth.BackgroundAuthType
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -28,6 +29,19 @@ class MiMoAdapter : PlatformAdapter {
         } catch (_: Exception) {
             false
         }
+    }
+
+    override fun fetchData(request: AdapterRequest): WidgetData {
+        val cookie = if (
+            request.backgroundAuthType == BackgroundAuthType.COOKIE &&
+            request.backgroundCredential.isNotBlank()
+        ) {
+            request.backgroundCredential
+        } else {
+            // 兼容旧调用；正常新流程应从 backgroundCredential 取得 Cookie。
+            request.modelApiKey
+        }
+        return fetchData(request.apiBase, cookie, request.modelName)
     }
 
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {

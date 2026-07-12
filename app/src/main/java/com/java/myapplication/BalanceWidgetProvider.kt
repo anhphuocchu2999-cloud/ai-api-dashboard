@@ -10,9 +10,10 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.RemoteViews
 import com.java.myapplication.adapter.AdapterFactory
-import com.java.myapplication.adapter.AihuangniuAdapter
-import com.java.myapplication.adapter.MiMoAdapter
+import com.java.myapplication.adapter.AdapterRequest
 import com.java.myapplication.adapter.WidgetData
+import com.java.myapplication.adapter.auth.BackgroundAuthConfig
+import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import java.net.HttpURLConnection
@@ -499,6 +500,42 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         private val lastSuccessTime = mutableMapOf<String, Long>()
         private const val CACHE_VALID_MS = 60000L // 缓存有效期 60 秒
 
+        private fun loadBackgroundAuth(
+            prefs: android.content.SharedPreferences,
+            platformName: String
+        ): BackgroundAuthConfig {
+            val authJson = prefs.getString("${platformName}_auth", null)
+            if (authJson.isNullOrBlank()) {
+                return BackgroundAuthConfig()
+            }
+
+            return try {
+                val obj = org.json.JSONObject(authJson)
+                val enabled = obj.optBoolean("enabled", false)
+                if (!enabled) {
+                    BackgroundAuthConfig()
+                } else {
+                    val authType = try {
+                        BackgroundAuthType.valueOf(
+                            obj.optString("authType", BackgroundAuthType.NONE.name)
+                                .uppercase(Locale.ROOT)
+                        )
+                    } catch (_: Exception) {
+                        BackgroundAuthType.NONE
+                    }
+
+                    BackgroundAuthConfig(
+                        authType = authType,
+                        authValue = obj.optString("authValue", ""),
+                        enabled = authType != BackgroundAuthType.NONE,
+                        updatedAt = obj.optLong("updatedAt", 0L)
+                    )
+                }
+            } catch (_: Exception) {
+                BackgroundAuthConfig()
+            }
+        }
+
         private fun fetchWidgetDataForPlatform(
             platformName: String,
             config: ApiAccountConfig,
@@ -515,30 +552,10 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 return WidgetData.empty(platformName)
             }
 
-            // 获取对应 Adapter：MiMo 直接使用 MiMoAdapter，其他平台通过 AdapterFactory
-            val adapter = if (platformName == "MiMo") {
-                MiMoAdapter()
-            } else if (config.apiBase.contains("aihuangniu.com", ignoreCase = true)) {
-                // Aihuangniu 需要双凭证：后台 Bearer Token + 模型 API Key
-                val bearerToken = prefs.getString(platformName + "_auth", null)?.let { authJson ->
-                    if (!authJson.isNullOrBlank()) {
-                        try {
-                            val clean = authJson.trimStart('{').trimEnd('}')
-                            val authValueStart = clean.indexOf("\"authValue\":\"")
-                            if (authValueStart != -1) {
-                                val valueStart = authValueStart + "\"authValue\":\"".length
-                                val valueEnd = clean.indexOf("\"", valueStart)
-                                if (valueEnd != -1) clean.substring(valueStart, valueEnd) else null
-                            } else null
-                        } catch (_: Exception) { null }
-                    } else null
-                }
-                AihuangniuAdapter(backgroundBearerToken = bearerToken)
-            } else {
-                AdapterFactory.getAdapter(platformName, config.apiBase)
-            }
+            // 所有 Adapter 统一通过 AdapterFactory 路由。
+            val adapter = AdapterFactory.getAdapter(platformName, config.apiBase)
             if (adapter == null) {
-                // 模型连接正常但余额接口需要登录授权
+                // 模型连接正常但余额接口需要登录授权或当前无对应数据 Adapter。
                 return WidgetData(
                     platformName = platformName,
                     modelName = "余额需登录授权",
@@ -551,36 +568,23 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 )
             }
 
-            // 调用 Adapter 获取数据
-            // 对于 MiMo，使用 Cookie 授权
-            val authKey = when {
-                platformName == "MiMo" -> {
-                    val authJson = prefs.getString("MiMo_auth", null)
-                    if (!authJson.isNullOrBlank()) {
-                        try {
-                            val obj = org.json.JSONObject(authJson)
-                            val authType = obj.optString("authType", "")
-                            val enabled = obj.optBoolean("enabled", false)
-                            if (authType == "COOKIE" && enabled) {
-                                obj.optString("authValue", "")
-                            } else ""
-                        } catch (_: Exception) { "" }
-                    } else ""
-                }
-                else -> config.apiKey
-            }
+            val backgroundAuth = loadBackgroundAuth(prefs, platformName)
+            val request = AdapterRequest(
+                apiBase = config.apiBase,
+                modelApiKey = config.apiKey,
+                modelName = config.model,
+                backgroundAuthType = backgroundAuth.authType,
+                backgroundCredential = backgroundAuth.authValue
+            )
 
-            // 临时日志：确认最终传入的 token 类型
-            val isJwt = authKey.startsWith("eyJ")
-            val tokenType = when {
-                platformName == "MiMo" -> if (authKey.isNotBlank()) "Cookie" else "未授权"
-                isJwt -> "JWT"
-                else -> "APIKey"
-            }
-            android.util.Log.d("BalanceWidgetProvider", "平台=$platformName, apiBase=${config.apiBase}, token类型=$tokenType, 长度=${authKey.length}")
+            // 只记录认证类型，不记录凭据值、长度或原始内容。
+            android.util.Log.d(
+                "BalanceWidgetProvider",
+                "平台=$platformName, 后台授权=${request.backgroundAuthType.name}, 模型Key=${if (request.modelApiKey.isBlank()) "未配置" else "已配置"}"
+            )
 
             val result = try {
-                adapter.fetchData(config.apiBase, authKey, config.model)
+                adapter.fetchData(request)
             } catch (e: Exception) {
                 WidgetData.error(platformName, "获取失败")
             }

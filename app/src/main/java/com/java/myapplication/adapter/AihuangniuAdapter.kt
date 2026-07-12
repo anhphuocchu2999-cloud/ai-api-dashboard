@@ -38,19 +38,52 @@ class AihuangniuAdapter(
         }
     }
 
+    override fun fetchData(request: AdapterRequest): WidgetData {
+        val backgroundToken = if (
+            request.backgroundAuthType == BackgroundAuthType.BEARER_TOKEN &&
+            request.backgroundCredential.isNotBlank()
+        ) {
+            request.backgroundCredential
+        } else {
+            backgroundBearerToken.orEmpty()
+        }
+
+        return fetchDataWithCredentials(
+            apiBase = request.apiBase,
+            modelApiKey = request.modelApiKey,
+            modelName = request.modelName,
+            backgroundToken = backgroundToken
+        )
+    }
+
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
+        return fetchDataWithCredentials(
+            apiBase = apiBase,
+            modelApiKey = apiKey,
+            modelName = modelName,
+            backgroundToken = backgroundBearerToken.orEmpty()
+        )
+    }
+
+    private fun fetchDataWithCredentials(
+        apiBase: String,
+        modelApiKey: String,
+        modelName: String?,
+        backgroundToken: String
+    ): WidgetData {
         val normalizedBase = apiBase.trim().trimEnd('/')
 
-        if (apiKey.isBlank()) {
+        if (modelApiKey.isBlank()) {
             return WidgetData.error(platformName, "Key未配置")
         }
 
-        // 1. 获取用户资料（余额等）——使用后台 Bearer Token
-        val profileData = fetchProfileData(normalizedBase, backgroundBearerToken ?: apiKey)
+        // 1. 获取用户资料（余额等）——优先使用网页登录获得的后台 Bearer Token
+        val profileCredential = backgroundToken.ifBlank { modelApiKey }
+        val profileData = fetchProfileData(normalizedBase, profileCredential)
 
-        // 2. 获取 /v1/usage 累计统计——使用模型 API Key
+        // 2. 获取 /v1/usage 累计统计——始终使用模型 API Key
         val effectiveModelName = modelName?.takeIf { it.isNotBlank() } ?: profileData.modelName
-        val usageCumulative = fetchUsageCumulative(normalizedBase, apiKey, effectiveModelName)
+        val usageCumulative = fetchUsageCumulative(normalizedBase, modelApiKey, effectiveModelName)
 
         android.util.Log.d("AihuangniuAdapter", "累计统计: requests=${usageCumulative?.first}, tokens=${usageCumulative?.second}, cost=${usageCumulative?.third}")
 

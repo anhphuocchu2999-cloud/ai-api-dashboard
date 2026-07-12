@@ -17,11 +17,19 @@ interface PlatformAdapter {
     fun detect(apiBase: String, apiKey: String): Boolean
 
     /**
-     * 获取数据
-     * @param apiBase API Base URL
-     * @param apiKey API Key 或授权 Token
-     * @param modelName 配置的模型名称（可选，用于用量查询等场景）
-     * @return WidgetData 统一数据模型
+     * 使用明确区分的凭据输入获取数据。
+     *
+     * 默认实现仍调用旧方法，供只需要模型 API Key 的 Adapter 兼容使用。
+     * 需要 Cookie / Bearer Token 的 Adapter 应覆盖本方法。
+     */
+    fun fetchData(request: AdapterRequest): WidgetData {
+        return fetchData(request.apiBase, request.modelApiKey, request.modelName)
+    }
+
+    /**
+     * 旧版兼容入口。
+     *
+     * 新代码不得再把 Cookie / Bearer Token 作为 apiKey 传入。
      */
     fun fetchData(apiBase: String, apiKey: String, modelName: String? = null): WidgetData
 }

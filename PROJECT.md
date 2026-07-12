@@ -891,3 +891,54 @@ Apple Glass / 高级玻璃风格
 - Widget 根据真实数据能力展示内容
 - 功能逐步实现，不要求一次完成长期架构
 - 最终做成一个真正漂亮、成熟、可长期扩展的 AI Dashboard
+
+---
+
+## Stage 7A-1：Adapter 凭据输入统一
+
+本阶段不新建第二套后端，不改变现有 Adapter 的职责。
+
+现有 Adapter 继续作为平台差异统一层，负责：
+
+- HTTP 请求
+- 平台协议
+- JSON 解析
+- 错误转换
+- WidgetData 标准化
+
+本阶段只解决一个问题：
+
+`PlatformAdapter.fetchData()` 不再把 API Key、Bearer Token、Cookie 混在同一个 `apiKey` 参数中。
+
+统一输入对象：
+
+```text
+AdapterRequest
+├─ apiBase
+├─ modelApiKey
+├─ modelName
+├─ backgroundAuthType
+└─ backgroundCredential
+```
+
+认证规则：
+
+- 模型 API Key：用于 `/v1/models`、模型调用、模型用量等接口。
+- Bearer Token：通过网页登录获得，用于账户后台余额、套餐、Profile 等接口。
+- Cookie：通过网页登录获得，用于账户后台余额、套餐、Profile 等接口。
+- Billing、Usage、Balance、Profile 属于数据接口类型，不属于新的认证方式。
+
+平台组合示例：
+
+- Kimi / New API：模型 API Key。
+- DeepSeek 官方：模型 API Key。
+- MiMo：模型 API Key + Cookie。
+- 爱黄牛：模型 API Key + 后台 Bearer Token。
+
+兼容要求：
+
+- 保留现有 API Key、Cookie、Bearer Token 的存储格式。
+- 覆盖安装后不得要求 MiMo 重新登录。
+- 不改变现有余额、用量、缓存和 Widget 展示结果。
+- 不新增平台，不修改 UI，不修改 Widget 布局。
+- Adapter 仍统一通过 AdapterFactory 路由。
