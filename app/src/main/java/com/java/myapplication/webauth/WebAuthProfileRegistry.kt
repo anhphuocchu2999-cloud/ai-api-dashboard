@@ -39,17 +39,19 @@ object WebAuthProfileRegistry {
 
     /**
      * 根据平台实例键和 apiBase 查找匹配的网页登录配置。
-     * 优先精确匹配 instanceKey，其次按 apiBase 包含匹配。
+     *
+     * Profile 没有 apiBaseHostContains 时，仅要求 instanceKey 匹配；
+     * Profile 配置了 apiBaseHostContains 时，instanceKey 与 apiBase 必须同时匹配。
      */
     fun findFor(instanceKey: String, apiBase: String): WebAuthProfile? {
-        // 1. 精确匹配 instanceKey
-        val exact = profiles.firstOrNull { it.instanceKey == instanceKey }
-        if (exact != null) return exact
-
-        // 2. 按 apiBase 包含匹配（用于 OpenAI 槽位配置爱黄牛等场景）
-        return profiles.firstOrNull {
-            it.apiBaseHostContains != null &&
-            apiBase.contains(it.apiBaseHostContains, ignoreCase = true)
+        return profiles.firstOrNull { profile ->
+            if (profile.instanceKey != instanceKey) {
+                false
+            } else {
+                val hostConstraint = profile.apiBaseHostContains
+                hostConstraint.isNullOrBlank() ||
+                    apiBase.contains(hostConstraint, ignoreCase = true)
+            }
         }
     }
 }

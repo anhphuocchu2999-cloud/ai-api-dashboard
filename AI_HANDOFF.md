@@ -18,8 +18,8 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`feature/stage-7a-3c-aihuangniu-web-auth`
-- 当前业务基线提交：`08c7751`
+- 当前业务基线分支：`fix/stage-7a-3d-web-auth-profile-match`
+- 当前业务基线提交：`eca4f97`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -154,7 +154,7 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - API Key / Cookie / Bearer Token 分离传递。
 - 后台授权 JSON 统一读写仓库。
 
-## 最近完成的阶段
+## 已完成阶段
 
 `Stage 7A-3B + 3C：爱黄牛 Bearer Token 来源确认与自动网页登录获取` 已完成。
 
@@ -169,9 +169,17 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
 - 用户本人已明确确认真机测试通过（爱黄牛自动获取 + MiMo 不受影响）。
 
-## 下一项唯一任务
+## 最近完成的阶段
 
-Stage 7A-3D（如有）：爱黄牛网页登录体验优化或已知问题修复；或进入 Stage 7B 其他平台扩展。
+`Stage 7A-3D：WebAuthProfile 匹配规则修复` 已完成。
+
+- 修复分支：`fix/stage-7a-3d-web-auth-profile-match`
+- 最终提交：待用户真机验收通过后记录
+- `WebAuthProfileRegistry.findFor()` 匹配语义已修复：
+  - Profile 无 `apiBaseHostContains`（如 MiMo）：仅按 `instanceKey` 匹配
+  - Profile 有 `apiBaseHostContains`（如爱黄牛）：`instanceKey` + `apiBase` 同时匹配
+- 非爱黄牛 OpenAI 地址不再误显示"连接账户"
+- 用户本人已明确确认真机测试通过（MiMo 回归 + 爱黄牛匹配 + 非爱黄牛不匹 + Widget 正常）。
 
 ## 严禁操作
 

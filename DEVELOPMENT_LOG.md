@@ -427,3 +427,44 @@ Stage 7A-3C：基于已确认证据实现自动网页登录获取 Bearer Token�
 Stage 7A-3D（如有）：爱黄牛网页登录体验优化或已知问题修复；或进入 Stage 7B 其他平台扩展。
 
 ---
+
+---
+
+## 2026-07-12｜Stage 7A-3D WebAuthProfile 匹配规则修复
+
+**问题与背景**
+
+源码复核发现 `WebAuthProfileRegistry.findFor()` 先按 `instanceKey` 直接返回 Profile。由于爱黄牛 Profile 的 `instanceKey = OpenAI`，会导致任意 OpenAI 槽位都错误显示爱黄牛“连接账户”入口。
+
+**修复方案**
+
+- Profile 的 `instanceKey` 必须匹配。
+- 未配置 `apiBaseHostContains` 的 Profile：实例键匹配即可。
+- 配置了 `apiBaseHostContains` 的 Profile：实例键与 API Base 必须同时匹配。
+
+**明确未修改**
+
+- 不修改 MiMo Profile 内容。
+- 不修改爱黄牛 Profile 内容。
+- 不修改 `WebAuthActivity`。
+- 不修改 Adapter、AdapterRequest、AdapterFactory。
+- 不修改 Widget、缓存、布局、授权存储格式。
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 14s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 用户本人真机测试通过：`用户真机确认`
+  - MiMo 入口正常显示，不要求重新登录，原余额正常
+  - 爱黄牛地址仍显示"连接账户"
+  - 非爱黄牛 OpenAI 地址（api.openai.com）不再显示"连接账户"
+  - 恢复爱黄牛地址后入口重新出现
+  - Widget 回归正常（爱黄牛、MiMo、Kimi 数据正常，无空白/崩溃）
+
+**回滚位置**
+
+`eca4f97`
+
+**下一项唯一任务**
+
+待确定 Stage 7B 的具体平台扩展目标。

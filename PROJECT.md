@@ -1092,3 +1092,46 @@ BackgroundAuthRepository.save(instanceKey, config)
 - 已登录状态可以继续保存到原 `MiMo_auth` 并刷新 Widget。
 - MiMo 原余额、Kimi 原次数和 Widget 现有展示不回归。
 - 业务代码只编译一次、覆盖安装一次，随后必须由用户本人真机验收。
+
+---
+
+## Stage 7A-3D：WebAuthProfile 匹配规则修复
+
+### 问题
+
+Stage 7A-3C 后，爱黄牛 Profile 使用：
+
+- `instanceKey = OpenAI`
+- `apiBaseHostContains = aihuangniu.com`
+
+但当前 `WebAuthProfileRegistry.findFor(instanceKey, apiBase)` 先按 `instanceKey` 直接返回匹配项，因此所有 OpenAI 槽位都会命中爱黄牛 Profile，即使 API Base 不是爱黄牛。
+
+### 正确匹配规则
+
+`findFor(instanceKey, apiBase)` 必须同时尊重 Profile 自身的约束：
+
+- `instanceKey` 必须匹配。
+- Profile 未配置 `apiBaseHostContains` 时，只需实例键匹配。
+- Profile 配置了 `apiBaseHostContains` 时，还必须要求 `apiBase` 命中该域名片段。
+
+因此：
+
+- MiMo：`instanceKey == MiMo` 即可匹配。
+- OpenAI + `aihuangniu.com` API Base：匹配爱黄牛。
+- OpenAI + 官方 OpenAI API Base：不得匹配爱黄牛。
+- OpenAI + 其他兼容中转：不得匹配爱黄牛。
+
+### 本阶段只做
+
+- 修复 `WebAuthProfileRegistry.findFor()` 的匹配逻辑。
+- 保持现有 MiMo Profile 和爱黄牛 Profile 内容不变。
+- 保持 `WebAuthActivity`、Adapter、Widget、缓存、授权存储和 UI 布局不变。
+- 更新 `DEVELOPMENT_LOG.md` 和 `AI_HANDOFF.md` 的阶段状态。
+
+### 验收标准
+
+- MiMo 仍显示“连接账户”。
+- 当前爱黄牛 OpenAI 卡片仍显示“连接账户”。
+- 将 OpenAI 卡片 API Base 临时改成非爱黄牛地址后，“连接账户”不得继续显示。
+- 恢复爱黄牛 API Base 后，“连接账户”重新出现。
+- MiMo 余额、Kimi 次数、爱黄牛自动授权和 Widget 现有行为不回归。
