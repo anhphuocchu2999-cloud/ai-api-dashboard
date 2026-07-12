@@ -20,8 +20,9 @@
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
 - 当前业务基线分支：`fix/config-auth-repository`
 - 当前业务基线提交：`db34e3e36beb889f1c259b45b0dd4f0a5d3501ad`
-- 当前文档分支：`docs/development-handoff-baseline`
-- 文档阶段完成后，以该分支最终提交作为下一阶段起点；不得合并到 `main`，除非用户明确决定。
+- 当前文档基线分支：`docs/development-handoff-baseline`
+- 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
+- 下一业务阶段必须从该文档基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
 
 ## 应用信息
 
@@ -153,22 +154,24 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - API Key / Cookie / Bearer Token 分离传递。
 - 后台授权 JSON 统一读写仓库。
 
-## 正在进行的阶段
+## 最近完成的阶段
 
-`Documentation Baseline`：建立可回溯开发日志和 AI 交接机制。
+`Documentation Baseline` 已完成：四层文档、证据分级、历史回填和 AI 接手规则已落库。
 
-该阶段不改业务代码，不编译，不安装。
+- 完成提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
+- 未改业务代码，因此未执行编译和安装。
 
 ## 下一项唯一任务
 
-`Stage 7A-3：通用网页登录授权入口`
+`Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）`
 
 最小顺序：
 
-1. 先定义 `WebAuthProfile` 或等价的平台授权描述，不新建第二套后端。
-2. 第一小步只把现有 MiMo 登录流程迁入通用入口，保持 Cookie 提取和现有 `MiMo_auth` 完全兼容。
-3. MiMo 真机通过后，再单独研究爱黄牛 Bearer Token 的自动提取。
-4. Kimi、DeepSeek 等只需要 API Key 的平台不强行显示网页登录按钮。
+1. 定义最小 `WebAuthProfile` 或等价的平台授权描述，不新建第二套后端。
+2. 只把现有 MiMo 登录流程迁入通用入口，保持 Cookie 提取、`api_config / MiMo_auth` 和真机行为完全兼容。
+3. 配置页按是否存在 WebAuthProfile 决定是否显示“连接账户”，不得继续写死 `platform == "MiMo"`。
+4. 本阶段不实现爱黄牛 Bearer Token 自动提取；MiMo 真机通过后再单独立项。
+5. Kimi、DeepSeek 等只需要 API Key 的平台不强行显示网页登录按钮。
 
 不得在同一阶段同时实现 MiMo 与爱黄牛。
 

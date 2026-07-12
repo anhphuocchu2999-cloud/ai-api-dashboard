@@ -262,10 +262,14 @@
 - 不修改 Adapter、授权数据、Widget、布局、缓存或配置。
 - 因未改业务代码，不执行编译和安装。
 
-**提交 SHA**
+**提交与验证**
 
-待本阶段执行端提交后填写。
+- 最终提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
+- 提交信息：`Establish development handoff documentation`
+- 四层文档存在、规则与历史回填检查通过：`本地命令已核对（执行端报告）`
+- 提交和源码：`GitHub 已核对`
+- 本阶段未改业务代码，因此未执行编译和安装。
 
 **下一项唯一任务**
 
-Stage 7A-3：先设计并实现可配置的通用网页登录授权入口，第一步只迁移并保持 MiMo Cookie 路径不回归。
+Stage 7A-3A：定义通用 `WebAuthProfile`，并且只把现有 MiMo Cookie 登录迁入通用网页登录入口；不得同时实现爱黄牛 Bearer Token。
