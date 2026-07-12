@@ -21,6 +21,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.Random
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 class BalanceWidgetProvider : AppWidgetProvider() {
 
@@ -41,6 +43,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        saveCompactModeFromOptions(context, appWidgetId, newOptions)
         updateAppWidget(context, appWidgetManager, appWidgetId)
     }
 
@@ -59,14 +62,53 @@ class BalanceWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_REFRESH = "com.java.myapplication.ACTION_REFRESH"
         private const val COMPACT_HEIGHT_BREAKPOINT_DP = 160
+        private const val LAYOUT_PREFS_NAME = "widget_layout_state"
+        private val updateCounter = AtomicLong(0L)
+        private val latestUpdateByWidget = ConcurrentHashMap<Int, Long>()
 
-        private fun isCompactMode(
+        private fun layoutKey(appWidgetId: Int) = "compact_$appWidgetId"
+
+        private fun saveCompactModeFromOptions(
+            context: Context,
+            appWidgetId: Int,
+            options: Bundle
+        ): Boolean {
+            val prefs = context.getSharedPreferences(LAYOUT_PREFS_NAME, Context.MODE_PRIVATE)
+            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            if (minHeight <= 0) {
+                return prefs.getBoolean(layoutKey(appWidgetId), false)
+            }
+
+            val compactMode = minHeight < COMPACT_HEIGHT_BREAKPOINT_DP
+            prefs.edit().putBoolean(layoutKey(appWidgetId), compactMode).apply()
+            return compactMode
+        }
+
+        private fun currentCompactMode(
+            context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ): Boolean {
-            val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
-            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-            return minHeight in 1 until COMPACT_HEIGHT_BREAKPOINT_DP
+            val prefs = context.getSharedPreferences(LAYOUT_PREFS_NAME, Context.MODE_PRIVATE)
+            val key = layoutKey(appWidgetId)
+            if (prefs.contains(key)) {
+                return prefs.getBoolean(key, false)
+            }
+            return saveCompactModeFromOptions(
+                context,
+                appWidgetId,
+                appWidgetManager.getAppWidgetOptions(appWidgetId)
+            )
+        }
+
+        private fun beginUpdate(appWidgetId: Int): Long {
+            val generation = updateCounter.incrementAndGet()
+            latestUpdateByWidget[appWidgetId] = generation
+            return generation
+        }
+
+        private fun isLatestUpdate(appWidgetId: Int, generation: Long): Boolean {
+            return latestUpdateByWidget[appWidgetId] == generation
         }
 
         private fun applyResponsiveLayout(views: RemoteViews, compactMode: Boolean) {
@@ -111,7 +153,10 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 // 前7次显示俏皮文案，不请求服务器
                 val message = toastMessages[count - 1]
                 val views = RemoteViews(context.packageName, R.layout.widget_balance)
-                applyResponsiveLayout(views, isCompactMode(appWidgetManager, appWidgetId))
+                applyResponsiveLayout(
+                    views,
+                    currentCompactMode(context, appWidgetManager, appWidgetId)
+                )
                 views.setTextViewText(R.id.click_count, message)
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 return
@@ -127,8 +172,9 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ) {
+            val generation = beginUpdate(appWidgetId)
             val views = RemoteViews(context.packageName, R.layout.widget_balance)
-            val compactMode = isCompactMode(appWidgetManager, appWidgetId)
+            val compactMode = currentCompactMode(context, appWidgetManager, appWidgetId)
             applyResponsiveLayout(views, compactMode)
             val random = Random()
 
@@ -207,7 +253,16 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 }
 
                 Handler(Looper.getMainLooper()).post {
-                    // 渲染四个平台
+                    if (!isLatestUpdate(appWidgetId, generation)) {
+                        return@post
+                    }
+
+                    applyResponsiveLayout(
+                        views,
+                        currentCompactMode(context, appWidgetManager, appWidgetId)
+                    )
+
+                    // 渲染当前模式的平台
                     results.forEachIndexed { index, result ->
                         val prefix = when (platforms[index]) {
                             "Kimi" -> "kimi"
