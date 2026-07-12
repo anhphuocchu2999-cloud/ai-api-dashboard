@@ -23,6 +23,7 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.ui.theme.MyApplicationTheme
+import com.java.myapplication.webauth.WebAuthProfileRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -734,12 +735,17 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                     }
                                 }
 
-                                // MiMo 网页登录授权按钮
-                                if (platform == "MiMo") {
+                                // 网页登录入口由平台能力描述决定，不再写死 MiMo。
+                                val webAuthProfile = WebAuthProfileRegistry.findByInstanceKey(platform)
+                                if (webAuthProfile != null) {
                                     Button(
                                         onClick = {
-                                            val intent = Intent(context, MiMoWebLoginActivity::class.java)
-                                            context.startActivity(intent)
+                                            context.startActivity(
+                                                WebAuthActivity.createIntent(
+                                                    context = context,
+                                                    profileId = webAuthProfile.profileId
+                                                )
+                                            )
                                         },
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -748,7 +754,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                             containerColor = MaterialTheme.colorScheme.primary
                                         )
                                     ) {
-                                        Text("🌐 网页登录授权")
+                                        Text("🌐 连接账户")
                                     }
                                 }
                             }

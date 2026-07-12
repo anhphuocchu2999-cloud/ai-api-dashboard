@@ -161,19 +161,21 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - 完成提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 未改业务代码，因此未执行编译和安装。
 
-## 下一项唯一任务
+## 正在进行的阶段
 
 `Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）`
 
-最小顺序：
+- 开发分支：`feature/stage-7a-3a-web-auth-mimo`
+- 起始提交：`f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
+- 目标：用 `WebAuthProfile` + `WebAuthProfileRegistry` + `WebAuthActivity` 替代 MiMo 专用网页登录入口。
+- 第一版 Registry 只允许注册 MiMo。
+- 配置页必须按能力显示“连接账户”，不得继续写死 `platform == "MiMo"`。
+- `api_config / MiMo_auth` 必须保持兼容。
+- 本阶段不实现爱黄牛 Bearer Token 自动提取。
 
-1. 定义最小 `WebAuthProfile` 或等价的平台授权描述，不新建第二套后端。
-2. 只把现有 MiMo 登录流程迁入通用入口，保持 Cookie 提取、`api_config / MiMo_auth` 和真机行为完全兼容。
-3. 配置页按是否存在 WebAuthProfile 决定是否显示“连接账户”，不得继续写死 `platform == "MiMo"`。
-4. 本阶段不实现爱黄牛 Bearer Token 自动提取；MiMo 真机通过后再单独立项。
-5. Kimi、DeepSeek 等只需要 API Key 的平台不强行显示网页登录按钮。
+## 当前唯一动作
 
-不得在同一阶段同时实现 MiMo 与爱黄牛。
+完成 Stage 7A-3A 的一次编译、一次覆盖安装和用户本人真机验收。用户确认前不得提交“阶段完成”，不得进入下一平台。
 
 ## 严禁操作
 

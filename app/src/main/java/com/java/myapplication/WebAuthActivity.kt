@@ -1,8 +1,10 @@
 package com.java.myapplication
 
+import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.webkit.CookieManager
@@ -13,50 +15,65 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ProgressBar
 import android.widget.Toast
-import android.app.Activity
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.webauth.WebAuthProfile
+import com.java.myapplication.webauth.WebAuthProfileRegistry
 
 /**
- * MiMo 网页登录授权 Activity
+ * 通用网页登录授权 Activity。
  *
- * 流程：
- * 1. 打开 platform.xiaomimimo.com 登录页
- * 2. 用户完成登录
- * 3. 自动检测必要 Cookie（api-platform_serviceToken + userId）
- * 4. 保存 Cookie 到 SharedPreferences
- * 5. 触发 Widget 刷新
+ * Stage 7A-3A 只迁移已经验证过的 MiMo COOKIE 流程。
+ * 未经真实验证，不在这里猜测或实现 Bearer Token 自动提取。
  */
-class MiMoWebLoginActivity : Activity() {
+class WebAuthActivity : Activity() {
 
     companion object {
-        const val LOGIN_URL = "https://platform.xiaomimimo.com/#/console/balance"
-        const val COOKIE_DOMAIN = "platform.xiaomimimo.com"
-        const val PREFS_NAME = "api_config"
-        // 必要 Cookie
-        const val REQUIRED_COOKIE_SERVICE_TOKEN = "api-platform_serviceToken"
-        const val REQUIRED_COOKIE_USER_ID = "userId"
+        private const val EXTRA_PROFILE_ID = "web_auth_profile_id"
+        private const val PREFS_NAME = "api_config"
+
+        fun createIntent(context: Context, profileId: String): Intent {
+            return Intent(context, WebAuthActivity::class.java)
+                .putExtra(EXTRA_PROFILE_ID, profileId)
+        }
     }
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    private lateinit var profile: WebAuthProfile
     private var loginDetected = false
+    private var showCancelToast = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_mimo_web_login)
 
-        title = "MiMo 网页登录授权"
+        val profileId = intent.getStringExtra(EXTRA_PROFILE_ID).orEmpty()
+        val resolvedProfile = WebAuthProfileRegistry.findByProfileId(profileId)
+        if (resolvedProfile == null) {
+            Toast.makeText(this, "暂不支持这个网页登录入口", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
+        if (resolvedProfile.authType != BackgroundAuthType.COOKIE) {
+            Toast.makeText(this, "这个授权方式还没有完成验证", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
+        profile = resolvedProfile
+        showCancelToast = true
+
+        setContentView(R.layout.activity_web_auth)
+        title = "${profile.displayName} 网页登录授权"
 
         webView = findViewById(R.id.web_view)
         progressBar = findViewById(R.id.progress_bar)
 
-        // 启用 Cookie
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-        // WebView 设置
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -66,7 +83,6 @@ class MiMoWebLoginActivity : Activity() {
         }
 
         webView.webChromeClient = WebChromeClient()
-
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
@@ -75,7 +91,11 @@ class MiMoWebLoginActivity : Activity() {
                 return false
             }
 
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+            override fun onPageStarted(
+                view: WebView?,
+                url: String?,
+                favicon: android.graphics.Bitmap?
+            ) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
             }
@@ -83,19 +103,16 @@ class MiMoWebLoginActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-
-                // 页面加载完成后检查 Cookie
                 checkAndSaveCookies()
             }
         }
 
-        webView.loadUrl(LOGIN_URL)
+        webView.loadUrl(profile.loginUrl)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (!loginDetected) {
-            // 未获得必要 Cookie，不覆盖现有配置
+        if (showCancelToast && !loginDetected) {
             Toast.makeText(
                 this,
                 "未检测到登录状态，已取消授权",
@@ -104,46 +121,31 @@ class MiMoWebLoginActivity : Activity() {
         }
     }
 
-    /**
-     * 检查并保存 Cookie
-     */
     private fun checkAndSaveCookies() {
         if (loginDetected) return
 
-        val cookieManager = CookieManager.getInstance()
-        val cookieString = cookieManager.getCookie(COOKIE_DOMAIN) ?: ""
-
+        val cookieString = CookieManager.getInstance().getCookie(profile.cookieDomain) ?: ""
         if (cookieString.isBlank()) return
 
-        // 解析 Cookie
         val cookies = parseCookieString(cookieString)
+        val hasRequiredCookies = profile.requiredCookieNames.all(cookies::containsKey)
+        if (!hasRequiredCookies) return
 
-        // 检查必要 Cookie
-        val hasServiceToken = cookies.containsKey(REQUIRED_COOKIE_SERVICE_TOKEN)
-        val hasUserId = cookies.containsKey(REQUIRED_COOKIE_USER_ID)
-
-        if (hasServiceToken && hasUserId) {
-            loginDetected = true
-
-            // 构建完整 Cookie 字符串
-            val allCookies = buildString {
-                cookies.forEach { (name, value) ->
-                    if (isNotEmpty()) append("; ")
-                    append("$name=$value")
-                }
+        loginDetected = true
+        val allCookies = buildString {
+            cookies.forEach { (name, value) ->
+                if (isNotEmpty()) append("; ")
+                append("$name=$value")
             }
-
-            saveCookieAndRefresh(allCookies)
         }
+
+        saveCredentialAndRefresh(allCookies)
     }
 
-    /**
-     * 保存 Cookie 并触发 Widget 刷新
-     */
-    private fun saveCookieAndRefresh(cookieString: String) {
+    private fun saveCredentialAndRefresh(cookieString: String) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val authConfig = BackgroundAuthConfig(
-            authType = BackgroundAuthType.COOKIE,
+            authType = profile.authType,
             authValue = cookieString,
             enabled = true,
             updatedAt = System.currentTimeMillis()
@@ -151,46 +153,38 @@ class MiMoWebLoginActivity : Activity() {
 
         BackgroundAuthRepository.save(
             prefs = prefs,
-            instanceKey = "MiMo",
+            instanceKey = profile.instanceKey,
             config = authConfig
         )
 
         Toast.makeText(
             this,
-            "MiMo 网页授权成功",
+            "${profile.displayName} 网页授权成功",
             Toast.LENGTH_SHORT
         ).show()
 
-        // 触发 Widget 刷新
         refreshWidget(this)
-
         finish()
     }
 
-    /**
-     * 触发 Widget 刷新
-     */
     private fun refreshWidget(context: Context) {
         try {
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, BalanceWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
             if (appWidgetIds.isNotEmpty()) {
-                val intent = android.content.Intent(context, BalanceWidgetProvider::class.java)
+                val intent = Intent(context, BalanceWidgetProvider::class.java)
                 intent.action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
                 intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, appWidgetIds)
                 context.sendBroadcast(intent)
             }
-        } catch (_: Exception) { }
+        } catch (_: Exception) {
+        }
     }
 
-    /**
-     * 解析 Cookie 字符串为 Map
-     */
     private fun parseCookieString(cookieString: String): Map<String, String> {
         val result = mutableMapOf<String, String>()
-        val pairs = cookieString.split(";")
-        for (pair in pairs) {
+        cookieString.split(";").forEach { pair ->
             val trimmed = pair.trim()
             val eqIndex = trimmed.indexOf('=')
             if (eqIndex > 0) {

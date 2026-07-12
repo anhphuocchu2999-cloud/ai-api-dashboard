@@ -28,9 +28,9 @@
         </activity>
 
         <activity
-            android:name=".MiMoWebLoginActivity"
+            android:name=".WebAuthActivity"
             android:exported="false"
-            android:label="MiMo 网页登录授权"
+            android:label="网页登录授权"
             android:theme="@style/Theme.MyApplication" />
 
         <receiver

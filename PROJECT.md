@@ -1012,3 +1012,83 @@ BackgroundAuthRepository
 - 后续所有阶段必须同时维护开发日志和交接快照。
 - 另一个 AI 不阅读历史聊天，也能定位当前基线、核心架构、已完成能力、风险和下一项任务。
 - 本阶段未改业务代码，因此不要求编译或安装。
+
+---
+
+## Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）
+
+本阶段采用“完整功能块”节奏，一次完成通用网页登录入口的最小闭环，但只迁移已经有真实运行证据的 MiMo Cookie 路径。
+
+### 目标
+
+把当前配置页中的 `platform == "MiMo"` 特判和 `MiMoWebLoginActivity` 专用入口，迁移为由平台网页登录能力描述驱动的通用入口。
+
+### 新的最小能力模型
+
+```text
+WebAuthProfile
+├─ profileId
+├─ instanceKey
+├─ displayName
+├─ loginUrl
+├─ cookieDomain
+├─ authType
+└─ requiredCookieNames
+```
+
+`WebAuthProfileRegistry` 负责根据模型实例键或 profileId 查找网页登录能力。
+
+第一版注册表只注册 MiMo：
+
+- `profileId = mimo`
+- `instanceKey = MiMo`
+- `authType = COOKIE`
+- 登录页保持现有 MiMo 地址
+- 必要 Cookie 保持 `api-platform_serviceToken` 与 `userId`
+
+### 通用入口规则
+
+```text
+配置页模型实例
+        ↓
+WebAuthProfileRegistry.findByInstanceKey(instanceKey)
+        ↓
+存在 profile → 显示“连接账户”
+不存在 profile → 不显示网页登录按钮
+        ↓
+WebAuthActivity(profileId)
+        ↓
+按 WebAuthProfile 打开登录页并检测授权
+        ↓
+BackgroundAuthRepository.save(instanceKey, config)
+        ↓
+刷新 Widget
+```
+
+### 兼容要求
+
+- MiMo 继续保存到 `api_config / MiMo_auth`。
+- 不改变现有 Cookie JSON 格式。
+- 不删除或迁移现有 MiMo 授权数据。
+- 覆盖安装后不得要求 MiMo 重新登录。
+- MiMo Cookie 检测条件与原逻辑一致。
+- 未检测到必要 Cookie 时不得覆盖现有授权。
+- 配置页不再通过 `platform == "MiMo"` 决定是否显示网页登录按钮。
+
+### 本阶段明确不做
+
+- 不实现爱黄牛 Bearer Token 自动提取。
+- 不为 Kimi、DeepSeek 或其他只需要 API Key 的平台强行显示网页登录按钮。
+- 不修改 Adapter、AdapterRequest、AdapterFactory。
+- 不修改 Widget 数据接口、缓存、布局或响应式逻辑。
+- 不修改后台授权存储格式。
+
+### 验收标准
+
+- 只有存在 `WebAuthProfile` 的 MiMo 显示“连接账户”。
+- Kimi、DeepSeek、OpenAI 当前不错误显示自动网页登录入口。
+- MiMo 能打开原登录页面。
+- 不登录直接退出时不覆盖现有 `MiMo_auth`。
+- 已登录状态可以继续保存到原 `MiMo_auth` 并刷新 Widget。
+- MiMo 原余额、Kimi 原次数和 Widget 现有展示不回归。
+- 业务代码只编译一次、覆盖安装一次，随后必须由用户本人真机验收。

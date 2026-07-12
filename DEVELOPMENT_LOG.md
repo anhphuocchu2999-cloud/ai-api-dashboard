@@ -273,3 +273,55 @@
 **下一项唯一任务**
 
 Stage 7A-3A：定义通用 `WebAuthProfile`，并且只把现有 MiMo Cookie 登录迁入通用网页登录入口；不得同时实现爱黄牛 Bearer Token。
+
+---
+
+## 2026-07-12｜Stage 7A-3A 通用网页登录授权入口（MiMo 迁移）
+
+**目标与背景**
+
+配置页仍通过 `platform == "MiMo"` 显示专用网页登录按钮，网页登录 Activity 也直接写死 MiMo 参数。本阶段把已经验证过的 MiMo Cookie 登录迁移到通用能力描述和通用 Activity。
+
+**方案与取舍**
+
+- 新增 `WebAuthProfile` 与 `WebAuthProfileRegistry`。
+- 第一版 Registry 只注册 MiMo。
+- 新增通用 `WebAuthActivity`，只处理已经验证过的 `COOKIE` 路径。
+- 配置页根据是否存在 `WebAuthProfile` 显示“连接账户”。
+- 保持 `api_config / MiMo_auth`、必要 Cookie 名称和现有保存格式不变。
+- 不实现爱黄牛 Bearer Token 自动提取，不修改 Adapter、Widget、缓存或布局逻辑。
+
+**起始基线**
+
+- 分支：`feature/stage-7a-3a-web-auth-mimo`
+- 起始提交：`f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
+
+**计划修改文件**
+
+- `PROJECT.md`
+- `MainActivity.kt`
+- `AndroidManifest.xml`
+- `WebAuthActivity.kt`（新增）
+- `webauth/WebAuthProfile.kt`（新增）
+- `webauth/WebAuthProfileRegistry.kt`（新增）
+- `activity_web_auth.xml`（新增）
+- `MiMoWebLoginActivity.kt`（删除）
+- `activity_mimo_web_login.xml`（删除）
+- `DEVELOPMENT_LOG.md`
+- `AI_HANDOFF.md`
+
+**当前证据状态**
+
+- 源码实现：待执行脚本后检查。
+- 编译：待执行端只执行一次。
+- 覆盖安装：待编译成功后只执行一次。
+- 真机验收：必须由用户本人确认，未确认前不得宣称 Stage 7A-3A 完成。
+- 最终实现提交 SHA：待用户真机验收通过后提交并记录。
+
+**回滚位置**
+
+`f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
+
+**下一项唯一动作**
+
+完成 Stage 7A-3A 编译、覆盖安装和用户真机验收；验收通过前不得进入爱黄牛 Bearer Token 自动提取。
