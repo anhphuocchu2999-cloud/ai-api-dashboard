@@ -325,3 +325,40 @@ Stage 7A-3A：定义通用 `WebAuthProfile`，并且只把现有 MiMo Cookie 登
 **下一项唯一动作**
 
 完成 Stage 7A-3A 编译、覆盖安装和用户真机验收；验收通过前不得进入爱黄牛 Bearer Token 自动提取。
+---
+
+## 2026-07-12｜Stage 7A-3A 验收收口
+
+**完成状态**
+
+Stage 7A-3A 已在用户本人真机验收通过后提交并推送。
+
+**最终提交**
+
+- 分支：`feature/stage-7a-3a-web-auth-mimo`
+- 最终提交：`c128144d836d7ba2da36b9ba1ab4552e18d7f420`
+- 提交信息：`Stage 7A-3A: Migrate MiMo web auth to generic WebAuthActivity with WebAuthProfile registry`
+
+**实际实现结果**
+
+- `WebAuthProfile` 与 `WebAuthProfileRegistry` 已建立。
+- 第一版 Registry 只注册 MiMo。
+- MiMo 专用 `MiMoWebLoginActivity` 已迁移为通用 `WebAuthActivity`。
+- 配置页按 WebAuthProfile 能力显示“连接账户”，不再写死 `platform == "MiMo"`。
+- `api_config / MiMo_auth` 和现有 Cookie 检测、保存路径保持兼容。
+- 未实现爱黄牛 Bearer Token 自动提取。
+- 未修改 Adapter、Widget、缓存或响应式布局逻辑。
+
+**验证证据**
+
+- 最终提交与源码：`GitHub 已核对`。
+- 用户本人明确确认真机测试通过：`用户真机确认`。
+- 最终汇报未单独复述编译和覆盖安装命令输出，因此不补写不存在的具体构建时长或终端输出。
+
+**回滚位置**
+
+`f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
+
+**下一项唯一任务**
+
+Stage 7A-3B：只摸排爱黄牛 Bearer Token 的真实来源与稳定提取条件；未取得证据前不实现自动提取。

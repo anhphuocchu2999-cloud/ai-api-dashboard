@@ -18,11 +18,11 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`fix/config-auth-repository`
-- 当前业务基线提交：`db34e3e36beb889f1c259b45b0dd4f0a5d3501ad`
+- 当前业务基线分支：`feature/stage-7a-3a-web-auth-mimo`
+- 当前业务基线提交：`c128144d836d7ba2da36b9ba1ab4552e18d7f420`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
-- 下一业务阶段必须从该文档基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
+- 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
 
 ## 应用信息
 
@@ -161,21 +161,31 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - 完成提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 未改业务代码，因此未执行编译和安装。
 
-## 正在进行的阶段
+## 最近完成的阶段
 
-`Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）`
+`Stage 7A-3A：通用网页登录授权入口（仅迁移 MiMo Cookie 路径）` 已完成。
 
 - 开发分支：`feature/stage-7a-3a-web-auth-mimo`
-- 起始提交：`f1cccbbbb91324cbc7a9fefb803ed4f7f514bc61`
-- 目标：用 `WebAuthProfile` + `WebAuthProfileRegistry` + `WebAuthActivity` 替代 MiMo 专用网页登录入口。
-- 第一版 Registry 只允许注册 MiMo。
-- 配置页必须按能力显示“连接账户”，不得继续写死 `platform == "MiMo"`。
-- `api_config / MiMo_auth` 必须保持兼容。
-- 本阶段不实现爱黄牛 Bearer Token 自动提取。
+- 最终提交：`c128144d836d7ba2da36b9ba1ab4552e18d7f420`
+- 提交信息：`Stage 7A-3A: Migrate MiMo web auth to generic WebAuthActivity with WebAuthProfile registry`
+- `WebAuthProfile`、`WebAuthProfileRegistry`、`WebAuthActivity` 已落地。
+- 第一版 Registry 只注册 MiMo。
+- 配置页已取消 `platform == "MiMo"` 写死判断，改为按 WebAuthProfile 能力显示“连接账户”。
+- `api_config / MiMo_auth` 保持兼容。
+- 用户本人已明确确认真机测试通过。
+- 最终汇报未单独复述编译和覆盖安装命令输出，因此不补写不存在的具体构建时长或终端输出。
 
-## 当前唯一动作
+## 下一项唯一任务
 
-完成 Stage 7A-3A 的一次编译、一次覆盖安装和用户本人真机验收。用户确认前不得提交“阶段完成”，不得进入下一平台。
+`Stage 7A-3B：爱黄牛 Bearer Token 真实来源摸排`
+
+本阶段只做证据采集与来源确认，不直接猜测实现：
+
+1. 确认登录入口与实际后台域名。
+2. 确认 Bearer Token 实际来自响应头、localStorage、sessionStorage、Cookie 或接口响应中的哪一种。
+3. 记录可稳定复现的提取位置与成功判定条件。
+4. 未取得真实证据前，不修改 `WebAuthActivity` 去自动提取 Bearer Token。
+5. 不修改 Adapter、Widget、缓存和布局。
 
 ## 严禁操作
 
