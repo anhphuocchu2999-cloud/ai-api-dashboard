@@ -87,9 +87,10 @@
 
             <TextView
                 android:id="@+id/kimi_auxiliary"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:gravity="end"
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
@@ -168,9 +169,10 @@
 
             <TextView
                 android:id="@+id/mimo_auxiliary"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:gravity="end"
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
@@ -258,9 +260,10 @@
 
             <TextView
                 android:id="@+id/ds_auxiliary"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:gravity="end"
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
@@ -339,9 +342,10 @@
 
             <TextView
                 android:id="@+id/oai_auxiliary"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:gravity="end"
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
