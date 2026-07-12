@@ -942,3 +942,39 @@ AdapterRequest
 - 不改变现有余额、用量、缓存和 Widget 展示结果。
 - 不新增平台，不修改 UI，不修改 Widget 布局。
 - Adapter 仍统一通过 AdapterFactory 路由。
+
+---
+
+## Stage 7A-2：后台授权凭据仓库统一
+
+本阶段继续沿用现有 Adapter、AdapterRequest 和 BackgroundAuthConfig，不新建第二套后端。
+
+本阶段只解决一个问题：
+
+后台 Cookie / Bearer Token 的 JSON 保存和读取不再分散在 Widget Provider 与各网页登录 Activity 中，统一通过 BackgroundAuthRepository 处理。
+
+统一入口：
+
+```text
+BackgroundAuthRepository
+├─ load(prefs, instanceKey)
+├─ save(prefs, instanceKey, config)
+└─ clear(prefs, instanceKey)
+```
+
+存储兼容规则：
+
+- SharedPreferences 名称继续由调用方决定。
+- 授权键名继续使用 `${instanceKey}_auth`。
+- MiMo 继续使用现有 `api_config / MiMo_auth`。
+- JSON 字段继续使用 `authType`、`authValue`、`enabled`、`updatedAt`。
+- 覆盖安装后不得要求 MiMo 重新登录。
+
+本阶段不做：
+
+- 不新增平台。
+- 不修改 AdapterRequest。
+- 不修改任何 Adapter 的数据接口。
+- 不修改配置页面。
+- 不修改 Widget 布局、缓存和响应式逻辑。
+- 不改变 Cookie / Bearer Token 的获取方式。

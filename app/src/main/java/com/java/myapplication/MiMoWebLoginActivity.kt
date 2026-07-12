@@ -15,6 +15,7 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import android.app.Activity
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
+import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
 
 /**
@@ -33,8 +34,6 @@ class MiMoWebLoginActivity : Activity() {
         const val LOGIN_URL = "https://platform.xiaomimimo.com/#/console/balance"
         const val COOKIE_DOMAIN = "platform.xiaomimimo.com"
         const val PREFS_NAME = "api_config"
-        const val AUTH_KEY = "MiMo_auth"
-
         // 必要 Cookie
         const val REQUIRED_COOKIE_SERVICE_TOKEN = "api-platform_serviceToken"
         const val REQUIRED_COOKIE_USER_ID = "userId"
@@ -150,14 +149,11 @@ class MiMoWebLoginActivity : Activity() {
             updatedAt = System.currentTimeMillis()
         )
 
-        val json = org.json.JSONObject()
-            .put("authType", authConfig.authType.name)
-            .put("authValue", authConfig.authValue)
-            .put("enabled", authConfig.enabled)
-            .put("updatedAt", authConfig.updatedAt)
-            .toString()
-
-        prefs.edit().putString(AUTH_KEY, json).apply()
+        BackgroundAuthRepository.save(
+            prefs = prefs,
+            instanceKey = "MiMo",
+            config = authConfig
+        )
 
         Toast.makeText(
             this,

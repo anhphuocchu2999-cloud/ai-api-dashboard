@@ -12,8 +12,7 @@ import android.widget.RemoteViews
 import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.AdapterRequest
 import com.java.myapplication.adapter.WidgetData
-import com.java.myapplication.adapter.auth.BackgroundAuthConfig
-import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import java.net.HttpURLConnection
@@ -500,42 +499,6 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         private val lastSuccessTime = mutableMapOf<String, Long>()
         private const val CACHE_VALID_MS = 60000L // 缓存有效期 60 秒
 
-        private fun loadBackgroundAuth(
-            prefs: android.content.SharedPreferences,
-            platformName: String
-        ): BackgroundAuthConfig {
-            val authJson = prefs.getString("${platformName}_auth", null)
-            if (authJson.isNullOrBlank()) {
-                return BackgroundAuthConfig()
-            }
-
-            return try {
-                val obj = org.json.JSONObject(authJson)
-                val enabled = obj.optBoolean("enabled", false)
-                if (!enabled) {
-                    BackgroundAuthConfig()
-                } else {
-                    val authType = try {
-                        BackgroundAuthType.valueOf(
-                            obj.optString("authType", BackgroundAuthType.NONE.name)
-                                .uppercase(Locale.ROOT)
-                        )
-                    } catch (_: Exception) {
-                        BackgroundAuthType.NONE
-                    }
-
-                    BackgroundAuthConfig(
-                        authType = authType,
-                        authValue = obj.optString("authValue", ""),
-                        enabled = authType != BackgroundAuthType.NONE,
-                        updatedAt = obj.optLong("updatedAt", 0L)
-                    )
-                }
-            } catch (_: Exception) {
-                BackgroundAuthConfig()
-            }
-        }
-
         private fun fetchWidgetDataForPlatform(
             platformName: String,
             config: ApiAccountConfig,
@@ -568,7 +531,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 )
             }
 
-            val backgroundAuth = loadBackgroundAuth(prefs, platformName)
+            val backgroundAuth = BackgroundAuthRepository.load(prefs, platformName)
             val request = AdapterRequest(
                 apiBase = config.apiBase,
                 modelApiKey = config.apiKey,
