@@ -6,3 +6,4 @@ Baseline validation target:
 
 - `./gradlew assembleDebug`
 - No business logic changes are included in the baseline validation itself.
+- Validation is performed on Draft PR #1 before any business development continues.
