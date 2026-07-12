@@ -978,3 +978,16 @@ BackgroundAuthRepository
 - 不修改配置页面。
 - 不修改 Widget 布局、缓存和响应式逻辑。
 - 不改变 Cookie / Bearer Token 的获取方式。
+
+### Stage 7A-2 补充修复：配置页统一使用授权仓库
+
+源码复核发现配置页仍保留独立的后台授权 JSON 读写函数，未完全经过 `BackgroundAuthRepository`。
+
+本补充修复只完成：
+
+- 配置页读取后台授权时调用 `BackgroundAuthRepository.load()`。
+- 配置页保存后台授权时调用 `BackgroundAuthRepository.save()`。
+- 配置页清除后台授权时调用 `BackgroundAuthRepository.clear()`。
+- 删除配置页内部重复的 JSON 序列化和反序列化函数。
+
+不改变现有授权键名、JSON 格式、登录方式、Adapter、数据接口、Widget 布局和缓存逻辑。

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
+import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
@@ -317,7 +318,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
     // 后台授权配置（每个平台独立）
     var backgroundAuths by remember {
         mutableStateOf(platforms.map { platform ->
-            loadBackgroundAuthConfig(prefs, platform)
+            BackgroundAuthRepository.load(prefs, platform)
         })
     }
 
@@ -671,7 +672,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                             backgroundAuths = backgroundAuths.toMutableList().apply {
                                                 this[index] = newAuth
                                             }
-                                            saveBackgroundAuthConfig(prefs, platform, newAuth)
+                                            BackgroundAuthRepository.save(prefs, platform, newAuth)
                                         },
                                         label = { Text(when (selectedAuthType) {
                                             BackgroundAuthType.BEARER_TOKEN -> "请输入 auth_token"
@@ -706,7 +707,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                              backgroundAuths = backgroundAuths.toMutableList().apply {
                                                  this[index] = newAuth
                                              }
-                                             saveBackgroundAuthConfig(prefs, platform, newAuth)
+                                             BackgroundAuthRepository.save(prefs, platform, newAuth)
                                              android.widget.Toast.makeText(
                                                  context,
                                                  "$platform 授权已保存",
@@ -724,7 +725,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                                             backgroundAuths = backgroundAuths.toMutableList().apply {
                                                 this[index] = emptyAuth
                                             }
-                                            saveBackgroundAuthConfig(prefs, platform, emptyAuth)
+                                            BackgroundAuthRepository.clear(prefs, platform)
                                         },
                                         modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.outlinedButtonColors()
@@ -1009,40 +1010,6 @@ fun savePlatformConfig(prefs: android.content.SharedPreferences, platform: Strin
     editor.apply()
 }
 
-/**
- * 加载后台授权配置
- */
-fun loadBackgroundAuthConfig(prefs: android.content.SharedPreferences, platform: String): BackgroundAuthConfig {
-    val jsonStr = prefs.getString("${platform}_auth", null) ?: return BackgroundAuthConfig()
-    return try {
-        val obj = org.json.JSONObject(jsonStr)
-        BackgroundAuthConfig(
-            authType = try {
-                BackgroundAuthType.valueOf(obj.optString("authType", "NONE"))
-            } catch (_: Exception) { BackgroundAuthType.NONE },
-            authValue = obj.optString("authValue", ""),
-            enabled = obj.optBoolean("enabled", false),
-            updatedAt = obj.optLong("updatedAt", 0L)
-        )
-    } catch (_: Exception) {
-        BackgroundAuthConfig()
-    }
-}
-
-/**
- * 保存后台授权配置
- */
-fun saveBackgroundAuthConfig(prefs: android.content.SharedPreferences, platform: String, config: BackgroundAuthConfig) {
-    val editor = prefs.edit()
-    val json = org.json.JSONObject()
-        .put("authType", config.authType.name)
-        .put("authValue", config.authValue)
-        .put("enabled", config.enabled)
-        .put("updatedAt", config.updatedAt)
-        .toString()
-    editor.putString("${platform}_auth", json)
-    editor.apply()
-}
 /**
  * 刷新 Widget（触发 onUpdate）
  */
