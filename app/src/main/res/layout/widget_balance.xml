@@ -9,6 +9,7 @@
 
     <!-- Row 1: Kimi + MiMo -->
     <LinearLayout
+        android:id="@+id/row_primary"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -181,6 +182,7 @@
 
     <!-- Row 2: DeepSeek + OpenAI -->
     <LinearLayout
+        android:id="@+id/row_secondary"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"

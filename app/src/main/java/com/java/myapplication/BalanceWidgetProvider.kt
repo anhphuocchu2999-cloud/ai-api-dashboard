@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.RemoteViews
@@ -33,6 +34,16 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        updateAppWidget(context, appWidgetManager, appWidgetId)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
@@ -47,6 +58,23 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "com.java.myapplication.ACTION_REFRESH"
+        private const val COMPACT_HEIGHT_BREAKPOINT_DP = 160
+
+        private fun isCompactMode(
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int
+        ): Boolean {
+            val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
+            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            return minHeight in 1 until COMPACT_HEIGHT_BREAKPOINT_DP
+        }
+
+        private fun applyResponsiveLayout(views: RemoteViews, compactMode: Boolean) {
+            views.setViewVisibility(
+                R.id.row_secondary,
+                if (compactMode) android.view.View.GONE else android.view.View.VISIBLE
+            )
+        }
 
         // 连续点击计数（全局）
         private var clickCount = 0
@@ -83,6 +111,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 // 前7次显示俏皮文案，不请求服务器
                 val message = toastMessages[count - 1]
                 val views = RemoteViews(context.packageName, R.layout.widget_balance)
+                applyResponsiveLayout(views, isCompactMode(appWidgetManager, appWidgetId))
                 views.setTextViewText(R.id.click_count, message)
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 return
@@ -99,6 +128,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             appWidgetId: Int
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_balance)
+            val compactMode = isCompactMode(appWidgetManager, appWidgetId)
+            applyResponsiveLayout(views, compactMode)
             val random = Random()
 
             val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -113,11 +144,12 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
             // 固定四个槽位，按顺序对应 Kimi/MiMo/DeepSeek/OpenAI
             val slotIds = listOf("Kimi", "MiMo", "DeepSeek", "OpenAI")
-            val configs = slotIds.map { slotId ->
+            val allConfigs = slotIds.map { slotId ->
                 apiConfigs.find { it.id == slotId }
                     ?: ApiAccountConfig(id = slotId, name = "", apiBase = "", apiKey = "", model = "", enabled = true)
             }
-            val platforms = slotIds
+            val platforms = if (compactMode) slotIds.take(2) else slotIds
+            val configs = if (compactMode) allConfigs.take(2) else allConfigs
 
             // 显示加载中状态
             views.setTextViewText(R.id.kimi_tokens, "加载中...")

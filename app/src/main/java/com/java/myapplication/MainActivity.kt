@@ -333,7 +333,7 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
             modifier = Modifier.padding(bottom = 4.dp)
         )
         Text(
-            text = "Build: 2026-07-12-001 | Stage: 6-2",
+            text = "Build: 2026-07-12-002 | Stage: 6-3A",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 4.dp)
