@@ -37,7 +37,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             if (responseCode == 200) {
                 val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                parseBalanceResponse(responseBody)
+                parseBalanceResponse(responseBody, modelName)
             } else {
                 conn.disconnect()
                 val errorMessage = when (responseCode) {
@@ -81,10 +81,11 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
      *   }
      * }
      */
-    private fun parseBalanceResponse(response: String): WidgetData {
+    private fun parseBalanceResponse(response: String, configuredModelName: String?): WidgetData {
         return try {
             val root = org.json.JSONObject(response)
             val isAvailable = root.optBoolean("is_available", false)
+            val effectiveModelName = configuredModelName?.trim()?.takeIf { it.isNotEmpty() }
             val balanceInfos = root.optJSONArray("balance_infos")
 
             if (balanceInfos != null && balanceInfos.length() > 0) {
@@ -114,7 +115,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
                     WidgetData(
                         platformName = platformName,
-                        modelName = displayLabel,
+                        modelName = effectiveModelName,
                         // 第2层：Core 1 固定核心指标
                         primaryMetric = WidgetData.DisplayMetric("余额", "${WidgetData.formatNumber(totalBalance)} ${currencySymbol}"),
                         // 第3层：Core 2 动态轮播位①（当前无时间窗口数据，保持空）
@@ -142,7 +143,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 // balance_infos 不存在或为空
                 WidgetData(
                     platformName = platformName,
-                    modelName = "余额为空",
+                    modelName = effectiveModelName,
                     displayLabel = null,
                     total = null,
                     used = null,

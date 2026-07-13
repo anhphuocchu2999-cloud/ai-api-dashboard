@@ -495,3 +495,38 @@ Stage 7A-3D（如有）：爱黄牛网页登录体验优化或已知问题修复
 **下一项唯一任务**
 
 待确定 Stage 7B 的具体平台扩展目标。
+
+---
+
+## 2026-07-13｜Stage 7B DeepSeek 官方能力闭环
+
+**目标与背景**
+
+DeepSeek 官方 Adapter 已存在，并通过 `AdapterFactory` 路由到 `/user/balance`，但当前交接文档明确记录“全部真实运行场景尚未在本轮逐项重新验证”。本阶段完成配置、模型获取、余额展示和真机回归的完整闭环。
+
+**本阶段调整**
+
+- `MainActivity.fetchModels()`：兼容 API Base 已经以 `/v1` 结尾的情况，避免重复拼接 `/v1/v1/models`。
+- `DeepSeekOfficialAdapter`：余额解析后保留配置中选中的真实模型名，不用状态词替代模型名。
+- 继续展示接口真实返回的总余额，以及可选的赠送余额、充值余额。
+- 不新增 DeepSeek 网页登录，不修改 AdapterFactory、Provider、Widget 布局、缓存和其他平台协议。
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 1m 16s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 用户本人真机测试通过：`用户真机确认`
+  - DeepSeek 测试连接（API Base `https://api.deepseek.com`）：成功获取模型列表，选择 `deepseek-v4-pro`
+  - DeepSeek Widget 余额：真实显示 `余额 3.54 ¥`，辅助指标显示 `充值 3.54 ¥`
+  - Kimi 原次数正常：`剩余 2,025 次`
+  - MiMo 不要求重新登录，原余额正常：`余额 ¥59.96`
+  - 爱黄牛原数据正常：`余额 3.55 ¥`
+  - Widget 无空白、崩溃或异常退出
+
+**回滚位置**
+
+`8598099`
+
+**下一项唯一任务**
+
+待确定 Stage 7C 的具体平台扩展目标。

@@ -18,8 +18,8 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`fix/stage-7a-3d-web-auth-profile-match`
-- 当前业务基线提交：`5d707575a1c9f98ca603d645a1794ab74a2c950b`
+- 当前业务基线分支：`feature/stage-7b-deepseek-official-closure`
+- 当前业务基线提交：待用户真机验收通过后记录
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -181,6 +181,17 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
   - Profile 有 `apiBaseHostContains`（如爱黄牛）：`instanceKey` + `apiBase` 同时匹配
 - 非爱黄牛 OpenAI 地址不再误显示"连接账户"
 - 用户本人已明确确认真机测试通过（MiMo 回归 + 爱黄牛匹配 + 非爱黄牛不匹 + Widget 正常）。
+
+## 最近完成的阶段
+
+`Stage 7B：DeepSeek 官方能力闭环` 已完成。
+
+- 开发分支：`feature/stage-7b-deepseek-official-closure`
+- 最终提交：待用户真机验收通过后记录
+- `MainActivity.fetchModels()` 已兼容 API Base 带或不带 `/v1`
+- `DeepSeekOfficialAdapter` 保留配置中选中的真实模型名
+- Widget 展示真实余额及接口真实返回的赠送/充值余额
+- 用户本人已明确确认真机测试通过（DeepSeek 模型获取 + 余额展示 + 全平台回归）
 
 ## 严禁操作
 

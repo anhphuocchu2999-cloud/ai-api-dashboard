@@ -94,7 +94,11 @@ suspend fun fetchModels(apiBase: String, apiKey: String): TestResult {
     return withContext(Dispatchers.IO) {
         try {
             val normalizedBase = apiBase.trim().trimEnd('/')
-            val requestUrl = "$normalizedBase/v1/models"
+            val requestUrl = if (normalizedBase.endsWith("/v1", ignoreCase = true)) {
+                "$normalizedBase/models"
+            } else {
+                "$normalizedBase/v1/models"
+            }
 
             val url = URL(requestUrl)
             val conn = url.openConnection() as HttpURLConnection

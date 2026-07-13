@@ -1135,3 +1135,48 @@ Stage 7A-3C 后，爱黄牛 Profile 使用：
 - 将 OpenAI 卡片 API Base 临时改成非爱黄牛地址后，“连接账户”不得继续显示。
 - 恢复爱黄牛 API Base 后，“连接账户”重新出现。
 - MiMo 余额、Kimi 次数、爱黄牛自动授权和 Widget 现有行为不回归。
+
+---
+
+## Stage 7B：DeepSeek 官方能力闭环
+
+### 目标
+
+把现有 DeepSeek 官方路径从“已有 Adapter、但本轮未完整重新验证”推进到可独立验收的完整闭环：
+
+```text
+DeepSeek 配置
+→ 测试连接 / 获取模型
+→ 保存真实模型名
+→ DeepSeekOfficialAdapter 查询官方余额接口
+→ Widget 展示真实余额与可用辅助余额字段
+→ 复用现有缓存与临时网络故障兜底
+→ 真机验收
+```
+
+### 本阶段代码调整
+
+1. 测试连接的 `/v1/models` 地址兼容 API Base 末尾已经带 `/v1` 的情况，避免拼成 `/v1/v1/models`。
+2. `DeepSeekOfficialAdapter` 继续只使用模型 API Key，不引入网页登录或后台授权。
+3. DeepSeek 余额成功返回时，`WidgetData.modelName` 保留配置中选中的真实模型名，不再用“可用/余额不足”之类状态词代替模型名。
+4. 余额、赠送余额、充值余额只展示接口真实返回字段；不伪造调用次数、Token 或百分比。
+5. 继续复用现有 AdapterFactory、AdapterRequest、WidgetData 缓存与失败兜底，不建立第二套链路。
+
+### 明确不做
+
+- 不新增 DeepSeek 网页登录。
+- 不修改 MiMo、Kimi、爱黄牛协议。
+- 不修改 Widget 布局和响应式逻辑。
+- 不新增数据库、WorkManager 或新的后台架构。
+- 不伪造 DeepSeek 官方接口没有提供的数据。
+
+### 验收标准
+
+- DeepSeek 配置页可使用官方 API Base + API Key 完成“测试连接”。
+- `/v1/models` 在 API Base 带或不带 `/v1` 时均不会重复拼接版本路径。
+- 单模型自动保存；多模型继续使用现有选择弹窗。
+- Widget DeepSeek 卡片标题继续显示用户选择的真实模型名。
+- Widget 展示真实余额；接口存在赠送/充值余额时作为辅助指标展示。
+- 无可靠使用率或近期用量数据时继续保持空，不伪造。
+- 临时网络错误继续使用现有最近成功数据兜底。
+- MiMo、Kimi、爱黄牛现有真机能力不回归。
