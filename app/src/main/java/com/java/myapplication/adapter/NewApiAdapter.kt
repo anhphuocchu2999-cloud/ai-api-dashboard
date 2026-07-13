@@ -4,7 +4,9 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
-
+import org.json.JSONObject
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -19,7 +21,7 @@ class NewApiAdapter : PlatformAdapter {
     override val capabilityProfile = ProviderCapabilityProfile(
         modelApiKeyRequired = true,
         backgroundAuthType = BackgroundAuthType.NONE,
-        sources = setOf(DataSourceType.API),
+        sources = setOf(DataSourceType.API, DataSourceType.BILLING),
         capabilities = setOf(
             DataCapability.MODELS,
             DataCapability.QUOTA,
@@ -46,39 +48,53 @@ class NewApiAdapter : PlatformAdapter {
     }
 
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
-        val normalizedBase = apiBase.trim().trimEnd('/')
-        
-        // 检查 API Key 是否为空
+        val serviceRoot = normalizeServiceRoot(apiBase)
+
         if (apiKey.isBlank()) {
             return WidgetData.error(platformName, "Key未配置")
         }
-        
-        val url = "$normalizedBase/api/usage/token"
+
+        // API 次数卡与 Billing 是两条独立数据来源；任一成功都应尽量返回真实数据。
+        val tokenData = fetchTokenData(serviceRoot, apiKey)
+        waitForSameHostInterval()
+        val billingSnapshot = fetchBillingSnapshot(serviceRoot, apiKey)
+
+        return mergeTokenAndBilling(
+            tokenData = tokenData,
+            billingSnapshot = billingSnapshot,
+            configuredModelName = modelName
+        )
+    }
+
+    private fun fetchTokenData(serviceRoot: String, apiKey: String): WidgetData {
+        val url = "$serviceRoot/api/usage/token"
 
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            try {
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
 
-            val responseCode = conn.responseCode
-            if (responseCode == 200) {
-                val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
-                parseTokenResponse(responseBody)
-            } else {
-                conn.disconnect()
-                val errorMessage = when (responseCode) {
-                    401 -> "Key无效"
-                    403 -> "访问被拒绝"
-                    404 -> "接口不存在"
-                    429 -> "请求过于频繁"
-                    in 500..599 -> "服务器错误"
-                    else -> "请求失败 ($responseCode)"
+                val responseCode = conn.responseCode
+                if (responseCode == 200) {
+                    val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
+                    parseTokenResponse(responseBody)
+                } else {
+                    val errorMessage = when (responseCode) {
+                        401 -> "Key无效"
+                        403 -> "访问被拒绝"
+                        404 -> "接口不存在"
+                        429 -> "请求过于频繁"
+                        in 500..599 -> "服务器错误"
+                        else -> "请求失败 ($responseCode)"
+                    }
+                    WidgetData.error(platformName, errorMessage)
                 }
-                WidgetData.error(platformName, errorMessage)
+            } finally {
+                conn.disconnect()
             }
         } catch (e: java.net.SocketTimeoutException) {
             WidgetData.error(platformName, "连接超时")
@@ -88,10 +104,164 @@ class NewApiAdapter : PlatformAdapter {
             WidgetData.error(platformName, "域名解析失败")
         } catch (e: java.io.IOException) {
             WidgetData.error(platformName, "网络错误")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             WidgetData.error(platformName, "未知错误")
         }
     }
+
+    private fun fetchBillingSnapshot(serviceRoot: String, apiKey: String): BillingSnapshot? {
+        val subscription = fetchJsonObject(
+            "$serviceRoot/v1/dashboard/billing/subscription",
+            apiKey
+        )
+
+        waitForSameHostInterval()
+
+        val usage = fetchJsonObject(
+            "$serviceRoot/v1/dashboard/billing/usage",
+            apiKey
+        )
+
+        val softLimitUsd = readDecimal(subscription, "soft_limit_usd", "soft_limit")
+        val totalUsageRaw = readDecimal(usage, "total_usage")
+        val totalUsageUsd = totalUsageRaw?.divide(
+            BigDecimal("100"),
+            6,
+            RoundingMode.HALF_UP
+        )
+
+        return if (softLimitUsd == null && totalUsageUsd == null) {
+            null
+        } else {
+            BillingSnapshot(
+                softLimitUsd = softLimitUsd,
+                totalUsageUsd = totalUsageUsd
+            )
+        }
+    }
+
+    private fun fetchJsonObject(url: String, apiKey: String): JSONObject? {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+
+                if (conn.responseCode != 200) {
+                    null
+                } else {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    JSONObject(body)
+                }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun mergeTokenAndBilling(
+        tokenData: WidgetData,
+        billingSnapshot: BillingSnapshot?,
+        configuredModelName: String?
+    ): WidgetData {
+        if (billingSnapshot == null) {
+            return tokenData
+        }
+
+        val billingParts = mutableListOf<String>()
+        billingSnapshot.softLimitUsd?.let {
+            billingParts.add("额度 \$${formatUsd(it)}")
+        }
+        billingSnapshot.totalUsageUsd?.let {
+            billingParts.add("已用 \$${formatUsd(it)}")
+        }
+
+        val billingMetric = WidgetData.DisplayMetric(
+            "Billing",
+            billingParts.joinToString(" · ")
+        )
+
+        if (tokenData.isSuccess && tokenData.isAvailable) {
+            return tokenData.copy(
+                modelName = tokenData.modelName ?: configuredModelName,
+                auxiliaryMetrics = listOf(billingMetric) + tokenData.auxiliaryMetrics
+            )
+        }
+
+        val primaryMetric = billingSnapshot.softLimitUsd?.let {
+            WidgetData.DisplayMetric("Billing额度", "\$${formatUsd(it)}")
+        } ?: billingSnapshot.totalUsageUsd?.let {
+            WidgetData.DisplayMetric("Billing已用", "\$${formatUsd(it)}")
+        }
+
+        val auxiliaryMetrics = if (
+            billingSnapshot.softLimitUsd != null && billingSnapshot.totalUsageUsd != null
+        ) {
+            listOf(
+                WidgetData.DisplayMetric(
+                    "Billing已用",
+                    "\$${formatUsd(billingSnapshot.totalUsageUsd)}"
+                )
+            )
+        } else {
+            emptyList()
+        }
+
+        return WidgetData(
+            platformName = platformName,
+            modelName = configuredModelName,
+            primaryMetric = primaryMetric,
+            auxiliaryMetrics = auxiliaryMetrics,
+            statusText = "Billing 已同步",
+            isSuccess = true,
+            isAvailable = true
+        )
+    }
+
+    private fun readDecimal(json: JSONObject?, vararg keys: String): BigDecimal? {
+        if (json == null) return null
+
+        for (key in keys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val value = json.opt(key)?.toString()?.trim()?.toBigDecimalOrNull()
+            if (value != null) return value
+        }
+        return null
+    }
+
+    private fun formatUsd(value: BigDecimal): String {
+        return value
+            .setScale(6, RoundingMode.HALF_UP)
+            .stripTrailingZeros()
+            .toPlainString()
+    }
+
+    private fun normalizeServiceRoot(apiBase: String): String {
+        val normalized = apiBase.trim().trimEnd('/')
+        return if (normalized.endsWith("/v1", ignoreCase = true)) {
+            normalized.dropLast(3).trimEnd('/')
+        } else {
+            normalized
+        }
+    }
+
+    private fun waitForSameHostInterval() {
+        try {
+            Thread.sleep(500L)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    private data class BillingSnapshot(
+        val softLimitUsd: BigDecimal?,
+        val totalUsageUsd: BigDecimal?
+    )
 
     /**
      * 解析次数卡接口返回的 JSON

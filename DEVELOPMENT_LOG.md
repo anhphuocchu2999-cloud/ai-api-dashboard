@@ -588,3 +588,50 @@ DeepSeek 官方 Adapter 已存在，并通过 `AdapterFactory` 路由到 `/user/
 **下一项唯一任务**
 
 Billing 数据源真实接入（待后续阶段实现）。
+
+---
+
+## 2026-07-13｜Stage 7D Kimi / NewAPI Billing 数据源真实接入
+
+**目标与背景**
+
+Stage 7C 已建立 API、网页授权、Billing 三类统一数据来源，但 Billing 仍只是能力类型，没有任何 Adapter 被标记为真实接入。本阶段只把已有接口证据的 Kimi / NewAPI Billing 路径接入 `NewApiAdapter`。
+
+**本阶段调整**
+
+- `NewApiAdapter.capabilityProfile.sources` 增加 `BILLING`。
+- 实际请求 `/v1/dashboard/billing/subscription`。
+- 实际请求 `/v1/dashboard/billing/usage`。
+- 解析 `soft_limit_usd`，兼容 `soft_limit`。
+- 解析 `total_usage`，沿用项目既有 Billing 语义按美分转换为美元。
+- Billing 与 `/api/usage/token` 独立获取；Billing 失败不覆盖原次数卡成功数据。
+- Billing 成功时通过现有 `WidgetData` 合并到辅助指标。
+- 同一 host 连续请求之间至少等待 500ms。
+
+**明确未修改**
+
+- 不修改 Provider、AdapterFactory、AdapterRequest。
+- 不修改 MiMo、DeepSeek、爱黄牛。
+- 不修改网页授权、配置存储、Widget 布局、响应式和缓存。
+- 不修改固定槽位 / 动态实例结构。
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 19s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 用户本人真机测试通过：`用户真机确认`
+  - Kimi 能力摘要：数据来源 API + Billing，Billing 已接入
+  - Kimi Widget 原核心指标正常：`剩余 1,960 次`
+  - Kimi Widget Billing 指标真实显示：`额度 $200163.059234 · 已用 $22153.145992`
+  - MiMo：Billing 仍显示"当前未接入"，不要求重新登录，原余额正常：`余额 ¥59.96`
+  - DeepSeek：Billing 仍显示"当前未接入"，原余额正常：`余额 3.52 ¥`
+  - 爱黄牛：Billing 仍显示"当前未接入"，原数据正常：`余额 3.55 ¥`
+  - Widget 无空白、崩溃或异常退出
+
+**回滚位置**
+
+`6ab17ba`
+
+**下一项唯一任务**
+
+让窗口 / 模型实例与固定平台槽位解耦，使任意窗口能够选择并使用已经实现的 API / 网页授权 / Billing 数据来源。

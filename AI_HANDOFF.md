@@ -18,8 +18,8 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`feature/stage-7c-capability-model`
-- 当前业务基线提交：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
+- 当前业务基线分支：`feature/stage-7d-newapi-billing`
+- 当前业务基线提交：待用户真机验收通过后记录
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -206,6 +206,18 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 - 四个 Adapter 已按真实实现声明能力，无 Billing 虚假接入
 - 配置页高级设置动态展示数据来源、账户授权、Billing 状态、可用数据
 - 用户本人已明确确认真机测试通过（四个平台能力摘要 + 全平台数据回归）
+
+## 最近完成的阶段
+
+`Stage 7D：Kimi / NewAPI Billing 数据源真实接入` 已完成。
+
+- 开发分支：`feature/stage-7d-newapi-billing`
+- 最终提交：待用户真机验收通过后记录
+- Kimi / NewAPI 已成为第一个真实接入 Billing 的 Adapter
+- 数据来源：`API + Billing`
+- 真实接口：`/v1/dashboard/billing/subscription`、`/v1/dashboard/billing/usage`
+- Billing 与原次数卡相互独立，失败不覆盖原数据
+- 用户本人已明确确认真机测试通过（Billing 数据真实显示 + 全平台回归）
 
 ## 严禁操作
 
