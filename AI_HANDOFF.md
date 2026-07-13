@@ -19,7 +19,7 @@
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
 - 当前业务基线分支：`feature/stage-7b-deepseek-official-closure`
-- 当前业务基线提交：待用户真机验收通过后记录
+- 当前业务基线提交：`b7933edb48a607f57d91b0f12f67aa610a307155`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -187,7 +187,7 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 `Stage 7B：DeepSeek 官方能力闭环` 已完成。
 
 - 开发分支：`feature/stage-7b-deepseek-official-closure`
-- 最终提交：待用户真机验收通过后记录
+- 最终提交：`b7933edb48a607f57d91b0f12f67aa610a307155`
 - `MainActivity.fetchModels()` 已兼容 API Base 带或不带 `/v1`
 - `DeepSeekOfficialAdapter` 保留配置中选中的真实模型名
 - Widget 展示真实余额及接口真实返回的赠送/充值余额

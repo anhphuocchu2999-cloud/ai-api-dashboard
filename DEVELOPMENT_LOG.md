@@ -511,6 +511,12 @@ DeepSeek 官方 Adapter 已存在，并通过 `AdapterFactory` 路由到 `/user/
 - 继续展示接口真实返回的总余额，以及可选的赠送余额、充值余额。
 - 不新增 DeepSeek 网页登录，不修改 AdapterFactory、Provider、Widget 布局、缓存和其他平台协议。
 
+**最终提交**
+
+- 分支：`feature/stage-7b-deepseek-official-closure`
+- 最终提交：`b7933edb48a607f57d91b0f12f67aa610a307155`
+- 提交信息：`Complete DeepSeek official capability flow`
+
 **验证证据**
 
 - 编译：`BUILD SUCCESSFUL in 1m 16s`：`本地命令已核对（执行端报告）`
