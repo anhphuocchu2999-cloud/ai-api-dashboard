@@ -1,5 +1,7 @@
 # Operit Adaptive Android Executor
 
+当前版本：`1.0.1`
+
 面向 **Operit AI 1.12+** 的全局 Android 开发执行 Skill。
 
 ## 解决的问题
