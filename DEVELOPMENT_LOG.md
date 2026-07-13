@@ -628,6 +628,12 @@ Stage 7C 已建立 API、网页授权、Billing 三类统一数据来源，但 B
   - 爱黄牛：Billing 仍显示"当前未接入"，原数据正常：`余额 3.55 ¥`
   - Widget 无空白、崩溃或异常退出
 
+**最终提交**
+
+- 分支：`feature/stage-7d-newapi-billing`
+- 最终提交：`46a08936d00b3c0f0907b020e561e19d36377a03`
+- 提交信息：`Add real NewAPI billing data source`
+
 **回滚位置**
 
 `6ab17ba`
