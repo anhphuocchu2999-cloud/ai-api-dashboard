@@ -19,7 +19,7 @@
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
 - 当前业务基线分支：`feature/stage-7c-capability-model`
-- 当前业务基线提交：待用户真机验收通过后记录
+- 当前业务基线提交：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
@@ -101,7 +101,7 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ### MiMo
 
-- 网页登录已实现：`MiMoWebLoginActivity.kt`
+- 网页登录已实现：`WebAuthActivity.kt`（通用网页登录授权）
 - 登录页：`https://platform.xiaomimimo.com/#/console/balance`
 - 必要 Cookie：`api-platform_serviceToken`、`userId`
 - 保存位置：`api_config / MiMo_auth`
@@ -116,9 +116,11 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ### DeepSeek 官方
 
-- 当前按官方 API Key 路径处理。
+- 按官方 API Key 路径处理。
 - 网页登录未设计为当前必需能力。
-- 全部真实运行场景尚未在本轮逐项重新验证。
+- `MainActivity.fetchModels()` 已兼容 API Base 带或不带 `/v1`。
+- `DeepSeekOfficialAdapter` 已真机验证余额展示（总余额 + 赠送/充值余额）。
+- 当前真机状态：模型获取正常，余额正常（用户确认）。
 
 ### OpenAI 卡片 / 爱黄牛
 
@@ -198,7 +200,7 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 `Stage 7C：认证与数据能力模型统一` 已完成。
 
 - 开发分支：`feature/stage-7c-capability-model`
-- 最终提交：待用户真机验收通过后记录
+- 最终提交：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
 - `DataSourceType`（API / 网页授权 / Billing）、`DataCapability`、`ProviderCapabilityProfile` 已建立
 - `PlatformAdapter` 统一暴露 `capabilityProfile`
 - 四个 Adapter 已按真实实现声明能力，无 Billing 虚假接入
@@ -219,11 +221,11 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ## 最近真机验证状态
 
-以 `5d707575a1c9f98ca603d645a1794ab74a2c950b` 对应代码为当前业务基线：
+以 `04be69ffd7e9a0b38f36574295f0bdd994a7d14b` 对应代码为当前业务基线：
 
 - 配置页正常打开、高级设置正常展开：用户确认。
 - MiMo “连接账户”入口正常，无需重新登录，原余额正常：用户确认。
-- Kimi 显示原次数：用户确认。
+- Kimi 原次数正常：用户确认。
 - 爱黄牛地址仍显示“连接账户”：用户确认。
 - 非爱黄牛 OpenAI 地址不再错误显示“连接账户”：用户确认。
 - 恢复爱黄牛 API Base 后“连接账户”重新出现：用户确认。
@@ -234,7 +236,7 @@ Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adap
 
 ## 回滚点
 
-- 当前业务基线：`db34e3e36beb889f1c259b45b0dd4f0a5d3501ad`
+- 当前业务基线：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
 - Stage 7A-2：`f2a67cd66aa7d989d285d71805deef44ed8319b1`
 - Stage 7A-1：`7f1cfa1140aff2c609a666a89d2274788030c947`
 - 持久化兜底：`51f934773ca6da305080d4c49fb2b805c47480c3`

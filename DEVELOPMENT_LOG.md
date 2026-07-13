@@ -579,6 +579,12 @@ DeepSeek 官方 Adapter 已存在，并通过 `AdapterFactory` 路由到 `/user/
 
 `7ed4df4`
 
+**最终提交**
+
+- 分支：`feature/stage-7c-capability-model`
+- 最终提交：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
+- 提交信息：`Add provider capability model`
+
 **下一项唯一任务**
 
 Billing 数据源真实接入（待后续阶段实现）。
