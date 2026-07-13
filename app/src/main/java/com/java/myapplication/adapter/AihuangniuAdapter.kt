@@ -2,6 +2,9 @@ package com.java.myapplication.adapter
 
 import com.java.myapplication.adapter.auth.BackgroundAuthFactory
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.capability.DataCapability
+import com.java.myapplication.adapter.capability.DataSourceType
+import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -20,6 +23,20 @@ class AihuangniuAdapter(
 ) : PlatformAdapter {
 
     override val platformName: String = "Aihuangniu"
+
+    override val capabilityProfile = ProviderCapabilityProfile(
+        modelApiKeyRequired = true,
+        backgroundAuthType = BackgroundAuthType.BEARER_TOKEN,
+        sources = setOf(DataSourceType.API, DataSourceType.WEB_AUTH),
+        capabilities = setOf(
+            DataCapability.MODELS,
+            DataCapability.BALANCE,
+            DataCapability.USAGE,
+            DataCapability.REQUESTS,
+            DataCapability.TOKENS,
+            DataCapability.PROFILE
+        )
+    )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
         return try {

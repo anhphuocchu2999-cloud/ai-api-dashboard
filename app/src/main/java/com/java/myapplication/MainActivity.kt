@@ -17,7 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
+import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.config.ApiAccountConfig
@@ -628,6 +630,60 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
+                                val capabilityAdapter = AdapterFactory.getAdapter(
+                                    platform,
+                                    configs[index].apiBase
+                                )
+                                val capabilityProfile = capabilityAdapter?.capabilityProfile
+
+                                if (capabilityProfile != null) {
+                                    val sourceText = capabilityProfile.sources
+                                        .joinToString(" + ") { it.displayName }
+                                    val authText = when (capabilityProfile.backgroundAuthType) {
+                                        BackgroundAuthType.NONE -> "无需网页授权"
+                                        BackgroundAuthType.COOKIE -> "网页 Cookie"
+                                        BackgroundAuthType.BEARER_TOKEN -> "网页 Bearer Token"
+                                    }
+                                    val capabilityText = capabilityProfile.capabilities
+                                        .joinToString("、") { it.displayName }
+                                    val billingText = if (DataSourceType.BILLING in capabilityProfile.sources) {
+                                        "已接入"
+                                    } else {
+                                        "当前未接入"
+                                    }
+
+                                    Text(
+                                        text = "连接与数据能力",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        text = "模型连接：${if (capabilityProfile.modelApiKeyRequired) "API Key" else "平台自定义"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                    Text(
+                                        text = "数据来源：$sourceText",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                    Text(
+                                        text = "账户授权：$authText",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                    Text(
+                                        text = "Billing：$billingText",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                    Text(
+                                        text = "可用数据：$capabilityText",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                                    )
+                                    HorizontalDivider(modifier = Modifier.padding(bottom = 10.dp))
+                                }
+
                                 Text(
                                     text = "后台授权",
                                     style = MaterialTheme.typography.titleSmall,

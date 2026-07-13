@@ -1180,3 +1180,103 @@ DeepSeek 配置
 - 无可靠使用率或近期用量数据时继续保持空，不伪造。
 - 临时网络错误继续使用现有最近成功数据兜底。
 - MiMo、Kimi、爱黄牛现有真机能力不回归。
+
+---
+
+## Stage 7C：认证与数据能力模型统一
+
+### 用户目标
+
+用户希望同一个 Dashboard 能统一承载三类实际数据获取路径：
+
+1. `API`：使用模型 API Key 访问模型、余额、用量、额度等接口。
+2. `网页授权`：用户在 App 内登录网页，获得 Cookie / Bearer Token / Session，再访问账户后台数据。
+3. `Billing`：访问平台提供的 Billing / Subscription / Usage Billing 类接口。
+
+内部概念必须保持准确：
+
+- API Key、Cookie、Bearer Token 属于认证或凭据。
+- Billing 属于数据接口来源，不是新的认证类型。
+- 一个模型实例可以同时拥有多种数据来源。
+
+### 本阶段目标
+
+建立机器可读的 Provider 能力描述，让代码明确知道：
+
+- 当前 Adapter 需要哪些凭据。
+- 当前 Adapter 实际使用哪些数据来源：`API`、`网页授权`、`Billing`。
+- 当前 Adapter 实际能提供哪些数据能力。
+
+统一数据能力包括：
+
+- Models
+- Balance
+- Quota
+- Usage
+- Requests
+- Tokens
+- Profile
+- Subscription
+
+### 真实性规则
+
+只有已经在代码中真实接入的数据路径，才能声明为已支持。
+
+尤其：
+
+- 当前 Adapter 没有实际调用 Billing 接口时，不得仅因为平台可能存在 Billing 接口就声明 `Billing` 已接入。
+- 当前 Stage 7C 先建立统一能力模型并映射现有真实能力。
+- 后续新增 Billing 数据源时，必须有真实接口证据和真机验证，再把 `Billing` 加入对应 Adapter 的来源集合。
+
+### 当前真实映射
+
+#### Kimi / NewApiAdapter
+
+- 数据来源：API
+- 后台网页授权：无
+- 数据能力：Models、Quota、Usage、Requests
+
+#### MiMo
+
+- 数据来源：API + 网页授权
+- 后台网页授权：Cookie
+- 数据能力：Models、Balance
+
+#### DeepSeek 官方
+
+- 数据来源：API
+- 后台网页授权：无
+- 数据能力：Models、Balance
+
+#### 爱黄牛
+
+- 数据来源：API + 网页授权
+- 后台网页授权：Bearer Token
+- 数据能力：Models、Balance、Usage、Requests、Tokens、Profile
+
+### 本阶段代码范围
+
+- 新增统一 `DataSourceType`。
+- 新增统一 `DataCapability`。
+- 新增统一 `ProviderCapabilityProfile`。
+- `PlatformAdapter` 暴露 `capabilityProfile`。
+- 四个现有 Adapter 按真实实现声明自身能力。
+- 配置页高级设置显示当前实例的数据来源、账户授权方式、Billing 接入状态和可用数据能力。
+
+### 明确不做
+
+- 本阶段不新增 Billing HTTP 请求。
+- 不修改现有 Adapter 的数据请求和 JSON 解析。
+- 不修改 Widget 数据流、缓存、布局或响应式逻辑。
+- 不修改 WebAuthActivity、WebAuthProfile 或授权存储格式。
+- 不把固定平台槽位改造成动态实例槽位。
+- 不新增 Provider。
+
+### 验收标准
+
+- Kimi、MiMo、DeepSeek、爱黄牛高级设置均能显示能力摘要。
+- 摘要与当前真实实现一致。
+- 当前四个平台的原有数据获取结果完全不变。
+- MiMo 与爱黄牛原网页登录授权继续有效。
+- 未真实接入 Billing 的 Adapter 显示 `Billing：当前未接入`，不得伪装为已支持。
+- 编译、覆盖安装和真机回归通过。

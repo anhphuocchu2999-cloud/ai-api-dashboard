@@ -1,5 +1,7 @@
 package com.java.myapplication.adapter
 
+import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
+
 /**
  * 平台适配器接口
  * 所有平台适配器必须实现此接口
@@ -9,6 +11,9 @@ interface PlatformAdapter {
      * 平台名称，例如 "Kimi", "OpenAI"
      */
     val platformName: String
+
+    /** 当前 Adapter 已真实实现的认证与数据能力。 */
+    val capabilityProfile: ProviderCapabilityProfile
 
     /**
      * 探测平台类型

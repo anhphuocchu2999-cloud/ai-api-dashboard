@@ -1,5 +1,10 @@
 package com.java.myapplication.adapter
 
+import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.capability.DataCapability
+import com.java.myapplication.adapter.capability.DataSourceType
+import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
+
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -10,6 +15,18 @@ import java.net.URL
 class NewApiAdapter : PlatformAdapter {
 
     override val platformName: String = "Kimi"
+
+    override val capabilityProfile = ProviderCapabilityProfile(
+        modelApiKeyRequired = true,
+        backgroundAuthType = BackgroundAuthType.NONE,
+        sources = setOf(DataSourceType.API),
+        capabilities = setOf(
+            DataCapability.MODELS,
+            DataCapability.QUOTA,
+            DataCapability.USAGE,
+            DataCapability.REQUESTS
+        )
+    )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
         return try {

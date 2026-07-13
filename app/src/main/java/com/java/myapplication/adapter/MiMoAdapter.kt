@@ -1,6 +1,9 @@
 package com.java.myapplication.adapter
 
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.capability.DataCapability
+import com.java.myapplication.adapter.capability.DataSourceType
+import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -12,6 +15,16 @@ import java.net.URL
 class MiMoAdapter : PlatformAdapter {
 
     override val platformName: String = "MiMo"
+
+    override val capabilityProfile = ProviderCapabilityProfile(
+        modelApiKeyRequired = true,
+        backgroundAuthType = BackgroundAuthType.COOKIE,
+        sources = setOf(DataSourceType.API, DataSourceType.WEB_AUTH),
+        capabilities = setOf(
+            DataCapability.MODELS,
+            DataCapability.BALANCE
+        )
+    )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
         return try {

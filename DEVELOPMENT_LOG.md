@@ -536,3 +536,49 @@ DeepSeek 官方 Adapter 已存在，并通过 `AdapterFactory` 路由到 `/user/
 **下一项唯一任务**
 
 待确定 Stage 7C 的具体平台扩展目标。
+
+---
+
+## 2026-07-13｜Stage 7C 认证与数据能力模型统一
+
+**目标与背景**
+
+用户的核心目标不是简单增加平台，而是让同一个 Dashboard 能统一承载 API、网页授权和 Billing 三类数据获取路径。现有项目已经具备 API Key、Cookie、Bearer Token 和多个真实数据接口，但这些能力尚未形成机器可读的统一描述。
+
+**本阶段调整**
+
+- 新增 `DataSourceType`：API、网页授权、Billing。
+- 新增 `DataCapability`：Models、Balance、Quota、Usage、Requests、Tokens、Profile、Subscription。
+- 新增 `ProviderCapabilityProfile`。
+- `PlatformAdapter` 统一暴露 `capabilityProfile`。
+- Kimi、MiMo、DeepSeek、爱黄牛按当前真实实现声明能力。
+- 配置页高级设置展示当前实例的数据来源、账户授权方式、Billing 接入状态和可用数据能力。
+
+**真实性边界**
+
+- 本阶段不新增 Billing HTTP 请求。
+- 当前 Adapter 没有真实 Billing 请求时，必须显示 `Billing：当前未接入`。
+- 不修改现有数据请求、JSON 解析、Widget 数据流、缓存或授权保存格式。
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 1m 25s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 用户本人真机测试通过：`用户真机确认`
+  - Kimi 能力摘要：数据来源 API，账户授权无需网页授权，Billing 当前未接入，可用数据包含模型、额度、用量、请求次数
+  - MiMo 能力摘要：数据来源 API + 网页授权，账户授权网页 Cookie，Billing 当前未接入，可用数据包含模型、余额
+  - DeepSeek 能力摘要：数据来源 API，账户授权无需网页授权，Billing 当前未接入，可用数据包含模型、余额
+  - 爱黄牛能力摘要：数据来源 API + 网页授权，账户授权网页 Bearer Token，Billing 当前未接入，可用数据包含模型、余额、用量、请求次数、Token、账户信息
+  - Kimi 原数据正常：剩余 2,025 次
+  - MiMo 不要求重新登录，原余额正常：余额 ¥59.96
+  - DeepSeek 原余额正常：余额 3.54 ¥
+  - 爱黄牛原数据正常：余额 3.55 ¥
+  - Widget 无空白、崩溃或异常退出
+
+**回滚位置**
+
+`7ed4df4`
+
+**下一项唯一任务**
+
+Billing 数据源真实接入（待后续阶段实现）。
