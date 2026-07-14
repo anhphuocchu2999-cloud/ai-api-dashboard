@@ -12,6 +12,9 @@ package com.java.myapplication.adapter
  * 5. platformName == "Kimi" → NewApiAdapter
  * 6. platformName == "MiMo" → MiMoAdapter
  * 7. 其它 → null
+ *
+ * 所有已识别 Adapter 均由 NetworkAwareAdapter 包装：系统确认断网时立即返回
+ * 临时网络错误，让 Widget 直接读取最近成功数据，不再等待逐个平台 HTTP 超时。
  */
 object AdapterFactory {
 
@@ -22,7 +25,7 @@ object AdapterFactory {
      * @return PlatformAdapter? 对应的适配器，如果不支持则返回 null
      */
     fun getAdapter(platformName: String, apiBase: String): PlatformAdapter? {
-        return when {
+        val adapter = when {
             // 优先按平台键名路由，确保固定槽位不受旧 apiBase 影响
             platformName == "MiMo" -> MiMoAdapter()
             platformName == "Kimi" -> NewApiAdapter()
@@ -36,5 +39,7 @@ object AdapterFactory {
             apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> MiMoAdapter()
             else -> null
         }
+
+        return adapter?.let(::NetworkAwareAdapter)
     }
 }
