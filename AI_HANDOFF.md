@@ -15,20 +15,19 @@
 
 ## 当前阶段
 
-`Stage 8A-2B：加固 ModelInstanceRepository，修正交接文档状态` — 进行中，等待用户真机验收。
+`Stage 8A-2C：修复实例仓库剩余语义缺口` — 已完成代码实现，等待用户真机验收。
 
 - 分支：`feature/stage-8a-model-instances`
-- 当前已验收业务基线：`8fa901c3ac2822ae843a6d7c25667423e05b9a01`
-- 目标：加固 ModelInstance 数据结构和仓库，保护未来损坏恢复和额外配置迁移
+- 当前已验收业务基线：`686340095e53775e7ad4b92e2cb13feaec2a884c`
+- 目标：修复 ModelInstanceRepository 剩余语义缺口，完成 Stage 8A-2 最终收口
 - 当前状态：
-  - 实例 JSON 完整性检查已加固（6 条有效性规则）
-  - `saveInstances()` 已返回 Boolean，两步 commit 检查
-  - `ensureMigrated()` 已返回 Boolean
-  - 固定槽位 instanceId 严格映射（大小写不敏感匹配）
-  - 额外配置稳定 ID 生成（SHA-256 安全 slug）
-  - ServiceType 推断扩展至额外配置
-  - DashboardApplication 已处理迁移返回值
+  - schema version 重试逻辑已修复（A/B/C 三种状态区分）
+  - serviceType 严格校验（只接受枚举声明的持久化字符串）
+  - 七个字段完整性严格检查（`has()` + `getString`/`getBoolean`）
+  - OpenAI 历史槽位无法识别域名时回退到 `OPENAI_COMPATIBLE`（不是 `UNKNOWN`）
+  - 额外配置无法识别时才返回 `UNKNOWN`
   - 当前四个真实实例不重迁移
+  - 用户已确认 8A-2B 真机测试通过
 - 下一子阶段：8A-3（后台授权和缓存 Key 从 platformName/index 迁移到 instanceId）
 
 ## 仓库与当前基线

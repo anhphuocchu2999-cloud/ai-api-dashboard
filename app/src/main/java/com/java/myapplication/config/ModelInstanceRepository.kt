@@ -10,16 +10,25 @@ import java.security.MessageDigest
  * 负责 ModelInstance 的持久化、加载和旧配置迁移
  *
  * 安全规则：
- * 1. 实例有效性检查：JSON 完整、instanceId 非空且不重复、serviceType 可解析
+ * 1. 实例有效性检查：JSON 完整、七个字段必须存在且类型正确、instanceId 非空且不重复、
+ *    serviceType 必须是枚举声明的持久化字符串（未知字符串非法）
  * 2. 写入分两步：先写数据，commit 成功后再写 schema version
- * 3. 固定槽位 instanceId 严格映射，额外配置使用稳定哈希生成 ID
- * 4. 旧配置永不删除，作为兼容回滚来源
+ * 3. ensureMigrated 区分三种状态：有效+schema正确 / 有效+schema缺失 / 无效
+ * 4. 固定槽位 instanceId 严格映射，额外配置使用稳定哈希生成 ID
+ * 5. 旧配置永不删除，作为兼容回滚来源
+ * 6. OpenAI 历史槽位无法识别域名时回退到 OPENAI_COMPATIBLE（不是 UNKNOWN）
  */
 object ModelInstanceRepository {
 
     private const val INSTANCES_KEY = "model_instances_v1"
     private const val SCHEMA_VERSION_KEY = "model_instance_schema_version"
     private const val CURRENT_SCHEMA_VERSION = 1
+
+    // 必须存在于每个实例 JSON 对象中的字段
+    private val REQUIRED_FIELDS = listOf(
+        "instanceId", "displayName", "serviceType",
+        "apiBase", "apiKey", "modelName", "enabled"
+    )
 
     // 固定槽位映射（大小写不敏感匹配，输出严格固定）
     private val FIXED_INSTANCE_IDS = mapOf(
@@ -29,18 +38,29 @@ object ModelInstanceRepository {
         "openai" to "legacy-openai"
     )
 
+    // 需要特殊回退的固定槽位（OpenAI 无法识别时回退到 OPENAI_COMPATIBLE，不是 UNKNOWN）
+    private val FIXED_OPENAI_COMPAT_IDS = setOf("openai")
+
     /**
      * 确保迁移完成
-     * 如果新结构不存在或无效，从旧配置迁移
-     * @return true 表示已有有效结构或迁移成功，false 表示迁移失败
+     *
+     * 三种状态：
+     * A. 实例数据有效 + schema version 正确 → true
+     * B. 实例数据有效 + schema version 缺失或错误 → 只补写 schema version，不重迁移
+     * C. 实例数据无效 → 从旧配置迁移
      */
     fun ensureMigrated(prefs: SharedPreferences): Boolean {
-        // 检查是否已有有效的新结构
-        if (hasValidInstances(prefs)) {
+        // A. 完全有效（数据 + schema version 都正确）
+        if (hasValidInstances(prefs) && hasCurrentSchemaVersion(prefs)) {
             return true
         }
 
-        // 从旧配置迁移
+        // B. 数据有效但 schema version 缺失或错误 → 只补写 schema version
+        if (hasValidInstances(prefs) && !hasCurrentSchemaVersion(prefs)) {
+            return commitSchemaVersionOnly(prefs)
+        }
+
+        // C. 数据无效 → 从旧配置迁移
         val instances = migrateFromLegacy(prefs)
         return if (instances.isNotEmpty()) {
             saveInstances(prefs, instances)
@@ -92,21 +112,37 @@ object ModelInstanceRepository {
         }
 
         // 第二步：写入 schema version（仅在数据写入成功后）
+        return commitSchemaVersionOnly(prefs)
+    }
+
+    /**
+     * 检查 schema version 是否为当前版本
+     */
+    private fun hasCurrentSchemaVersion(prefs: SharedPreferences): Boolean {
+        return prefs.getInt(SCHEMA_VERSION_KEY, -1) == CURRENT_SCHEMA_VERSION
+    }
+
+    /**
+     * 只补写 schema version（不触碰实例数据）
+     * @return commit 是否成功
+     */
+    private fun commitSchemaVersionOnly(prefs: SharedPreferences): Boolean {
         val schemaEditor = prefs.edit()
         schemaEditor.putInt(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION)
-        val schemaCommitted = schemaEditor.commit()
-        return schemaCommitted
+        return schemaEditor.commit()
     }
 
     /**
      * 检查是否有有效的实例数据
-     * 有效性条件：
+     *
+     * 有效性条件（全部必须满足）：
      * 1. model_instances_v1 存在且是非空 JSON 数组
-     * 2. 每一项都能完整解析
+     * 2. 每一项都必须包含全部七个字段（instanceId, displayName, serviceType, apiBase, apiKey, modelName, enabled）
      * 3. 每个 instanceId 都非空
      * 4. instanceId 不能重复
-     * 5. serviceType 字段能够解析
-     * 6. 数组中不存在解析失败后被静默丢弃的对象
+     * 5. serviceType 必须是 ServiceType 中明确声明的持久化字符串（"unknown" 合法，"abc"/"kimi" 等非法）
+     * 6. enabled 必须是布尔类型
+     * 7. 数组中不存在解析失败后被静默丢弃的对象
      */
     fun hasValidInstances(prefs: SharedPreferences): Boolean {
         val json = prefs.getString(INSTANCES_KEY, null)
@@ -124,8 +160,15 @@ object ModelInstanceRepository {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
 
+                // 条件 2：七个字段必须全部存在
+                for (field in REQUIRED_FIELDS) {
+                    if (!obj.has(field)) {
+                        return false
+                    }
+                }
+
                 // 条件 3：instanceId 非空
-                val instanceId = obj.optString("instanceId", "")
+                val instanceId = obj.getString("instanceId")
                 if (instanceId.isBlank()) {
                     return false
                 }
@@ -136,16 +179,16 @@ object ModelInstanceRepository {
                 }
                 seenIds.add(instanceId)
 
-                // 条件 5：serviceType 可解析（UNKNOWN 是合法显式类型）
-                val serviceTypeStr = obj.optString("serviceType", "")
-                if (serviceTypeStr.isBlank()) {
+                // 条件 5：serviceType 严格校验（只接受枚举声明的持久化字符串）
+                val serviceTypeStr = obj.getString("serviceType")
+                if (ServiceType.fromStringStrict(serviceTypeStr) == null) {
                     return false
                 }
-                // fromString 会返回 UNKNOWN 作为兜底，但如果输入为空/空白则上面已拦截
-                ServiceType.fromString(serviceTypeStr)
 
-                // 条件 2：完整解析（所有必要字段存在）
-                // 如果解析抛出异常，外层 catch 会返回 false
+                // 条件 6：enabled 必须是布尔类型
+                obj.getBoolean("enabled")
+
+                // 条件 7：完整解析（类型不匹配会抛异常，外层 catch 返回 false）
                 parseInstanceFromJson(obj)
             }
 
@@ -245,9 +288,7 @@ object ModelInstanceRepository {
                 }
             }
             .joinToString("")
-        // 连续非法字符合并为一个短横线
         val collapsed = normalized.replace(Regex("-+-"), "-")
-        // 首尾短横线移除
         val trimmed = collapsed.trim('-')
         return trimmed.ifBlank { "unnamed" }
     }
@@ -282,36 +323,46 @@ object ModelInstanceRepository {
                     ServiceType.OPENAI_COMPATIBLE
                 }
             }
-            config.id.equals("OpenAI", ignoreCase = true) -> inferServiceTypeByApiBase(config.apiBase)
-            else -> inferServiceTypeByApiBase(config.apiBase)
+            // OpenAI 槽位和额外配置都按 apiBase 推断，但回退值不同
+            config.id.equals("OpenAI", ignoreCase = true) ->
+                inferServiceTypeByApiBase(config.apiBase, defaultForOpenAiSlot = ServiceType.OPENAI_COMPATIBLE)
+            else ->
+                inferServiceTypeByApiBase(config.apiBase, defaultForOpenAiSlot = null)
         }
     }
 
     /**
      * 按 apiBase 域名推断服务类型
+     * @param defaultForOpenAiSlot 非 null 时表示这是 OpenAI 历史槽位，无法识别时回退到此值；
+     *                             null 表示额外配置，无法识别时返回 UNKNOWN
      */
-    private fun inferServiceTypeByApiBase(apiBase: String): ServiceType {
+    private fun inferServiceTypeByApiBase(
+        apiBase: String,
+        defaultForOpenAiSlot: ServiceType?
+    ): ServiceType {
         return when {
             apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
             apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
             apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
             apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
-            else -> ServiceType.UNKNOWN
+            defaultForOpenAiSlot != null -> defaultForOpenAiSlot  // OpenAI 槽位回退到 OPENAI_COMPATIBLE
+            else -> ServiceType.UNKNOWN  // 额外配置无法识别
         }
     }
 
     /**
-     * 从 JSON 解析实例
+     * 从 JSON 严格解析实例
+     * 所有七个字段必须存在且类型正确，否则抛异常
      */
     private fun parseInstanceFromJson(obj: JSONObject): ModelInstance {
         return ModelInstance(
-            instanceId = obj.optString("instanceId", ""),
-            displayName = obj.optString("displayName", ""),
-            serviceType = ServiceType.fromString(obj.optString("serviceType", "unknown")),
-            apiBase = obj.optString("apiBase", ""),
-            apiKey = obj.optString("apiKey", ""),
-            modelName = obj.optString("modelName", ""),
-            enabled = obj.optBoolean("enabled", true)
+            instanceId = obj.getString("instanceId"),
+            displayName = obj.getString("displayName"),
+            serviceType = ServiceType.fromString(obj.getString("serviceType")),
+            apiBase = obj.getString("apiBase"),
+            apiKey = obj.getString("apiKey"),
+            modelName = obj.getString("modelName"),
+            enabled = obj.getBoolean("enabled")
         )
     }
 

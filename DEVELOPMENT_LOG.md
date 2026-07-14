@@ -954,3 +954,46 @@ Stage 8A-2 已完成四个固定槽位到 ModelInstance 的迁移，但仓库的
 **下一项唯一任务**
 
 Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。
+
+---
+
+## 2026-07-14｜Stage 8A-2C 修复实例仓库剩余语义缺口
+
+**目标与背景**
+
+Stage 8A-2B 已加固实例 JSON 完整性检查和两步 commit，但仍有三个语义缺口：
+1. `ensureMigrated()` 不区分 schema version 缺失 vs 数据无效——schema version 丢失会导致整个重迁移
+2. `hasValidInstances()` 中 serviceType 检查使用 `fromString()` 而非严格校验——"abc"/"kimi" 等非法值会被静默接受为 UNKNOWN
+3. `parseInstanceFromJson()` 使用 `optString`/`optBoolean` 掩盖字段缺失
+4. OpenAI 历史槽位无法识别域名时回退到 `UNKNOWN`，应为 `OPENAI_COMPATIBLE`
+
+**方案与取舍**
+
+- `ensureMigrated()` 区分三种状态：
+  - A. 实例数据有效 + schema version 正确 → `true`
+  - B. 实例数据有效 + schema version 缺失或错误 → 只补写 schema version，不重迁移
+  - C. 实例数据无效 → 从旧配置迁移
+- 新增 `hasCurrentSchemaVersion(prefs)` 和 `commitSchemaVersionOnly(prefs)`
+- `ServiceType` 新增 `fromStringStrict()` 方法：只接受枚举声明的持久化字符串，未知字符串返回 `null`
+- `hasValidInstances()` 使用 `fromStringStrict()` 校验 serviceType，使用 `has()` + `getString`/`getBoolean` 严格读取七个字段
+- `parseInstanceFromJson()` 改用 `getString`/`getBoolean` 严格读取（字段缺失时抛异常，外层 catch 返回 false）
+- `inferServiceTypeByApiBase()` 新增 `defaultForOpenAiSlot` 参数：OpenAI 槽位回退到 `OPENAI_COMPATIBLE`，额外配置无法识别时才返回 `UNKNOWN`
+
+**明确未修改**
+
+- 当前四个真实实例不重迁移
+- 不修改 `DashboardApplication`、`BalanceWidgetProvider`、`BackgroundAuthRepository`、`WidgetData`、`AdapterFactory`、`WebAuthProfileRegistry`、任何 Adapter、任何布局
+- 不开始 Stage 8A-3
+
+**验证证据**
+
+- 编译和覆盖安装：待执行端只执行一次
+- 用户本人真机测试通过：待用户确认
+
+**回滚位置**
+
+`686340095e53775e7ad4b92e2cb13feaec2a884c`
+
+**下一项唯一任务**
+
+Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。
