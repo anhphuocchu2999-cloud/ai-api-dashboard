@@ -24,28 +24,42 @@ import com.java.myapplication.webauth.WebAuthProfileRegistry
 /**
  * 通用网页登录授权 Activity。
  *
- * Stage 7A-3A 只迁移已经验证过的 MiMo COOKIE 流程。
- * Stage 7A-3C 扩展支持爱黄牛 localStorage auth_token 自动提取。
+ * 已验证路径：
+ * - MiMo COOKIE
+ * - 爱黄牛 localStorage auth_token
+ *
+ * Stage 8B：允许调用方传入目标卡片 instanceKey。网页登录 Profile 只描述
+ * 登录方式，凭据保存到用户当前选择该服务的卡片，而不再固定保存到原历史槽位。
  */
 class WebAuthActivity : Activity() {
 
     companion object {
         private const val EXTRA_PROFILE_ID = "web_auth_profile_id"
+        private const val EXTRA_TARGET_INSTANCE_KEY = "web_auth_target_instance_key"
         private const val PREFS_NAME = "api_config"
 
-        fun createIntent(context: Context, profileId: String): Intent {
+        fun createIntent(
+            context: Context,
+            profileId: String,
+            targetInstanceKey: String? = null
+        ): Intent {
             return Intent(context, WebAuthActivity::class.java)
                 .putExtra(EXTRA_PROFILE_ID, profileId)
+                .apply {
+                    if (!targetInstanceKey.isNullOrBlank()) {
+                        putExtra(EXTRA_TARGET_INSTANCE_KEY, targetInstanceKey)
+                    }
+                }
         }
     }
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var profile: WebAuthProfile
+    private lateinit var targetInstanceKey: String
     private var loginDetected = false
     private var showCancelToast = false
 
-    /** 用于 localStorage 轮询的 Handler */
     private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pollRunnable: Runnable? = null
 
@@ -69,6 +83,9 @@ class WebAuthActivity : Activity() {
         }
 
         profile = resolvedProfile
+        targetInstanceKey = intent.getStringExtra(EXTRA_TARGET_INSTANCE_KEY)
+            ?.takeIf { it.isNotBlank() }
+            ?: profile.instanceKey
         showCancelToast = true
 
         setContentView(R.layout.activity_web_auth)
@@ -93,9 +110,7 @@ class WebAuthActivity : Activity() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
-            ): Boolean {
-                return false
-            }
+            ): Boolean = false
 
             override fun onPageStarted(
                 view: WebView?,
@@ -110,11 +125,10 @@ class WebAuthActivity : Activity() {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
 
-                // 根据认证类型选择检测策略
                 when (profile.authType) {
                     BackgroundAuthType.COOKIE -> checkAndSaveCookies()
                     BackgroundAuthType.BEARER_TOKEN -> startLocalStoragePolling()
-                    else -> { /* 不处理 */ }
+                    else -> Unit
                 }
             }
         }
@@ -123,8 +137,6 @@ class WebAuthActivity : Activity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        // 清理轮询
         pollRunnable?.let { pollHandler.removeCallbacks(it) }
         if (showCancelToast && !loginDetected) {
             Toast.makeText(
@@ -133,6 +145,7 @@ class WebAuthActivity : Activity() {
                 Toast.LENGTH_SHORT
             ).show()
         }
+        super.onDestroy()
     }
 
     private fun checkAndSaveCookies() {
@@ -142,8 +155,7 @@ class WebAuthActivity : Activity() {
         if (cookieString.isBlank()) return
 
         val cookies = parseCookieString(cookieString)
-        val hasRequiredCookies = profile.requiredCookieNames.all(cookies::containsKey)
-        if (!hasRequiredCookies) return
+        if (!profile.requiredCookieNames.all(cookies::containsKey)) return
 
         loginDetected = true
         val allCookies = buildString {
@@ -152,24 +164,29 @@ class WebAuthActivity : Activity() {
                 append("$name=$value")
             }
         }
-
         saveCredentialAndRefresh(allCookies)
     }
 
-    private fun saveCredentialAndRefresh(cookieString: String) {
+    private fun saveCredentialAndRefresh(credential: String) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val authConfig = BackgroundAuthConfig(
             authType = profile.authType,
-            authValue = cookieString,
+            authValue = credential,
             enabled = true,
             updatedAt = System.currentTimeMillis()
         )
 
-        BackgroundAuthRepository.save(
+        val saved = BackgroundAuthRepository.save(
             prefs = prefs,
-            instanceKey = profile.instanceKey,
+            instanceKey = targetInstanceKey,
             config = authConfig
         )
+
+        if (!saved) {
+            loginDetected = false
+            Toast.makeText(this, "授权保存失败，请重试", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         Toast.makeText(
             this,
@@ -182,8 +199,7 @@ class WebAuthActivity : Activity() {
     }
 
     /**
-     * 启动 localStorage 轮询，用于 BEARER_TOKEN 自动提取。
-     * 每 2 秒读取一次 localStorage，直到获取到非空 token。
+     * 每 2 秒读取一次 localStorage，直到获得非空 Token。
      */
     private fun startLocalStoragePolling() {
         if (loginDetected) return
@@ -218,12 +234,14 @@ class WebAuthActivity : Activity() {
             val componentName = ComponentName(context, BalanceWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
             if (appWidgetIds.isNotEmpty()) {
-                val intent = Intent(context, BalanceWidgetProvider::class.java)
-                intent.action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, appWidgetIds)
+                val intent = Intent(context, BalanceWidgetProvider::class.java).apply {
+                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, appWidgetIds)
+                }
                 context.sendBroadcast(intent)
             }
         } catch (_: Exception) {
+            // Widget 不存在时不影响授权保存。
         }
     }
 
@@ -235,9 +253,7 @@ class WebAuthActivity : Activity() {
             if (eqIndex > 0) {
                 val name = trimmed.substring(0, eqIndex).trim()
                 val value = trimmed.substring(eqIndex + 1).trim()
-                if (name.isNotEmpty()) {
-                    result[name] = value
-                }
+                if (name.isNotEmpty()) result[name] = value
             }
         }
         return result
