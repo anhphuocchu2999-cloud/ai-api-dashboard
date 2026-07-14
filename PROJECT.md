@@ -1283,6 +1283,79 @@ DeepSeek 配置
 
 ---
 
+## Stage 7D：Kimi / NewAPI Billing 数据源真实接入
+
+### 目标
+
+在 Stage 7C 已建立的 `API / 网页授权 / Billing` 统一能力模型上，把当前已经有接口证据的 Kimi / NewAPI Billing 路径真正接入数据层。
+
+本阶段真实请求：
+
+```text
+GET /v1/dashboard/billing/subscription
+GET /v1/dashboard/billing/usage
+Authorization: Bearer <模型 API Key>
+```
+
+当前已知真实字段：
+
+- `soft_limit_usd`，兼容旧返回字段 `soft_limit`
+- `total_usage`
+
+`total_usage` 原始值以中性数值展示（当前未确认单位，不添加货币符号）。
+
+### 数据合并规则
+
+1. 原 `/api/usage/token` 次数卡路径继续保留，现有"剩余次数 / 调用次数 / 本地近期用量"不得回归。
+2. Billing 请求与原次数卡请求相互独立：
+   - 原次数卡成功 + Billing 成功：合并展示。
+   - 原次数卡成功 + Billing 失败：继续显示原次数卡数据，不因 Billing 失败降级。
+   - 原次数卡失败 + Billing 成功：允许返回 Billing 数据，证明 Billing 是独立数据来源，不只是能力标签。
+   - 两条路径都失败：返回原真实错误。
+3. Billing 成功时，Kimi / NewApiAdapter 的 `capabilityProfile.sources` 才加入 `DataSourceType.BILLING`。
+4. Billing 数据通过现有 `WidgetData` 返回，不建立第二套 Widget 数据结构。
+5. 同一 host 的连续 HTTP 请求必须串行，间隔至少 500ms。
+
+### Widget 展示
+
+- 现有核心指标继续优先保留"剩余次数"。
+- Billing 成功时，在辅助轮播数据中增加一条真实 Billing 指标：
+   - `Billing 额度 X · 用量 Y`（中性数值，最多保留2位小数，无货币符号）
+- 如果只取得其中一个真实字段，只显示实际取得的字段。
+- 不伪造余额、Token、请求次数或使用率。
+
+### 本阶段范围
+
+只修改：
+
+- `NewApiAdapter.kt`
+- `PROJECT.md`
+- `DEVELOPMENT_LOG.md`
+- `AI_HANDOFF.md`
+
+不修改：
+
+- `BalanceWidgetProvider`
+- `AdapterFactory`
+- `AdapterRequest`
+- `MainActivity`
+- MiMo / DeepSeek / 爱黄牛 Adapter
+- 网页授权
+- 配置存储
+- Widget 布局、响应式和缓存
+- 固定槽位 / 动态实例结构
+
+### 验收标准
+
+- Kimi 能力摘要从 `API` 变为 `API + Billing`，Billing 显示"已接入"。
+- `/v1/dashboard/billing/subscription` 与 `/v1/dashboard/billing/usage` 当前真实返回可被解析。
+- Widget 保留原 Kimi 剩余次数，并能轮播显示真实 Billing 指标。
+- Billing 请求失败不得破坏原次数卡成功数据。
+- MiMo、DeepSeek、爱黄牛能力摘要和真实数据不回归。
+- 编译、覆盖安装和用户真机验收通过。
+
+---
+
 ## Stage 8A：模型实例与固定平台槽位解耦
 
 ### 目标
@@ -1293,15 +1366,13 @@ DeepSeek 配置
 
 ```text
 ModelInstance
-├─ instanceId        // 稳定唯一标识（如 legacy-kimi-001）
+├─ instanceId        // 稳定唯一标识（如 legacy-kimi）
 ├─ displayName       // 用户可修改的卡片名称（如"个人 Kimi 中转"）
-├─ serviceType       // 决定 Adapter 类型：kimi / mimo / deepseek / openai-compatible
+├─ serviceType       // 决定 Adapter 类型
 ├─ apiBase           // API Base URL
 ├─ apiKey            // 模型 API Key
 ├─ modelName         // 真实模型名称
-├─ enabled           // 是否启用
-├─ backgroundAuthType    // 后台授权类型
-└─ capabilityProfile     // 数据能力描述（由 Adapter 决定）
+└─ enabled           // 是否启用
 ```
 
 关键区分：
@@ -1310,12 +1381,14 @@ ModelInstance
 - `serviceType`：负责 AdapterFactory 路由、平台协议差异、能力模型。
 - `displayName`：只负责展示，不得作为存储 Key 或 Adapter 路由条件。
 
+**注意：** `backgroundAuthType` 和 `capabilityProfile` 不在 ModelInstance 中持久化，由运行时 Adapter 的 `capabilityProfile` 决定。
+
 ### Stage 8A 子阶段拆分
 
 | 子阶段 | 目标 | 范围 |
 |--------|------|------|
-| **8A-1** | 方案摸排与文档确认 | 只读分析 + 更新 PROJECT.md（当前阶段） |
-| **8A-2** | 新增 ModelInstance 数据结构和实例仓库 | 新增数据类 + ConfigRepository 只读迁移 |
+| **8A-1** | 方案摸排与文档确认 | 只读分析 + 更新 PROJECT.md（已完成） |
+| **8A-2** | 新增 ModelInstance 数据结构和实例仓库 | 新增数据类 + ConfigRepository 只读迁移（当前阶段） |
 | **8A-3** | 后台授权和缓存 Key 迁移到 instanceId | BackgroundAuthRepository + WidgetData 缓存 |
 | **8A-4** | Widget Provider 读取窗口绑定的 instanceId | BalanceWidgetProvider 槽位解耦 |
 

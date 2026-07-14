@@ -822,3 +822,76 @@ ModelInstance
 **下一项唯一任务**
 
 Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置只读迁移。
+
+---
+
+## 2026-07-14｜Stage 8A-2 新增 ModelInstance 数据结构和实例仓库，完成旧配置安全幂等迁移
+
+**目标与背景**
+
+在 Stage 8A-1 方案摸排基础上，将固定四槽位（Kimi/MiMo/DeepSeek/OpenAI）的旧配置迁移到独立的 ModelInstance 实例体系。本阶段只新增数据结构和仓库，不修改现有业务代码（Provider、Adapter、Widget 等）。
+
+**方案与取舍**
+
+- 新增 `ServiceType` 枚举：6 种类型（NEW_API / MIMO / DEEPSEEK_OFFICIAL / AIHUANGNIU / OPENAI_COMPATIBLE / UNKNOWN），持久化字符串稳定。
+- 新增 `ModelInstance` 数据类：7 字段（instanceId / displayName / serviceType / apiBase / apiKey / modelName / enabled）。
+  - 不持久化 `backgroundAuthType` 和 `capabilityProfile`，由运行时 Adapter 决定。
+- 新增 `ModelInstanceRepository`：
+  - SharedPreferences Key：`model_instances_v1`
+  - Schema Version Key：`model_instance_schema_version`，版本号 1
+  - `ensureMigrated(prefs)`：幂等检查，已有有效实例则跳过
+  - `saveInstances()`：使用 `commit()` 同步写入，写入成功才设置版本号
+  - `migrateFromLegacy()`：调用 `ConfigRepository.loadAllConfigs()` 获取旧配置，映射为 ModelInstance
+  - `inferServiceType()`：按 config.id 和 apiBase 推断服务类型
+  - instanceId 生成：`legacy-${config.id.lowercase()}`
+- `DashboardApplication.onCreate` 触发迁移。
+- 旧配置（`api_configs`、`Kimi`/`MiMo`/`DeepSeek`/`OpenAI` Key）不删除，保留兼容回滚来源。
+
+**固定实例迁移映射**
+
+| 旧平台 | instanceId | serviceType |
+|--------|-----------|-------------|
+| Kimi | `legacy-kimi` | NEW_API |
+| MiMo | `legacy-mimo` | MIMO |
+| DeepSeek | `legacy-deepseek` | DEEPSEEK_OFFICIAL（apiBase 含 api.deepseek.com）或 OPENAI_COMPATIBLE |
+| OpenAI | `legacy-openai` | 按 apiBase 域名推断（coolyeah.net→NEW_API 等） |
+
+**明确未修改**
+
+- 不修改 `BalanceWidgetProvider`、`BackgroundAuthRepository`、`WidgetData`、`WebAuthActivity`、`WebAuthProfileRegistry`、`AdapterFactory`、任何 Adapter 实现、任何 Widget XML 布局。
+- 不开始 Stage 8A-3 或 Stage 8A-4。
+- 不合并到 `main`。
+
+**验证证据**
+
+- 编译：`BUILD SUCCESSFUL in 13s`：`本地命令已核对（执行端报告）`
+- 覆盖安装：`Success`：`本地命令已核对（执行端报告）`
+- 首次迁移验证：`本地命令已核对（执行端报告）`
+  - `model_instances_v1` key 存在
+  - 4 个 legacy 实例存在：`legacy-kimi`、`legacy-mimo`、`legacy-deepseek`、`legacy-openai`
+  - serviceType 正确：`newapi`、`mimo`、`deepseek-official`、`aihuangniu`
+- 二次启动幂等验证：`本地命令已核对（执行端报告）`
+  - 实例数量不变（4 个）
+  - instanceId 不变
+  - 无重复实例
+- 用户本人真机测试通过：`用户真机确认`
+  - App 正常启动，无崩溃
+  - 配置页 4 个平台数据正常显示
+  - Widget 正常显示 4 张卡片
+  - 点击 Widget 进入 App 正常
+  - 各平台余额/数据正常刷新
+  - Billing 中性数据仍正常
+  - Widget 无空白、崩溃或异常退出
+
+**最终提交**
+
+- 分支：`feature/stage-8a-model-instances`
+- 提交信息：`Stage 8A-2: Add ModelInstance data structure and repository with legacy config migration`
+
+**回滚位置**
+
+`a0136def27e1b307941f79a4dca6affff6ac62f8`
+
+**下一项唯一任务**
+
+Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。

@@ -15,13 +15,20 @@
 
 ## 当前阶段
 
-`Stage 8A-1：模型实例解耦方案摸排与 PROJECT.md 落档` — 进行中。
+`Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置安全幂等迁移` — 已完成，等待提交推送。
 
 - 分支：`feature/stage-8a-model-instances`
-- 起始提交：`f907319d93127e9fc240583d8b3203a127cd2ac7`
+- 起始提交：`a0136def27e1b307941f79a4dca6affff6ac62f8`
 - 目标：将固定四槽位（Kimi/MiMo/DeepSeek/OpenAI）解耦为独立模型实例体系
-- 当前状态：已完成 6 处耦合点摸排，PROJECT.md 和 DEVELOPMENT_LOG.md 已更新
-- 下一子阶段：8A-2（新增 ModelInstance 数据结构和实例仓库）
+- 当前状态：
+  - ServiceType 枚举已新增（6 种类型）
+  - ModelInstance 数据类已新增（7 字段）
+  - ModelInstanceRepository 已新增（迁移 + 持久化 + 加载）
+  - DashboardApplication.onCreate 已触发迁移
+  - 首次迁移验证通过（4 个 legacy 实例，serviceType 正确）
+  - 二次启动幂等验证通过（数量不变、无重复）
+  - 用户真机验收通过
+- 下一子阶段：8A-3（后台授权和缓存 Key 从 platformName/index 迁移到 instanceId）
 
 ## 仓库与当前基线
 
