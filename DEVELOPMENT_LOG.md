@@ -895,3 +895,62 @@ Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置�
 **下一项唯一任务**
 
 Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。
+
+---
+
+## 2026-07-14｜Stage 8A-2B 加固 ModelInstanceRepository
+
+**目标与背景**
+
+Stage 8A-2 已完成四个固定槽位到 ModelInstance 的迁移，但仓库的健壮性不足：实例 JSON 完整性检查不完整、commit 结果未检查、额外配置无稳定 ID 生成规则。本轮加固代码主要保护未来损坏恢复和额外配置迁移，当前设备已有四个真实实例不受影响。
+
+**方案与取舍**
+
+- `hasValidInstances()` 加固为公开方法，执行 6 条完整性检查：
+  1. `model_instances_v1` 存在且是非空 JSON 数组
+  2. 每一项都能完整解析
+  3. 每个 `instanceId` 都非空
+  4. `instanceId` 不能重复
+  5. `serviceType` 字段能够解析（UNKNOWN 是合法显式类型）
+  6. 数组中不存在解析失败后被静默丢弃的对象
+- `saveInstances()` 返回 `Boolean`，两步 commit：
+  1. 先只写入 `model_instances_v1`
+  2. 检查 `commit()` 返回值
+  3. 数据写入成功后才单独写入 `model_instance_schema_version = 1`
+  4. 再检查第二次 `commit()` 返回值
+- `ensureMigrated()` 返回 `Boolean`：已有有效结构 → true；迁移和两步写入全部成功 → true；迁移来源为空或写入失败 → false
+- 固定槽位 instanceId 严格映射（大小写不敏感匹配）：Kimi→`legacy-kimi`、MiMo→`legacy-mimo`、DeepSeek→`legacy-deepseek`、OpenAI→`legacy-openai`
+- 额外配置稳定 ID 生成：`legacy-extra-<安全slug>-<稳定短摘要>`
+  - slug 只保留小写英文字母、数字和短横线；连续非法字符合并为一个短横线；首尾短横线移除；为空时用 `unnamed`
+  - 稳定短摘要：SHA-256 前 12 位
+  - 摘要输入（稳定字段）：`config.id`、`config.name`、规范化 `apiBase`、`config.model`、原列表索引
+  - 不得把 API Key 原文写入日志、文档或终端输出
+  - 重复执行迁移必须生成相同 instanceId
+  - 最终列表内如仍发生冲突，确定性消歧（追加递增序号），不能覆盖前一项
+- ServiceType 推断扩展：OpenAI 槽位和所有额外配置均按 `apiBase` 域名推断（coolyeah.net→NEW_API、api.deepseek.com→DEEPSEEK_OFFICIAL、aihuangniu.com→AIHUANGNIU、platform.xiaomimimo.com→MIMO、其他→OPENAI_COMPATIBLE/UNKNOWN）
+- `DashboardApplication.onCreate` 已处理 `ensureMigrated()` 返回值
+
+**明确未修改**
+
+- 当前设备已有四个真实实例不重迁移
+- 不改变现有实例的 instanceId、serviceType、displayName
+- 不删除旧 `api_configs`、`Kimi`/`MiMo`/`DeepSeek`/`OpenAI` Key
+- 不清除 MiMo Cookie、爱黄牛 Bearer Token、Widget 缓存
+- 不修改 `BalanceWidgetProvider`、`BackgroundAuthRepository`、`WidgetData`、`WebAuthActivity`、`WebAuthProfileRegistry`、`AdapterFactory`、任何 Adapter 实现、任何 Widget XML 布局
+- 不开始 Stage 8A-3 或 Stage 8A-4
+- 不合并到 `main`
+
+**验证证据**
+
+- 编译：待执行端只执行一次
+- 覆盖安装：待编译成功后只执行一次
+- 当前设备实例验证：待安装后检查
+- 用户本人真机测试通过：待用户确认
+
+**回滚位置**
+
+`8fa901c3ac2822ae843a6d7c25667423e05b9a01`
+
+**下一项唯一任务**
+
+Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。

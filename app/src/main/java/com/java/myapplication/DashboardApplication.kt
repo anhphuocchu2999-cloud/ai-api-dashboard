@@ -11,7 +11,10 @@ class DashboardApplication : Application() {
 
         // 确保模型实例迁移完成
         val prefs = getSharedPreferences("api_config", MODE_PRIVATE)
-        ModelInstanceRepository.ensureMigrated(prefs)
+        val migrated = ModelInstanceRepository.ensureMigrated(prefs)
+        if (!migrated) {
+            android.util.Log.w("DashboardApplication", "ModelInstance migration returned false")
+        }
     }
 
     companion object {

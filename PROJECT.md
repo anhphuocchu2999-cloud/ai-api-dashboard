@@ -1418,6 +1418,77 @@ ModelInstance
 - 迁移幂等，只执行一次。
 - 不卸载、不清除应用数据。
 
+### ModelInstanceRepository 安全规则（Stage 8A-2B）
+
+#### 实例有效性检查
+
+`hasValidInstances()` 必须同时满足：
+
+1. `model_instances_v1` 存在且是非空 JSON 数组；
+2. 每一项都能完整解析；
+3. 每个 `instanceId` 都非空；
+4. `instanceId` 不能重复；
+5. `serviceType` 字段能够解析（UNKNOWN 是合法显式类型）；
+6. 数组中不存在解析失败后被静默丢弃的对象。
+
+任一条件不满足 → `hasValidInstances` 返回 `false`，允许从旧配置重新恢复。
+
+#### 写入结果处理
+
+`saveInstances()` 返回 `Boolean`：
+
+1. 先只写入 `model_instances_v1`；
+2. 检查 `commit()` 返回值；
+3. 只有数据写入成功，才单独写入 `model_instance_schema_version = 1`；
+4. 再检查第二次 `commit()` 返回值。
+
+`ensureMigrated()` 返回 `Boolean`：
+
+- 已有有效结构 → `true`
+- 迁移和两步写入全部成功 → `true`
+- 迁移来源为空或写入失败 → `false`
+
+#### 固定 instanceId 映射
+
+| 旧平台 | instanceId |
+|--------|-----------|
+| Kimi | `legacy-kimi` |
+| MiMo | `legacy-mimo` |
+| DeepSeek | `legacy-deepseek` |
+| OpenAI | `legacy-openai` |
+
+匹配时大小写不敏感，输出严格固定。不得因 displayName、API Base 或 API Key 改变固定 instanceId。
+
+#### 额外配置稳定 instanceId
+
+`ConfigRepository.loadAllConfigs()` 返回四条以外的配置时：
+
+- 格式：`legacy-extra-<安全slug>-<稳定短摘要>`
+- slug：只保留小写英文字母、数字和短横线；连续非法字符合并为一个短横线；首尾短横线移除；为空时用 `unnamed`
+- 稳定短摘要：SHA-256 前 12 位
+- 摘要输入（稳定字段）：`config.id`、`config.name`、规范化 `apiBase`、`config.model`、原列表索引
+- 不得把 API Key 原文写入日志、文档或终端输出
+- 重复执行迁移必须生成相同 instanceId
+- 最终列表内如仍发生冲突，确定性消歧（追加递增序号），不能覆盖前一项
+
+#### ServiceType 推断
+
+固定槽位：
+
+- Kimi → `NEW_API`
+- MiMo → `MIMO`
+- DeepSeek（apiBase 含 `api.deepseek.com`）→ `DEEPSEEK_OFFICIAL`
+- DeepSeek（其他）→ `OPENAI_COMPATIBLE`
+
+OpenAI 和额外配置按 apiBase 域名推断：
+
+- `coolyeah.net` → `NEW_API`
+- `api.deepseek.com` → `DEEPSEEK_OFFICIAL`
+- `aihuangniu.com` → `AIHUANGNIU`
+- `platform.xiaomimimo.com` → `MIMO`
+- OpenAI 槽位无法识别 → `OPENAI_COMPATIBLE`
+- 额外配置无法识别 → `UNKNOWN`（不得静默改成任意已知平台）
+
 ### 固定槽位耦合点摸排结果（Stage 8A-1）
 
 #### 1. 配置存储层（ConfigRepository + MainActivity）

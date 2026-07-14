@@ -1,6 +1,6 @@
 # AI API Dashboard｜AI 交接状态
 
-> 最近更新：2026-07-12
+> 最近更新：2026-07-14
 > 本文件是当前状态快照；历史过程见 `DEVELOPMENT_LOG.md`。
 
 ## 新 AI 的强制阅读顺序
@@ -15,19 +15,20 @@
 
 ## 当前阶段
 
-`Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置安全幂等迁移` — 已完成，等待提交推送。
+`Stage 8A-2B：加固 ModelInstanceRepository，修正交接文档状态` — 进行中，等待用户真机验收。
 
 - 分支：`feature/stage-8a-model-instances`
-- 起始提交：`a0136def27e1b307941f79a4dca6affff6ac62f8`
-- 目标：将固定四槽位（Kimi/MiMo/DeepSeek/OpenAI）解耦为独立模型实例体系
+- 当前已验收业务基线：`8fa901c3ac2822ae843a6d7c25667423e05b9a01`
+- 目标：加固 ModelInstance 数据结构和仓库，保护未来损坏恢复和额外配置迁移
 - 当前状态：
-  - ServiceType 枚举已新增（6 种类型）
-  - ModelInstance 数据类已新增（7 字段）
-  - ModelInstanceRepository 已新增（迁移 + 持久化 + 加载）
-  - DashboardApplication.onCreate 已触发迁移
-  - 首次迁移验证通过（4 个 legacy 实例，serviceType 正确）
-  - 二次启动幂等验证通过（数量不变、无重复）
-  - 用户真机验收通过
+  - 实例 JSON 完整性检查已加固（6 条有效性规则）
+  - `saveInstances()` 已返回 Boolean，两步 commit 检查
+  - `ensureMigrated()` 已返回 Boolean
+  - 固定槽位 instanceId 严格映射（大小写不敏感匹配）
+  - 额外配置稳定 ID 生成（SHA-256 安全 slug）
+  - ServiceType 推断扩展至额外配置
+  - DashboardApplication 已处理迁移返回值
+  - 当前四个真实实例不重迁移
 - 下一子阶段：8A-3（后台授权和缓存 Key 从 platformName/index 迁移到 instanceId）
 
 ## 仓库与当前基线
@@ -35,8 +36,7 @@
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
 - `main`：保持未合并，不直接开发。
 - Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- 当前业务基线分支：`feature/stage-7d-newapi-billing`
-- 当前业务基线提交：`46a08936d00b3c0f0907b020e561e19d36377a03`
+- **当前已验收业务基线**：`8fa901c3ac2822ae843a6d7c25667423e05b9a01`
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
