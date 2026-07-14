@@ -30,6 +30,8 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.webauth.DeepSeekWebProbeRepository
 import com.java.myapplication.webauth.WebAuthProfile
 import com.java.myapplication.webauth.WebAuthProfileRegistry
+import java.net.HttpURLConnection
+import java.net.URL
 import org.json.JSONObject
 
 /**
@@ -37,10 +39,10 @@ import org.json.JSONObject
  *
  * 已验证正式路径：
  * - MiMo Cookie
+ * - DeepSeek Cookie，经 get_user_summary 真实接口验证
  * - 爱黄牛 localStorage auth_token
  *
- * DeepSeek 当前进入 probeOnly 只读摸排模式：用户登录后，仅保存去掉查询参数的
- * endpoint、HTTP 状态码和 JSON 字段结构，不保存响应值、请求头或会话凭据原文。
+ * probeOnly 仍保留给未来只读接口摸排；正式授权不会保存未通过账户接口验证的 Cookie。
  */
 class WebAuthActivity : Activity() {
 
@@ -50,6 +52,8 @@ class WebAuthActivity : Activity() {
         private const val PREFS_NAME = "api_config"
         private const val PROBE_INSTALL_ATTEMPTS = 24
         private const val PROBE_INSTALL_INTERVAL_MS = 250L
+        private const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
 
         private val PROBE_SCRIPT = """
             (function() {
@@ -130,6 +134,7 @@ class WebAuthActivity : Activity() {
     private lateinit var targetInstanceKey: String
     private var loginDetected = false
     private var showCancelToast = false
+    private var cookieVerificationInProgress = false
 
     private val pollHandler = Handler(Looper.getMainLooper())
     private var pollRunnable: Runnable? = null
@@ -190,7 +195,7 @@ class WebAuthActivity : Activity() {
             domStorageEnabled = true
             javaScriptCanOpenWindowsAutomatically = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            userAgentString = "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+            userAgentString = MOBILE_USER_AGENT
         }
 
         if (profile.probeOnly) {
@@ -342,21 +347,81 @@ class WebAuthActivity : Activity() {
     }
 
     private fun checkAndSaveCookies() {
-        if (loginDetected) return
+        if (loginDetected || cookieVerificationInProgress) return
 
-        val cookieString = CookieManager.getInstance().getCookie(profile.cookieDomain) ?: ""
+        val cookieString = CookieManager.getInstance().getCookie(profile.cookieDomain).orEmpty()
         if (cookieString.isBlank()) return
 
         val cookies = parseCookieString(cookieString)
-        if (!profile.requiredCookieNames.all(cookies::containsKey)) return
+        if (profile.requiredCookieNames.isNotEmpty()) {
+            if (!profile.requiredCookieNames.all(cookies::containsKey)) return
+            saveCredentialAndRefresh(buildCookieHeader(cookies))
+            return
+        }
 
-        val allCookies = buildString {
+        val verificationUrl = profile.cookieVerificationUrl
+        if (!verificationUrl.isNullOrBlank()) {
+            verifyCookieAgainstAccountEndpoint(cookieString, verificationUrl)
+            return
+        }
+
+        saveCredentialAndRefresh(buildCookieHeader(cookies))
+    }
+
+    private fun verifyCookieAgainstAccountEndpoint(cookieString: String, verificationUrl: String) {
+        if (cookieVerificationInProgress || loginDetected) return
+        cookieVerificationInProgress = true
+
+        Thread {
+            val valid = try {
+                val conn = URL(verificationUrl).openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Cookie", cookieString)
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Referer", profile.loginUrl)
+                conn.setRequestProperty("Origin", "https://platform.deepseek.com")
+                conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+
+                val responseCode = conn.responseCode
+                val body = if (responseCode in 200..299) {
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }
+                conn.disconnect()
+
+                if (responseCode !in 200..299) {
+                    false
+                } else {
+                    val root = JSONObject(body)
+                    val data = root.optJSONObject("data")
+                    root.optInt("code", -1) == 0 &&
+                        data?.optInt("biz_code", -1) == 0 &&
+                        data.optJSONObject("biz_data") != null
+                }
+            } catch (_: Exception) {
+                false
+            }
+
+            runOnUiThread {
+                cookieVerificationInProgress = false
+                if (valid && !loginDetected) {
+                    val cookies = parseCookieString(cookieString)
+                    saveCredentialAndRefresh(buildCookieHeader(cookies))
+                }
+            }
+        }.start()
+    }
+
+    private fun buildCookieHeader(cookies: Map<String, String>): String {
+        return buildString {
             cookies.forEach { (name, value) ->
                 if (isNotEmpty()) append("; ")
                 append("$name=$value")
             }
         }
-        saveCredentialAndRefresh(allCookies)
     }
 
     private fun saveCredentialAndRefresh(
