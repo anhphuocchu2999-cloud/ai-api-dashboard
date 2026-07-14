@@ -134,6 +134,7 @@ class WebAuthActivity : Activity() {
     private lateinit var targetInstanceKey: String
     private var loginDetected = false
     private var showCancelToast = false
+    private var hadExistingAuthorization = false
     private var cookieVerificationInProgress = false
 
     private val pollHandler = Handler(Looper.getMainLooper())
@@ -175,6 +176,14 @@ class WebAuthActivity : Activity() {
         targetInstanceKey = intent.getStringExtra(EXTRA_TARGET_INSTANCE_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: profile.instanceKey
+
+        val existingAuth = BackgroundAuthRepository.load(
+            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+            instanceKey = targetInstanceKey
+        )
+        hadExistingAuthorization = existingAuth.enabled &&
+            existingAuth.authType == profile.authType &&
+            existingAuth.authValue.isNotBlank()
         showCancelToast = !profile.probeOnly
 
         setContentView(R.layout.activity_web_auth)
@@ -263,7 +272,11 @@ class WebAuthActivity : Activity() {
         if (showCancelToast && !loginDetected) {
             Toast.makeText(
                 this,
-                "未检测到登录状态，已取消授权",
+                if (hadExistingAuthorization) {
+                    "未更新授权，原登录状态仍保留"
+                } else {
+                    "未检测到登录状态，已取消授权"
+                },
                 Toast.LENGTH_SHORT
             ).show()
         }
