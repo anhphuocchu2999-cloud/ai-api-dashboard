@@ -18,7 +18,7 @@ object WebAuthProfileRegistry {
             apiBaseHostContains = "platform.xiaomimimo.com"
         ),
         WebAuthProfile(
-            profileId = "deepseek-probe",
+            profileId = "deepseek",
             instanceKey = "DeepSeek",
             displayName = "DeepSeek",
             loginUrl = "https://platform.deepseek.com/usage",
@@ -26,7 +26,8 @@ object WebAuthProfileRegistry {
             authType = BackgroundAuthType.COOKIE,
             requiredCookieNames = emptySet(),
             apiBaseHostContains = "api.deepseek.com",
-            probeOnly = true
+            cookieVerificationUrl =
+                "https://platform.deepseek.com/api/v0/users/get_user_summary"
         ),
         WebAuthProfile(
             profileId = "aihuangniu",
