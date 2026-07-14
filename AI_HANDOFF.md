@@ -15,82 +15,99 @@
 
 ## 当前阶段
 
-`Stage 8B：四张配置卡统一展示 API、网页授权、Billing` 已完成云端代码，等待一次本地编译、覆盖安装和用户真机验收。
+`Stage 8B：四张配置卡统一连接方式面板` 已完成第二轮云端纠偏，等待一次本地编译、覆盖安装和用户真机验收。
 
 - 当前开发分支：`feature/stage-8a-model-instances`
 - Stage 8A-4 已验收基线：`f5a9507201f1bf836f2e03fbae2dd297eb2a3409`
-- Stage 8B 业务提交：`514967ca0fb3919c88653e0dd3f12bc39fd8ea40`
+- Stage 8B 第一版：`514967ca0fb3919c88653e0dd3f12bc39fd8ea40`
+- Stage 8B 纠偏业务提交：`2f61bd9833f0574b4961585be45d77ec9c0707f2`、`c9f4c722a8435b23fedd81bb775aeb9f8bd6b160`、`0fc97c885978c1a84cd05af986efbdcfab4847ac`、`4d93c1313cdf94d08c94f304edd04437acd9c5ad`
 - 当前状态：代码已推送，尚未声称编译或真机通过
 - 下一步：只执行拉取、一次 `assembleDebug`、一次覆盖安装和真机验收
 
-## 当前进度
+## 主线目标
 
-- Stage 8A-1：方案摸排与文档确认——完成
-- Stage 8A-2 / 2B / 2C：ModelInstance 与仓库迁移加固——完成
-- Stage 8A-3：授权与持久化缓存 Key 迁移到 instanceId——完成并验收
-- Stage 8A-3F：断网刷新快速兜底——完成并验收
-- Stage 8A-4：固定窗口绑定稳定 instanceId、按 serviceType 路由——完成并验收
-- Stage 8B：统一连接方式面板——云端代码完成，待验收
+四个 Widget / 配置窗口必须是独立模型实例，不再天生等于 Kimi、MiMo、DeepSeek、OpenAI。每个窗口可以选择当前已真实接入的服务，随后按该服务能力开放：
 
-## Stage 8B 实现结果
+1. API
+2. 网页授权
+3. Billing
+4. 余额、近期消费/用量、请求次数、Token 等数据能力
 
-四张配置卡现在固定显示三个区域，不再把能力藏在“高级设置”中：
+未经真实接口验证的能力必须明确标注“当前未接入”，不得显示 0 或伪造数据。
 
-1. `API`
-2. `网页授权`
-3. `Billing`
+## Stage 8B 第二轮纠偏
 
-### API
+第一版虽然展示了 API、网页授权和 Billing，但窗口仍被历史平台身份限制，且“不支持”区域使用“锁定”文案，容易让用户误认为整张卡不可配置。第二轮完成以下纠偏：
 
-- 四张卡都保留 API Base、API Key、模型名称和测试连接；
-- 单模型自动选择，多模型继续弹窗选择；
-- 显示未配置、待测试、正在测试、已连接、连接失败状态；
-- API Key 使用密码样式，不在日志中输出。
+### 服务类型选择
 
-### 网页授权
+四张配置卡都新增“服务类型”选择，目前可选：
 
-- MiMo：显示 Cookie 网页授权，保留“连接账户 / 重新连接”和手动 Cookie 备用输入；
-- 爱黄牛：显示 Bearer Token 网页授权，保留网页登录自动读取 `auth_token` 和手动 Token 备用输入；
-- Kimi、DeepSeek：明确显示“当前服务暂未接入”，不再允许任意选择无效 Cookie / Bearer Token；
-- 继续复用 `BackgroundAuthRepository`、`WebAuthProfileRegistry` 和 `WebAuthActivity`；
-- 返回配置页时自动重新读取授权状态。
+- Kimi / NewAPI
+- MiMo
+- DeepSeek 官方
+- 爱黄牛
 
-### Billing
+切换服务后：
 
-- Kimi / NewAPI：显示“已接入”，说明自动复用模型 API Key，继续使用真实 Subscription / Usage Billing；
-- MiMo、DeepSeek、爱黄牛：显示“当前服务暂未接入”；
-- Billing 明确作为数据来源，不描述为第三份认证凭据；
-- 不伪造额度、套餐、余额或用量。
+- 自动填写该服务默认 API Base；
+- 清空旧模型名，要求重新测试连接；
+- 保留用户 API Key，避免擅自删除敏感配置；
+- `ConfigRepository` 按 API Base 推断 `serviceType`，历史窗口名称只作为无法识别时的兼容回退；
+- Adapter、网页授权和 Billing 能力随所选服务重新计算。
 
-### 页面结构
+### 网页授权绑定
 
-- 移除所有卡片都能随意选择 NONE / COOKIE / BEARER_TOKEN 的误导式单选项；
-- 连接方式由当前 Adapter 的 `ProviderCapabilityProfile` 与真实 `WebAuthProfile` 决定；
-- App 首页版本显示更新为 `Stage: 8B`；
-- 配置读取继续经过 `ConfigRepository`，保存后同步刷新 Widget。
+- MiMo 和爱黄牛的已验证网页登录 Profile 改为按 API Base 匹配，因此可以在任意窗口中使用；
+- `WebAuthActivity` 新增目标卡片 instanceKey，凭据保存到当前选择该服务的窗口；
+- 旧调用未传目标卡片时仍回退到 Profile 历史 instanceKey；
+- 不新增 DeepSeek 或 Kimi 的虚假网页登录方案。
 
-## Stage 8B 明确未修改
+### 数据能力展示
 
-- 未修改 Widget XML、四卡数量、布局顺序和视觉外观；
-- 未新增或删除模型实例；
-- 未修改任何平台 HTTP 协议或 JSON 解析；
-- 未新增配置仓库、schema、缓存体系或第二套授权体系；
-- 未清除旧 API Key、Cookie、Bearer Token 或 Widget 缓存；
-- 未合并到 `main`。
+每张卡新增“可获取数据”区域，明确显示：
+
+- 账户余额
+- 近期消费 / 用量
+- 请求次数
+- Token
+
+DeepSeek 当前已验证的官方公开 API 只有 `/user/balance`。因此：
+
+- 余额：已接入；
+- 近期消费 / 用量：待接入；
+- 不用 `0.00` 冒充真实消费；
+- 后续需要单独验证真实网页或官方数据接口后才能接入。
+
+### 文案纠偏
+
+不再显示“该入口已锁定”。统一改为：
+
+> 当前尚未接入，并不是卡片被锁死。切换服务类型后，会按所选服务的真实能力自动开放。
+
+## 已保留能力
+
+- 四张卡 API Base、API Key、模型列表和多模型选择；
+- MiMo Cookie 网页授权；
+- 爱黄牛 Bearer Token 网页授权；
+- Kimi / NewAPI Billing；
+- 原 Widget 四卡布局、缓存和断网快速兜底；
+- 旧配置、授权和最近成功数据均不删除；
+- `main` 未合并。
 
 ## 验收重点
 
 安装后必须确认：
 
-1. 四张配置卡都显示 API、网页授权、Billing；
-2. Kimi：API 和 Billing 可用，网页授权显示未接入；
-3. MiMo：API 和 Cookie 网页授权可用，Billing 显示未接入；
-4. DeepSeek：仅 API 可用；
-5. 爱黄牛：API 和 Bearer Token 网页授权可用；
-6. MiMo、爱黄牛无需重新登录；
-7. 不支持的入口无法误操作；
-8. 四个平台原数据、Widget、缓存和断网兜底不回归；
-9. App 无崩溃、空白或配置串卡。
+1. 四张卡都出现“服务类型”选择；
+2. 任意卡可切换 Kimi / MiMo / DeepSeek / 爱黄牛；
+3. 切换后 API Base 更新，模型名清空，提示重新测试；
+4. MiMo 或爱黄牛选到任意窗口后，网页授权入口能够出现；
+5. Kimi / NewAPI 选到任意窗口后，Billing 显示已接入；
+6. DeepSeek 显示余额已接入、近期消费/用量待接入；
+7. 页面不再出现“卡片锁定”误导文案；
+8. 原四个平台数据、登录状态、Widget、缓存和断网兜底不回归；
+9. App 无崩溃、空白、串卡或凭据丢失。
 
 ## 应用信息
 
@@ -99,7 +116,7 @@
 - APK：`app/build/outputs/apk/debug/app-debug.apk`
 - 覆盖安装：`pm install -r`
 
-严禁卸载、`pm clear` 或清除应用数据，因为会破坏现有配置和网页登录授权。
+严禁卸载、`pm clear` 或清除应用数据。
 
 ## 严禁操作
 
@@ -110,4 +127,4 @@
 - 不得绕过 `AdapterFactory`；
 - 不得让 Provider 解析平台协议或授权内容；
 - 每次只推进一个可独立验收的目标；
-- OperitAI 仅在用户明确授权时执行拉取、编译、覆盖安装和启动，不参与代码修改、文档修改、提交或推送。
+- OperitAI 仅执行拉取、编译、覆盖安装和启动，不参与代码修改、文档修改、提交或推送。
