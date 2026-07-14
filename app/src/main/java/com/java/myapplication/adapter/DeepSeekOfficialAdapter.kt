@@ -1,16 +1,27 @@
 package com.java.myapplication.adapter
 
+import android.content.Context
+import com.java.myapplication.DashboardApplication
 import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
-
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import org.json.JSONObject
 
 /**
- * DeepSeek 官方平台适配器
- * 支持余额查询：GET /user/balance
+ * DeepSeek 官方平台适配器。
+ *
+ * 已验证的官方账户接口只有 GET /user/balance。
+ * “近期余额变化”通过两次成功余额快照的真实差值计算：
+ * - 余额下降：显示“余额净减少”
+ * - 余额上升：显示“余额增加”（不误报为负消费）
+ *
+ * 该差值不是 DeepSeek 官方消费明细；充值、赠送、退款也可能影响余额。
  */
 class DeepSeekOfficialAdapter : PlatformAdapter {
 
@@ -32,12 +43,11 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
         val normalizedBase = apiBase.trim().trimEnd('/').removeSuffix("/v1")
-        
-        // 检查 API Key 是否为空
+
         if (apiKey.isBlank()) {
             return WidgetData.error(platformName, "Key未配置")
         }
-        
+
         val url = "$normalizedBase/user/balance"
 
         return try {
@@ -52,7 +62,12 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             if (responseCode == 200) {
                 val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                parseBalanceResponse(responseBody, modelName)
+                parseBalanceResponse(
+                    response = responseBody,
+                    configuredModelName = modelName,
+                    normalizedBase = normalizedBase,
+                    apiKey = apiKey
+                )
             } else {
                 conn.disconnect()
                 val errorMessage = when (responseCode) {
@@ -65,162 +80,189 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 }
                 WidgetData.error(platformName, errorMessage)
             }
-        } catch (e: java.net.SocketTimeoutException) {
+        } catch (_: java.net.SocketTimeoutException) {
             WidgetData.error(platformName, "连接超时")
-        } catch (e: java.net.ConnectException) {
+        } catch (_: java.net.ConnectException) {
             WidgetData.error(platformName, "连接失败")
-        } catch (e: java.net.UnknownHostException) {
+        } catch (_: java.net.UnknownHostException) {
             WidgetData.error(platformName, "域名解析失败")
-        } catch (e: java.io.IOException) {
+        } catch (_: java.io.IOException) {
             WidgetData.error(platformName, "网络错误")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             WidgetData.error(platformName, "未知错误")
         }
     }
 
-    /**
-     * 解析 DeepSeek 官方余额接口返回
-     * 格式示例：
-     * {
-     *   "code": 0,
-     *   "data": {
-     *     "is_available": true,
-     *     "balance_infos": [
-     *       {
-     *         "currency": "CNY",
-     *         "total_balance": "123.45",
-     *         "granted_balance": "100.00",
-     *         "topped_up_balance": "23.45"
-     *       }
-     *     ]
-     *   }
-     * }
-     */
-    private fun parseBalanceResponse(response: String, configuredModelName: String?): WidgetData {
+    private fun parseBalanceResponse(
+        response: String,
+        configuredModelName: String?,
+        normalizedBase: String,
+        apiKey: String
+    ): WidgetData {
         return try {
-            val root = org.json.JSONObject(response)
+            val root = JSONObject(response)
             val isAvailable = root.optBoolean("is_available", false)
             val effectiveModelName = configuredModelName?.trim()?.takeIf { it.isNotEmpty() }
             val balanceInfos = root.optJSONArray("balance_infos")
 
-            if (balanceInfos != null && balanceInfos.length() > 0) {
-                val balanceInfo = balanceInfos.getJSONObject(0)
-                val currency = balanceInfo.optString("currency", "")
-                val totalBalance = balanceInfo.optString("total_balance", "").toDoubleOrNull()
-                val grantedBalance = balanceInfo.optString("granted_balance", "").toDoubleOrNull()
-                val toppedUpBalance = balanceInfo.optString("topped_up_balance", "").toDoubleOrNull()
+            if (balanceInfos == null || balanceInfos.length() == 0) {
+                return WidgetData.error(platformName, "余额解析失败")
+            }
 
-                if (totalBalance != null) {
-                    val currencySymbol = when (currency.uppercase()) {
-                        "CNY" -> "¥"
-                        "USD" -> "$"
-                        else -> ""
-                    }
+            val balanceInfo = balanceInfos.getJSONObject(0)
+            val currency = balanceInfo.optString("currency", "")
+            val totalBalanceRaw = balanceInfo.optString("total_balance", "")
+            val grantedBalanceRaw = balanceInfo.optString("granted_balance", "")
+            val toppedUpBalanceRaw = balanceInfo.optString("topped_up_balance", "")
 
-                    val displayLabel = if (isAvailable) "可用" else "余额不足"
+            val totalBalance = totalBalanceRaw.toBigDecimalOrNull()
+                ?: return WidgetData.error(platformName, "余额解析失败")
+            val grantedBalance = grantedBalanceRaw.toBigDecimalOrNull()
+            val toppedUpBalance = toppedUpBalanceRaw.toBigDecimalOrNull()
+            val currencySymbol = currencySymbol(currency)
 
-                    // 构建 auxiliaryMetrics（真实可用字段）
-                    val auxList = mutableListOf<WidgetData.DisplayMetric>()
-                    if (grantedBalance != null && grantedBalance > 0) {
-                        auxList.add(WidgetData.DisplayMetric("赠送", "${WidgetData.formatNumber(grantedBalance)} ${currencySymbol}"))
-                    }
-                    if (toppedUpBalance != null && toppedUpBalance > 0) {
-                        auxList.add(WidgetData.DisplayMetric("充值", "${WidgetData.formatNumber(toppedUpBalance)} ${currencySymbol}"))
-                    }
-
-                    WidgetData(
-                        platformName = platformName,
-                        modelName = effectiveModelName,
-                        // 第2层：Core 1 固定核心指标
-                        primaryMetric = WidgetData.DisplayMetric("余额", "${WidgetData.formatNumber(totalBalance)} ${currencySymbol}"),
-                        // 第3层：Core 2 动态轮播位①（当前无时间窗口数据，保持空）
-                        usageMetrics = emptyList(),
-                        // 第4层：百分比视觉层（当前无可靠分子分母，保持空）
-                        percentage = null,
-                        percentageLabel = null,
-                        // 第5层：B级辅助轮播位②
-                        auxiliaryMetrics = auxList,
-                        // 状态
-                        statusText = if (isAvailable) "正常" else "余额不足",
-                        isSuccess = true,
-                        // 兼容旧字段
-                        displayLabel = currencySymbol,
-                        total = totalBalance,
-                        used = null,
-                        remaining = totalBalance,
-                        usagePercent = null,
-                        isAvailable = true
+            val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
+            if (grantedBalance != null) {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric(
+                        "赠送余额",
+                        "$currencySymbol${formatAmount(grantedBalance)}"
                     )
-                } else {
-                    WidgetData.error(platformName, "余额解析失败")
-                }
-            } else {
-                // balance_infos 不存在或为空
-                WidgetData(
-                    platformName = platformName,
-                    modelName = effectiveModelName,
-                    displayLabel = null,
-                    total = null,
-                    used = null,
-                    remaining = null,
-                    usagePercent = null,
-                    isAvailable = true
                 )
             }
-        } catch (e: Exception) {
+            if (toppedUpBalance != null) {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric(
+                        "充值余额",
+                        "$currencySymbol${formatAmount(toppedUpBalance)}"
+                    )
+                )
+            }
+
+            val balanceChangeMetrics = buildBalanceChangeMetrics(
+                normalizedBase = normalizedBase,
+                apiKey = apiKey,
+                currency = currency,
+                currencySymbol = currencySymbol,
+                currentBalance = totalBalance
+            )
+
+            WidgetData(
+                platformName = platformName,
+                modelName = effectiveModelName,
+                primaryMetric = WidgetData.DisplayMetric(
+                    "余额",
+                    "$currencySymbol${formatAmount(totalBalance)}"
+                ),
+                usageMetrics = balanceChangeMetrics,
+                percentage = null,
+                percentageLabel = null,
+                auxiliaryMetrics = auxiliaryMetrics,
+                statusText = if (isAvailable) "正常" else "余额不足",
+                isSuccess = true,
+                displayLabel = currencySymbol,
+                total = totalBalance.toDouble(),
+                used = null,
+                remaining = totalBalance.toDouble(),
+                usagePercent = null,
+                isAvailable = true
+            )
+        } catch (_: Exception) {
             WidgetData.error(platformName, "余额解析失败")
         }
     }
 
     /**
-     * 提取 data 对象内容
+     * 用真实余额快照计算两次成功刷新之间的余额变化。
+     * API Key 只参与 SHA-256 指纹计算，不保存原文，也不写日志。
      */
-    private fun extractDataObject(response: String): String? {
-        val dataStart = response.indexOf("\"data\":")
-        if (dataStart == -1) return null
+    private fun buildBalanceChangeMetrics(
+        normalizedBase: String,
+        apiKey: String,
+        currency: String,
+        currencySymbol: String,
+        currentBalance: BigDecimal
+    ): List<WidgetData.DisplayMetric> {
+        val context = DashboardApplication.appContextOrNull()
+            ?: return emptyList()
+        val prefs = context.getSharedPreferences(SNAPSHOT_PREFS_NAME, Context.MODE_PRIVATE)
+        val identity = snapshotIdentity(normalizedBase, apiKey)
+        val balanceKey = "${identity}_balance"
+        val currencyKey = "${identity}_currency"
+        val timeKey = "${identity}_time"
 
-        var braceCount = 0
-        var dataObjStart = -1
-        var dataObjEnd = -1
-        for (i in dataStart + 7 until response.length) {
-            if (response[i] == '{') {
-                if (braceCount == 0) dataObjStart = i
-                braceCount++
-            } else if (response[i] == '}') {
-                braceCount--
-                if (braceCount == 0) {
-                    dataObjEnd = i + 1
-                    break
-                }
-            }
+        val previousBalance = prefs.getString(balanceKey, null)?.toBigDecimalOrNull()
+        val previousCurrency = prefs.getString(currencyKey, null)
+        val previousTime = prefs.getLong(timeKey, -1L)
+        val now = System.currentTimeMillis()
+
+        fun saveCurrentSnapshot() {
+            prefs.edit()
+                .putString(balanceKey, currentBalance.toPlainString())
+                .putString(currencyKey, currency.uppercase())
+                .putLong(timeKey, now)
+                .apply()
         }
 
-        return if (dataObjStart != -1 && dataObjEnd != -1) {
-            response.substring(dataObjStart, dataObjEnd)
-        } else null
+        if (previousBalance == null || previousTime < 0L || previousCurrency != currency.uppercase()) {
+            saveCurrentSnapshot()
+            return listOf(WidgetData.DisplayMetric("余额变化统计中…", ""))
+        }
+
+        val netDecrease = previousBalance.subtract(currentBalance)
+        val timeLabel = formatTimeDiff(now - previousTime)
+        val metric = when {
+            netDecrease > BigDecimal.ZERO -> WidgetData.DisplayMetric(
+                "${timeLabel}余额净减少",
+                "$currencySymbol${formatAmount(netDecrease)}"
+            )
+            netDecrease < BigDecimal.ZERO -> WidgetData.DisplayMetric(
+                "${timeLabel}余额增加",
+                "$currencySymbol${formatAmount(netDecrease.abs())}"
+            )
+            else -> WidgetData.DisplayMetric("${timeLabel}余额无变化～", "")
+        }
+
+        saveCurrentSnapshot()
+        return listOf(metric)
     }
 
-    /**
-     * 从 JSON 中提取指定 key 的值
-     */
-    private fun extractJsonValue(json: String, key: String): String? {
-        val keyStr = "\"$key\":"
-        val idx = json.indexOf(keyStr)
-        if (idx == -1) return null
-        val valueStart = idx + keyStr.length
-        var i = valueStart
-        while (i < json.length && (json[i] == ' ' || json[i] == '"')) i++
-        val endIdx = when {
-            json[i] == '"' -> {
-                val start = i + 1
-                json.indexOf('"', start)
-            }
-            else -> {
-                var end = i
-                while (end < json.length && json[end] !in setOf(',', '}', ']')) end++
-                end
-            }
+    private fun snapshotIdentity(normalizedBase: String, apiKey: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest("${normalizedBase.trimEnd('/')}|$apiKey".toByteArray(Charsets.UTF_8))
+        return bytes.take(12).joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun currencySymbol(currency: String): String {
+        return when (currency.uppercase()) {
+            "CNY" -> "¥"
+            "USD" -> "$"
+            else -> currency.uppercase().takeIf { it.isNotBlank() }?.plus(" ") ?: ""
         }
-        return if (endIdx > i) json.substring(i, endIdx).trim() else null
+    }
+
+    private fun formatAmount(value: BigDecimal): String {
+        val rounded = value.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros()
+        return if (rounded.scale() < 2) {
+            rounded.setScale(2, RoundingMode.HALF_UP).toPlainString()
+        } else {
+            rounded.toPlainString()
+        }
+    }
+
+    private fun formatTimeDiff(diffMs: Long): String {
+        val minutes = (diffMs.coerceAtLeast(0L)) / 60000L
+        val hours = minutes / 60L
+        val remainingMinutes = minutes % 60L
+        return when {
+            minutes < 1L -> "不到1分钟"
+            hours == 0L -> "过去${minutes}分钟"
+            remainingMinutes == 0L -> "过去${hours}小时"
+            else -> "过去${hours}小时${remainingMinutes}分钟"
+        }
+    }
+
+    companion object {
+        private const val SNAPSHOT_PREFS_NAME = "deepseek_balance_snapshots"
     }
 }
