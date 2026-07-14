@@ -14,7 +14,8 @@ object WebAuthProfileRegistry {
             requiredCookieNames = setOf(
                 "api-platform_serviceToken",
                 "userId"
-            )
+            ),
+            apiBaseHostContains = "platform.xiaomimimo.com"
         ),
         WebAuthProfile(
             profileId = "aihuangniu",
@@ -34,23 +35,23 @@ object WebAuthProfileRegistry {
     }
 
     fun findByInstanceKey(instanceKey: String): WebAuthProfile? {
-        return profiles.firstOrNull { it.instanceKey == instanceKey }
+        return profiles.firstOrNull { it.instanceKey.equals(instanceKey, ignoreCase = true) }
     }
 
     /**
-     * 根据平台实例键和 apiBase 查找匹配的网页登录配置。
+     * 根据当前卡片和 API Base 查找已经验证过的网页登录方案。
      *
-     * Profile 没有 apiBaseHostContains 时，仅要求 instanceKey 匹配；
-     * Profile 配置了 apiBaseHostContains 时，instanceKey 与 apiBase 必须同时匹配。
+     * Stage 8B 修正：卡片不再天生等于某个平台。配置了 host 约束的 Profile
+     * 以 API Base 为准，因此任意卡片切换为 MiMo 或爱黄牛后都能开放对应网页登录。
+     * 没有 host 约束的旧 Profile 仍按 instanceKey 匹配，保留兼容行为。
      */
     fun findFor(instanceKey: String, apiBase: String): WebAuthProfile? {
         return profiles.firstOrNull { profile ->
-            if (profile.instanceKey != instanceKey) {
-                false
+            val hostConstraint = profile.apiBaseHostContains
+            if (!hostConstraint.isNullOrBlank()) {
+                apiBase.contains(hostConstraint, ignoreCase = true)
             } else {
-                val hostConstraint = profile.apiBaseHostContains
-                hostConstraint.isNullOrBlank() ||
-                    apiBase.contains(hostConstraint, ignoreCase = true)
+                profile.instanceKey.equals(instanceKey, ignoreCase = true)
             }
         }
     }
