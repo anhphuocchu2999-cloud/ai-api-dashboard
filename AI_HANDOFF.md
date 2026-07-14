@@ -15,17 +15,19 @@
 
 ## 当前阶段
 
-`Stage 8B：四张配置卡统一连接方式面板` 尚未验收完成。当前正在执行一个限定范围的子任务：
+`Stage 8B：四张配置卡统一连接方式面板` 尚未最终验收。当前限定子任务为：
 
-> DeepSeek 网页登录后的只读接口结构摸排。
+> DeepSeek 网页授权与真实账户汇总数据正式接入。
 
 - 当前开发分支：`feature/stage-8a-model-instances`
 - Stage 8A-4 已验收基线：`f5a9507201f1bf836f2e03fbae2dd297eb2a3409`
 - Stage 8B 第二轮纠偏基线：`92e9c571ebfab3aa8954f84688fcefc7be7053e2`
 - DeepSeek 余额变化快照：`9319f628c62ce1354717d22e928abff05147ab17`
-- DeepSeek 网页摸排当前业务 HEAD：`8edd7c9bc2fb77f49859866b6c8e3b2336c43899`
-- 当前状态：云端代码已推送，尚未声称编译、登录或真机摸排成功
-- 下一步：拉取、一次 `assembleDebug`、一次覆盖安装；用户本人登录 DeepSeek 并查看捕获结果
+- DeepSeek 网页接口摸排完成：`cabca26d62e282b6556c25e7b64ca079ff070c86`
+- DeepSeek 正式网页账单业务提交：`70a918188551f3743c3e6563622f69198d9e294c`
+- DeepSeek 正式网页登录配置：`d1ce70620e1a01dba2f06b840279e1b0d7cc7806`、`ad67c1ed493679e3dcb8e550f98e567c2a7d1561`、`f9116f507b3d375ce71a854216d455986ee38f71`
+- 当前状态：云端代码已推送，尚未声称编译、安装或真机数据成功
+- 下一步：一次 `assembleDebug`、一次覆盖安装、用户真机刷新 DeepSeek 验证
 
 ## 主线目标
 
@@ -36,89 +38,96 @@
 3. Billing
 4. 余额、近期消费/用量、请求次数、Token 等数据能力
 
-未经真实接口验证的能力必须明确标注“当前未接入”，不得伪造数据。
+未经真实接口验证的能力不得伪造。
 
-## 已验收基础
+## DeepSeek 已验证接口
 
-- Stage 8A 模型实例、instanceId、授权缓存迁移和 serviceType 路由已完成；
-- 四张 Widget 卡保留原布局；
-- MiMo Cookie 登录已验证；
-- 爱黄牛 localStorage Bearer Token 已验证；
-- Kimi / NewAPI Billing 已验证；
-- DeepSeek 官方 `/user/balance` 已验证；
-- 断网快速恢复最近成功数据已验证。
+### 官方 API Key
 
-## Stage 8B 当前页面
+- `GET /user/balance`
+- 模型列表
+- 账户是否可调用
+- 总余额
+- 赠送余额
+- 充值余额
 
-- 四张配置卡可选择 Kimi / NewAPI、MiMo、DeepSeek 官方、爱黄牛；
-- 每张卡显示 API、网页授权、Billing 和可获取数据；
-- 不支持的能力显示“当前未接入”，不再显示“卡片锁定”；
-- Stage 8B 尚未由用户最终验收，页面易用性仍需要后续收口。
+### 网页账户 Cookie
 
-## DeepSeek 当前真实能力
+用户本人登录并完成只读接口摸排后，已验证：
 
-### 官方 API
+- `GET https://platform.deepseek.com/api/v0/users/get_user_summary`
+- HTTP 200
+- 返回 `normal_wallets`
+- 返回 `bonus_wallets`
+- 返回 `monthly_costs`
+- 返回 `monthly_token_usage`
+- 返回 `total_costs`
+- 返回 `total_available_token_estimation`
 
-已接入：
+另已发现但本轮未正式解析：
 
-- 模型列表；
-- 账户是否可调用；
-- 总余额；
-- 赠送余额；
-- 充值余额。
+- `/api/v0/usage/by_api_key/cost`
+- `/api/v0/usage/by_api_key/amount`
 
-本地补充：
+按 API Key、模型、时间桶的明细留待后续独立任务，不在本轮扩大范围。
 
-- 两次成功刷新之间的“余额净减少 / 余额增加 / 无变化”；
-- 该数据明确不是官方消费明细，充值、赠送、退款也可能影响余额。
+## 本轮正式实现
 
-### 网页摸排
+### DeepSeekOfficialAdapter
 
-DeepSeek 新增 `deepseek-probe` Profile：
+- `fetchData(AdapterRequest)` 先读取官方 API 余额；
+- 当前卡片存在有效 Cookie 时，再请求 `get_user_summary`；
+- Widget 主指标继续显示官方余额；
+- 近期轮播显示本月消费、本月 Token；
+- 辅助轮播显示充值余额、赠送余额、累计消费、余额预计可用 Token；
+- 网页接口失效或网络异常时保留 API 余额，不用网页失败覆盖真实余额；
+- Cookie、API Key、响应原文均不写日志。
 
+能力声明更新为：
+
+- 来源：`API + WEB_AUTH + BILLING`
+- 后台授权：`COOKIE`
+- 数据：`MODELS + BALANCE + USAGE + TOKENS`
+
+### DeepSeek 网页登录
+
+- `deepseek-probe` 已升级为正式 `deepseek` Profile；
 - 打开 `https://platform.deepseek.com/usage`；
-- 用户本人完成登录；
-- WebView 只读观察 fetch / XMLHttpRequest；
-- 同时记录非静态网络请求作为兜底；
-- 仅保存去掉 query/fragment 的 endpoint、请求方法、HTTP 状态码、JSON 字段路径和字段类型；
-- 不保存响应值、请求头、Cookie、Token 或 URL 查询参数；
-- 页面底部提供“查看捕获结果”和“完成并返回”；
-- 有可识别 JSON 响应且存在会话 Cookie 时，才把 Cookie 保存到当前卡片；
-- 摸排结果在完成真实字段验证前不得声明为正式消费数据源。
+- Cookie 名称不固定，因此不凭“存在任意 Cookie”判断成功；
+- 使用 `get_user_summary` 验证 Cookie，只有真实返回 `code=0`、`biz_code=0` 和 `biz_data` 才保存；
+- 已有摸排阶段保存的 DeepSeek Cookie继续兼容，不要求主动清除或重新登录。
 
-相关文件：
+## 保留的备用补充
 
-- `WebAuthActivity.kt`
-- `webauth/DeepSeekWebProbeRepository.kt`
-- `webauth/WebAuthProfile.kt`
-- `webauth/WebAuthProfileRegistry.kt`
-- `adapter/DeepSeekOfficialAdapter.kt`
-- `res/layout/activity_web_auth.xml`
+未登录网页账户时，仍可通过两次成功 `/user/balance` 快照展示：
 
-## 本轮明确未修改
+- 余额净减少
+- 余额增加
+- 余额无变化
+
+该数据明确不是官方消费明细，充值、赠送、退款也可能影响余额。网页登录汇总成功后，真实月度消费和月度 Token 优先展示。
+
+## 本轮未修改
 
 - 未修改 Widget XML、四卡数量和布局；
-- 未把任何未知网页字段接入 Adapter；
-- 未把余额差值冒充官方消费；
-- 未保存网页响应原始内容；
-- 未输出 API Key、Cookie 或 Token；
+- 未接入按 API Key／模型／时间桶的明细接口；
+- 未保存网页响应原文；
+- 未输出 API Key、Cookie、Token；
 - 未卸载、未清数据；
 - 未合并到 `main`。
 
-## 本轮验收
+## 真机验收
 
-安装后：
+安装后确认：
 
-1. 在任意配置卡选择 DeepSeek 官方；
-2. “网页授权”区域应出现可点击入口；
-3. 打开后进入 DeepSeek 用量页并本人登录；
-4. 登录后停留在用量页，必要时刷新页面一次；
-5. 页面底部状态应从“尚未捕获”变为“已捕获 N 个接口”；
-6. 点击“查看捕获结果”，截图 endpoint、状态码和字段结构；
-7. 不得截图或发送账号密码、Cookie、Token、API Key 或账户数值；
-8. 点击“完成并返回”。
-
-只有拿到字段结构后，才能决定 DeepSeek 网页端可正式接入今日消费、历史趋势、Token、请求次数中的哪些能力。
+1. DeepSeek 卡的 API 余额仍正常；
+2. 已有网页登录状态不丢失；
+3. 刷新 Widget 后近期轮播出现“本月消费”和“本月 Token”；
+4. 辅助轮播可见充值余额、赠送余额、累计消费等真实汇总；
+5. 底部状态显示“网页账单已同步”；
+6. Cookie 失效时仍显示 API 余额，并提示“网页登录需重连”；
+7. Kimi、MiMo、爱黄牛、断网缓存不回归；
+8. App 无崩溃、空白或凭据泄露。
 
 ## 应用信息
 
