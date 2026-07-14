@@ -1,17 +1,18 @@
 package com.java.myapplication.adapter
 
+import android.content.Context
+import com.java.myapplication.DashboardApplication
+import com.java.myapplication.config.InstanceKeyResolver
+import com.java.myapplication.config.ModelInstanceRepository
+import com.java.myapplication.config.ServiceType
+
 /**
- * Adapter 工厂
- * 根据平台配置返回对应的 PlatformAdapter
+ * Adapter 工厂。
  *
- * 路由规则（按优先级）：
- * 1. apiBase 包含 coolyeah.net → NewApiAdapter
- * 2. apiBase 包含 api.deepseek.com → DeepSeekOfficialAdapter
- * 3. apiBase 包含 aihuangniu.com → AihuangniuAdapter
- * 4. apiBase 包含 platform.xiaomimimo.com → MiMoAdapter
- * 5. platformName == "Kimi" → NewApiAdapter
- * 6. platformName == "MiMo" → MiMoAdapter
- * 7. 其它 → null
+ * Stage 8A-4：Adapter 的正式路由依据是 ModelInstance.serviceType。
+ * 旧 getAdapter(platformName, apiBase) 保留给尚未迁移的调用方；它会先把历史槽位名
+ * 解析为稳定 instanceId，并在当前 apiBase 与实例配置一致时使用持久化 serviceType。
+ * 若调用方正在编辑尚未同步的新 apiBase，则回退到旧域名规则，避免配置页行为回归。
  *
  * 所有已识别 Adapter 均由 NetworkAwareAdapter 包装：系统确认断网时立即返回
  * 临时网络错误，让 Widget 直接读取最近成功数据，不再等待逐个平台 HTTP 超时。
@@ -19,27 +20,66 @@ package com.java.myapplication.adapter
 object AdapterFactory {
 
     /**
-     * 根据平台配置获取对应的 Adapter
-     * @param platformName SharedPreferences 中的平台键名，例如 "Kimi"
-     * @param apiBase 用户配置的 API Base URL
-     * @return PlatformAdapter? 对应的适配器，如果不支持则返回 null
+     * 按稳定服务协议路由 Adapter。
      */
-    fun getAdapter(platformName: String, apiBase: String): PlatformAdapter? {
-        val adapter = when {
-            // 优先按平台键名路由，确保固定槽位不受旧 apiBase 影响
-            platformName == "MiMo" -> MiMoAdapter()
-            platformName == "Kimi" -> NewApiAdapter()
-            // 按 apiBase 域名路由
-            apiBase.contains("coolyeah.net", ignoreCase = true) -> NewApiAdapter()
-            // DeepSeek 官方 API
-            apiBase.contains("api.deepseek.com", ignoreCase = true) -> DeepSeekOfficialAdapter()
-            // 爱黄牛中转站
-            apiBase.contains("aihuangniu.com", ignoreCase = true) -> AihuangniuAdapter()
-            // MiMo 平台（按 apiBase 兜底）
-            apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> MiMoAdapter()
-            else -> null
+    fun getAdapterByServiceType(serviceType: ServiceType): PlatformAdapter? {
+        val adapter = when (serviceType) {
+            ServiceType.NEW_API -> NewApiAdapter()
+            ServiceType.MIMO -> MiMoAdapter()
+            ServiceType.DEEPSEEK_OFFICIAL -> DeepSeekOfficialAdapter()
+            ServiceType.AIHUANGNIU -> AihuangniuAdapter()
+            ServiceType.OPENAI_COMPATIBLE,
+            ServiceType.UNKNOWN -> null
         }
 
         return adapter?.let(::NetworkAwareAdapter)
+    }
+
+    /**
+     * 历史兼容入口。
+     *
+     * @param platformName 当前固定布局槽位别名，例如 Kimi / MiMo / DeepSeek / OpenAI
+     * @param apiBase 当前配置的 API Base
+     */
+    fun getAdapter(platformName: String, apiBase: String): PlatformAdapter? {
+        val persistedType = resolvePersistedServiceType(platformName, apiBase)
+        val serviceType = persistedType ?: inferLegacyServiceType(platformName, apiBase)
+        return getAdapterByServiceType(serviceType)
+    }
+
+    private fun resolvePersistedServiceType(
+        platformName: String,
+        apiBase: String
+    ): ServiceType? {
+        val context = DashboardApplication.appContextOrNull() ?: return null
+        val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
+        if (!ModelInstanceRepository.hasValidInstances(prefs)) return null
+
+        val instanceId = InstanceKeyResolver.canonicalInstanceId(platformName)
+        val instance = ModelInstanceRepository.loadAllInstances(prefs)
+            .firstOrNull { it.instanceId == instanceId }
+            ?: return null
+
+        return if (normalizeApiBase(instance.apiBase) == normalizeApiBase(apiBase)) {
+            instance.serviceType
+        } else {
+            null
+        }
+    }
+
+    private fun inferLegacyServiceType(platformName: String, apiBase: String): ServiceType {
+        return when {
+            platformName.equals("MiMo", ignoreCase = true) -> ServiceType.MIMO
+            platformName.equals("Kimi", ignoreCase = true) -> ServiceType.NEW_API
+            apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
+            apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
+            apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
+            apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
+            else -> ServiceType.UNKNOWN
+        }
+    }
+
+    private fun normalizeApiBase(apiBase: String): String {
+        return apiBase.trim().trimEnd('/').lowercase()
     }
 }
