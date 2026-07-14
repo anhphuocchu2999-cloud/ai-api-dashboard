@@ -15,97 +15,82 @@
 
 ## 当前阶段
 
-`Stage 8A-4：Widget 固定窗口绑定稳定 instanceId` 已完成云端代码，等待一次本地编译、覆盖安装和用户真机验收。
+`Stage 8B：四张配置卡统一展示 API、网页授权、Billing` 已完成云端代码，等待一次本地编译、覆盖安装和用户真机验收。
 
 - 当前开发分支：`feature/stage-8a-model-instances`
-- Stage 8A-3 已验收业务提交：`a144230bd31948018113206d9395cbabb28e1646`
-- 断网快速兜底已验收业务提交：`404b35fcd7ae1d3a5fee128c8bc571acae6d9e05`
-- Stage 8A-4 配置绑定提交：`cf00bb1e6896d35e48cee3fc8f5d153b114c1d1b`
-- Stage 8A-4 Adapter 路由提交：`4899211f61eb41c652508fbcff5503848e0ebefd`
+- Stage 8A-4 已验收基线：`f5a9507201f1bf836f2e03fbae2dd297eb2a3409`
+- Stage 8B 业务提交：`514967ca0fb3919c88653e0dd3f12bc39fd8ea40`
 - 当前状态：代码已推送，尚未声称编译或真机通过
-- 下一步：只执行拉取、一次 `assembleDebug`、一次覆盖安装和真机回归
+- 下一步：只执行拉取、一次 `assembleDebug`、一次覆盖安装和真机验收
 
-## Stage 8A 当前进度
+## 当前进度
 
 - Stage 8A-1：方案摸排与文档确认——完成
-- Stage 8A-2：ModelInstance、ServiceType、实例仓库和旧配置迁移——完成
-- Stage 8A-2B：实例仓库有效性、稳定 ID 和两步写入加固——完成
-- Stage 8A-2C：schema 重试、严格字段和 serviceType 校验、OpenAI 回退修正——完成
+- Stage 8A-2 / 2B / 2C：ModelInstance 与仓库迁移加固——完成
 - Stage 8A-3：授权与持久化缓存 Key 迁移到 instanceId——完成并验收
-- Stage 8A-3F：断网刷新快速回退最近成功数据——完成并验收
-- Stage 8A-4：固定窗口绑定 instanceId、按 serviceType 路由——云端代码完成，待验收
+- Stage 8A-3F：断网刷新快速兜底——完成并验收
+- Stage 8A-4：固定窗口绑定稳定 instanceId、按 serviceType 路由——完成并验收
+- Stage 8B：统一连接方式面板——云端代码完成，待验收
 
-## Stage 8A-4 实现
+## Stage 8B 实现结果
 
-### 固定窗口与实例绑定
+四张配置卡现在固定显示三个区域，不再把能力藏在“高级设置”中：
 
-现有 Widget 仍保留四个视觉窗口和原布局顺序：
+1. `API`
+2. `网页授权`
+3. `Billing`
 
-- Kimi 窗口 → `legacy-kimi`
-- MiMo 窗口 → `legacy-mimo`
-- DeepSeek 窗口 → `legacy-deepseek`
-- OpenAI 窗口 → `legacy-openai`
+### API
 
-`BalanceWidgetProvider` 仍通过唯一配置入口 `ConfigRepository.loadAllConfigs()` 读取数据。该入口现在在 `model_instances_v1` 有效时，以 `ModelInstanceRepository` 为真实数据源，再映射成当前固定布局能够消费的兼容配置。固定平台名只保留为视觉槽位别名，不再承担真实配置身份。
+- 四张卡都保留 API Base、API Key、模型名称和测试连接；
+- 单模型自动选择，多模型继续弹窗选择；
+- 显示未配置、待测试、正在测试、已连接、连接失败状态；
+- API Key 使用密码样式，不在日志中输出。
 
-### 旧配置页兼容
+### 网页授权
 
-当前配置页仍写入旧 `Kimi / MiMo / DeepSeek / OpenAI` SharedPreferences 键。为避免本阶段同时改动大体量 UI：
+- MiMo：显示 Cookie 网页授权，保留“连接账户 / 重新连接”和手动 Cookie 备用输入；
+- 爱黄牛：显示 Bearer Token 网页授权，保留网页登录自动读取 `auth_token` 和手动 Token 备用输入；
+- Kimi、DeepSeek：明确显示“当前服务暂未接入”，不再允许任意选择无效 Cookie / Bearer Token；
+- 继续复用 `BackgroundAuthRepository`、`WebAuthProfileRegistry` 和 `WebAuthActivity`；
+- 返回配置页时自动重新读取授权状态。
 
-1. `ConfigRepository` 每次读取实例时吸收固定四槽的最新兼容写入；
-2. 只更新实例的可变字段：displayName、serviceType、apiBase、apiKey、modelName、enabled；
-3. `instanceId` 永不改变；
-4. 同步后继续保留旧键，不删除、不清数据；
-5. 额外实例不会被丢弃，仍保留在实例仓库中。
+### Billing
 
-### Adapter 路由
+- Kimi / NewAPI：显示“已接入”，说明自动复用模型 API Key，继续使用真实 Subscription / Usage Billing；
+- MiMo、DeepSeek、爱黄牛：显示“当前服务暂未接入”；
+- Billing 明确作为数据来源，不描述为第三份认证凭据；
+- 不伪造额度、套餐、余额或用量。
 
-`AdapterFactory` 新增正式入口：
+### 页面结构
 
-```text
-getAdapterByServiceType(serviceType)
-```
+- 移除所有卡片都能随意选择 NONE / COOKIE / BEARER_TOKEN 的误导式单选项；
+- 连接方式由当前 Adapter 的 `ProviderCapabilityProfile` 与真实 `WebAuthProfile` 决定；
+- App 首页版本显示更新为 `Stage: 8B`；
+- 配置读取继续经过 `ConfigRepository`，保存后同步刷新 Widget。
 
-映射：
+## Stage 8B 明确未修改
 
-- `NEW_API` → `NewApiAdapter`
-- `MIMO` → `MiMoAdapter`
-- `DEEPSEEK_OFFICIAL` → `DeepSeekOfficialAdapter`
-- `AIHUANGNIU` → `AihuangniuAdapter`
-- `OPENAI_COMPATIBLE / UNKNOWN` → 当前无对应数据 Adapter，返回 null
-
-旧 `getAdapter(platformName, apiBase)` 仍保留。它先把历史槽位别名解析成稳定 `instanceId`，在 apiBase 与实例一致时使用持久化 `serviceType`；配置页正在编辑尚未同步的新地址时，才回退到旧域名推断，避免现有功能回归。
-
-所有已识别 Adapter 继续统一经过 `NetworkAwareAdapter`，断网快速兜底保持有效。
-
-## 已验收的 Stage 8A-3 与断网修复
-
-- MiMo 无需重新登录，余额正常；
-- 爱黄牛无需重新登录，余额和用量正常；
-- Kimi、DeepSeek 正常；
-- Kimi Billing 中性展示正常；
-- Widget 四张卡无空白或崩溃；
-- 断网刷新不再长时间卡在“加载中”，最近成功数据能快速恢复。
-
-## Stage 8A-4 明确未修改
-
-- 未修改 Widget XML、卡片数量、布局顺序或视觉外观；
-- 未新增、删除、排序任意实例；
-- 未修改平台 HTTP 协议或 JSON 解析；
-- 未修改 Cookie、Bearer Token、API Key 的格式；
-- 未删除旧配置、旧授权或旧缓存；
+- 未修改 Widget XML、四卡数量、布局顺序和视觉外观；
+- 未新增或删除模型实例；
+- 未修改任何平台 HTTP 协议或 JSON 解析；
+- 未新增配置仓库、schema、缓存体系或第二套授权体系；
+- 未清除旧 API Key、Cookie、Bearer Token 或 Widget 缓存；
 - 未合并到 `main`。
 
 ## 验收重点
 
-安装 Stage 8A-4 后必须确认：
+安装后必须确认：
 
-1. 四张卡仍处于原位置，标题和数据不变；
-2. Kimi、MiMo、DeepSeek、爱黄牛均能正常刷新；
-3. MiMo、爱黄牛不要求重新登录；
-4. 修改任一固定槽位的 API Base、模型或启用状态后，Widget 能读取更新后的实例配置；
-5. Billing 中性展示和断网快速兜底不回归；
-6. 无空白、崩溃或重复实例。
+1. 四张配置卡都显示 API、网页授权、Billing；
+2. Kimi：API 和 Billing 可用，网页授权显示未接入；
+3. MiMo：API 和 Cookie 网页授权可用，Billing 显示未接入；
+4. DeepSeek：仅 API 可用；
+5. 爱黄牛：API 和 Bearer Token 网页授权可用；
+6. MiMo、爱黄牛无需重新登录；
+7. 不支持的入口无法误操作；
+8. 四个平台原数据、Widget、缓存和断网兜底不回归；
+9. App 无崩溃、空白或配置串卡。
 
 ## 应用信息
 
