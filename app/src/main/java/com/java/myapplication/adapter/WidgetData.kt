@@ -2,6 +2,7 @@ package com.java.myapplication.adapter
 
 import android.content.Context
 import com.java.myapplication.DashboardApplication
+import com.java.myapplication.config.InstanceKeyResolver
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -164,11 +165,28 @@ data class WidgetData(
             return TRANSIENT_ERROR_KEYWORDS.any { keyword -> message.contains(keyword) }
         }
 
+        /**
+         * Stage 8A-3：先读稳定 instanceId 键；若不存在，再兼容读取历史平台键，
+         * 并把原始缓存复制到新键。旧键保留用于回滚。
+         */
         private fun loadLastSuccessfulData(platformName: String): WidgetData? {
             val context = DashboardApplication.appContextOrNull() ?: return null
-            val raw = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(platformName, null)
-                ?: return null
+            val prefs = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
+            val canonicalKey = InstanceKeyResolver.canonicalInstanceId(platformName)
+
+            var raw = prefs.getString(canonicalKey, null)?.takeIf { it.isNotBlank() }
+            if (raw == null) {
+                for (legacyAlias in InstanceKeyResolver.legacyAliases(platformName)) {
+                    val legacyRaw = prefs.getString(legacyAlias, null)?.takeIf { it.isNotBlank() }
+                        ?: continue
+                    raw = legacyRaw
+                    // 复制而不删除；失败时仍可继续使用旧缓存，下次再重试。
+                    prefs.edit().putString(canonicalKey, legacyRaw).commit()
+                    break
+                }
+            }
+
+            raw ?: return null
 
             return try {
                 val obj = JSONObject(raw)
@@ -193,7 +211,7 @@ data class WidgetData(
                     isFallback = true
                 )
             } catch (e: Exception) {
-                android.util.Log.w("WidgetData", "读取最近成功数据失败: $platformName", e)
+                android.util.Log.w("WidgetData", "读取最近成功数据失败: $canonicalKey", e)
                 null
             }
         }
@@ -242,8 +260,12 @@ data class WidgetData(
             usagePercent != null
     }
 
+    /**
+     * Stage 8A-3：成功数据统一写入稳定 instanceId 键。
+     */
     private fun persistLastSuccessfulData() {
         val context = DashboardApplication.appContextOrNull() ?: return
+        val canonicalKey = InstanceKeyResolver.canonicalInstanceId(platformName)
 
         try {
             val obj = JSONObject()
@@ -267,10 +289,10 @@ data class WidgetData(
 
             context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
-                .putString(platformName, obj.toString())
+                .putString(canonicalKey, obj.toString())
                 .apply()
         } catch (e: Exception) {
-            android.util.Log.w("WidgetData", "保存最近成功数据失败: $platformName", e)
+            android.util.Log.w("WidgetData", "保存最近成功数据失败: $canonicalKey", e)
         }
     }
 
