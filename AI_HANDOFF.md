@@ -13,6 +13,16 @@
 
 不得只依据聊天摘要直接改代码。
 
+## 当前阶段
+
+`Stage 8A-1：模型实例解耦方案摸排与 PROJECT.md 落档` — 进行中。
+
+- 分支：`feature/stage-8a-model-instances`
+- 起始提交：`f907319d93127e9fc240583d8b3203a127cd2ac7`
+- 目标：将固定四槽位（Kimi/MiMo/DeepSeek/OpenAI）解耦为独立模型实例体系
+- 当前状态：已完成 6 处耦合点摸排，PROJECT.md 和 DEVELOPMENT_LOG.md 已更新
+- 下一子阶段：8A-2（新增 ModelInstance 数据结构和实例仓库）
+
 ## 仓库与当前基线
 
 - 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
@@ -23,6 +33,7 @@
 - 当前文档基线分支：`docs/development-handoff-baseline`
 - 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
 - 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
+- **当前开发分支**：`feature/stage-8a-model-instances`
 
 ## 应用信息
 

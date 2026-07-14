@@ -1283,73 +1283,183 @@ DeepSeek 配置
 
 ---
 
-## Stage 7D：Kimi / NewAPI Billing 数据源真实接入
+## Stage 8A：模型实例与固定平台槽位解耦
 
 ### 目标
 
-在 Stage 7C 已建立的 `API / 网页授权 / Billing` 统一能力模型上，把当前已经有接口证据的 Kimi / NewAPI Billing 路径真正接入数据层。
+让 Widget 的每一张卡片不再天生等于 Kimi / MiMo / DeepSeek / OpenAI，而是绑定一个独立的**模型实例（ModelInstance）**。实例通过 `serviceType` 决定使用哪个 Adapter，通过 `instanceId` 稳定标识自身，配置、授权、缓存和 Widget 绑定全部围绕 `instanceId` 进行。
 
-本阶段真实请求：
+### 核心概念
 
 ```text
-GET /v1/dashboard/billing/subscription
-GET /v1/dashboard/billing/usage
-Authorization: Bearer <模型 API Key>
+ModelInstance
+├─ instanceId        // 稳定唯一标识（如 legacy-kimi-001）
+├─ displayName       // 用户可修改的卡片名称（如"个人 Kimi 中转"）
+├─ serviceType       // 决定 Adapter 类型：kimi / mimo / deepseek / openai-compatible
+├─ apiBase           // API Base URL
+├─ apiKey            // 模型 API Key
+├─ modelName         // 真实模型名称
+├─ enabled           // 是否启用
+├─ backgroundAuthType    // 后台授权类型
+└─ capabilityProfile     // 数据能力描述（由 Adapter 决定）
 ```
 
-当前已知真实字段：
+关键区分：
 
-- `soft_limit_usd`，兼容旧返回字段 `soft_limit`
-- `total_usage`
+- `instanceId`：负责配置归属、Widget 绑定、后台授权归属、缓存归属。
+- `serviceType`：负责 AdapterFactory 路由、平台协议差异、能力模型。
+- `displayName`：只负责展示，不得作为存储 Key 或 Adapter 路由条件。
 
-`total_usage` 原始值以中性数值展示（当前未确认单位，不添加货币符号）。
+### Stage 8A 子阶段拆分
 
-### 数据合并规则
+| 子阶段 | 目标 | 范围 |
+|--------|------|------|
+| **8A-1** | 方案摸排与文档确认 | 只读分析 + 更新 PROJECT.md（当前阶段） |
+| **8A-2** | 新增 ModelInstance 数据结构和实例仓库 | 新增数据类 + ConfigRepository 只读迁移 |
+| **8A-3** | 后台授权和缓存 Key 迁移到 instanceId | BackgroundAuthRepository + WidgetData 缓存 |
+| **8A-4** | Widget Provider 读取窗口绑定的 instanceId | BalanceWidgetProvider 槽位解耦 |
 
-1. 原 `/api/usage/token` 次数卡路径继续保留，现有“剩余次数 / 调用次数 / 本地近期用量”不得回归。
-2. Billing 请求与原次数卡请求相互独立：
-   - 原次数卡成功 + Billing 成功：合并展示。
-   - 原次数卡成功 + Billing 失败：继续显示原次数卡数据，不因 Billing 失败降级。
-   - 原次数卡失败 + Billing 成功：允许返回 Billing 数据，证明 Billing 是独立数据来源，不只是能力标签。
-   - 两条路径都失败：返回原真实错误。
-3. Billing 成功时，Kimi / NewApiAdapter 的 `capabilityProfile.sources` 才加入 `DataSourceType.BILLING`。
-4. Billing 数据通过现有 `WidgetData` 返回，不建立第二套 Widget 数据结构。
-5. 同一 host 的连续 HTTP 请求必须串行，间隔至少 500ms。
+### 明确不在 Stage 8A 实现
 
-### Widget 展示
+- 新增 / 删除任意数量实例
+- 拖动排序
+- Widget 外观重做
+- 动态卡片数量
+- 多尺寸布局改版
+- 合并到 main
 
-- 现有核心指标继续优先保留“剩余次数”。
-- Billing 成功时，在辅助轮播数据中增加一条真实 Billing 指标：
-   - `Billing 额度 X · 用量 Y`（中性数值，最多保留2位小数，无货币符号）
-- 如果只取得其中一个真实字段，只显示实际取得的字段。
-- 不伪造余额、Token、请求次数或使用率。
+### 兼容迁移要求
 
-### 本阶段范围
+现有四个平台配置不得丢失。首次读取新结构时，自动把原固定四槽配置迁移为四个实例：
 
-只修改：
+- `legacy-kimi`
+- `legacy-mimo`
+- `legacy-deepseek`
+- `legacy-openai`
 
-- `NewApiAdapter.kt`
-- `PROJECT.md`
-- `DEVELOPMENT_LOG.md`
-- `AI_HANDOFF.md`
+迁移规则：
 
-不修改：
+- API Base / Key / modelName / enabled 保留。
+- MiMo / 爱黄牛网页登录授权不得失效（`instanceKey` 从平台名改为 `legacy-*` 后，授权数据需要同步迁移或兼容读取）。
+- 旧 Widget 数据和持久化兜底不得被清空。
+- 迁移幂等，只执行一次。
+- 不卸载、不清除应用数据。
 
-- `BalanceWidgetProvider`
-- `AdapterFactory`
-- `AdapterRequest`
-- `MainActivity`
-- MiMo / DeepSeek / 爱黄牛 Adapter
-- 网页授权
-- 配置存储
-- Widget 布局、响应式和缓存
-- 固定槽位 / 动态实例结构
+### 固定槽位耦合点摸排结果（Stage 8A-1）
 
-### 验收标准
+#### 1. 配置存储层（ConfigRepository + MainActivity）
 
-- Kimi 能力摘要从 `API` 变为 `API + Billing`，Billing 显示“已接入”。
-- `/v1/dashboard/billing/subscription` 与 `/v1/dashboard/billing/usage` 当前真实返回可被解析。
-- Widget 保留原 Kimi 剩余次数，并能轮播显示真实 Billing 指标。
-- Billing 请求失败不得破坏原次数卡成功数据。
-- MiMo、DeepSeek、爱黄牛能力摘要和真实数据不回归。
-- 编译、覆盖安装和用户真机验收通过。
+**当前状态：**
+
+- `MainActivity` 硬编码 `platforms = listOf("Kimi", "MiMo", "DeepSeek", "OpenAI")`。
+- 配置按 `prefs.getString(platform, null)` 保存，Key 就是平台名字符串。
+- `savePlatformConfig(prefs, platform, config)` 直接以平台名作为 SharedPreferences Key。
+- `ConfigRepository.loadAllConfigs()` 已支持新旧格式兼容，但 `LEGACY_KEYS` 仍是固定四个平台名。
+
+**耦合点评分：** 🔴 高
+
+**迁移方向：**
+
+- 新增 `ModelInstance` 数据类。
+- 新增 `InstanceRepository`（或扩展 `ConfigRepository`），以 `instanceId` 为 Key 存储。
+- 保留旧 `Kimi`/`MiMo`/`DeepSeek`/`OpenAI` Key 的读取能力，首次启动时自动迁移到新结构。
+
+#### 2. Widget Provider 层（BalanceWidgetProvider）
+
+**当前状态：**
+
+- 硬编码 `slotIds = listOf("Kimi", "MiMo", "DeepSeek", "OpenAI")`。
+- `platforms` 和 `configs` 按 `slotIds` 顺序取前 2 或前 4 个。
+- `fetchWidgetDataForPlatform(platformName, config, prefs, context)` 的 `platformName` 同时用于：
+  - AdapterFactory 路由
+  - BackgroundAuthRepository 读取授权（`${platformName}_auth`）
+  - WidgetData 缓存 Key（`cachedData[platformName]`）
+  - 渲染前缀映射（`kimi`/`mimo`/`ds`/`oai` → 布局 ID）
+- `updateCardTitle` 和 `renderWidgetData` 按 `prefix` 映射到固定布局 ID。
+
+**耦合点评分：** 🔴 高
+
+**迁移方向：**
+
+- `slotIds` 从固定平台名改为读取窗口绑定的 `instanceId` 列表。
+- `fetchWidgetDataForPlatform` 的 `platformName` 参数拆分为 `instanceId` + `serviceType`。
+- AdapterFactory 路由改用 `serviceType`。
+- BackgroundAuthRepository 改用 `instanceId` 读取授权。
+- WidgetData 缓存 Key 改用 `instanceId`。
+- 渲染前缀映射暂时保留（Stage 8A-4 只改绑定逻辑，不改布局 ID）。
+
+#### 3. AdapterFactory 路由层
+
+**当前状态：**
+
+- `getAdapter(platformName: String, apiBase: String)` 同时依赖 `platformName` 和 `apiBase`。
+- `platformName == "MiMo"` → `MiMoAdapter`
+- `platformName == "Kimi"` → `NewApiAdapter`
+- `apiBase.contains("coolyeah.net")` → `NewApiAdapter`
+- `apiBase.contains("api.deepseek.com")` → `DeepSeekOfficialAdapter`
+- `apiBase.contains("aihuangniu.com")` → `AihuangniuAdapter`
+- `apiBase.contains("platform.xiaomimimo.com")` → `MiMoAdapter`
+
+**耦合点评分：** 🟡 中
+
+**迁移方向：**
+
+- 新增 `getAdapterByServiceType(serviceType: String, apiBase: String)`。
+- `serviceType` 枚举：`kimi`, `mimo`, `deepseek`, `openai-compatible`。
+- 保留旧 `getAdapter(platformName, apiBase)` 作为兼容入口（内部转发到新方法）。
+- Adapter 内部 `platformName` 字段暂时保留（不影响功能，后续可逐步清理）。
+
+#### 4. 后台授权层（BackgroundAuthRepository）
+
+**当前状态：**
+
+- `load(prefs, instanceKey)` / `save(prefs, instanceKey, config)` / `clear(prefs, instanceKey)`
+- 存储 Key：`${instanceKey}_auth`
+- 当前调用方传入的 `instanceKey` 是平台名（`Kimi`/`MiMo`/`DeepSeek`/`OpenAI`）。
+
+**耦合点评分：** 🟡 中
+
+**迁移方向：**
+
+- 接口本身已经抽象为 `instanceKey`，只需把调用方从平台名改为 `instanceId`。
+- 兼容读取：如果 `${instanceId}_auth` 不存在，尝试回退读取旧 `${platformName}_auth`（迁移期内）。
+- MiMo Cookie 和爱黄牛 Bearer Token 格式不变。
+
+#### 5. WidgetData 缓存层（WidgetData.kt）
+
+**当前状态：**
+
+- `loadLastSuccessfulData(platformName: String)` 和 `persistLastSuccessfulData()` 使用 `platformName` 作为 SharedPreferences Key。
+- 缓存 Prefs 名称：`widget_last_success`
+
+**耦合点评分：** 🟡 中
+
+**迁移方向：**
+
+- 缓存 Key 从 `platformName` 改为 `instanceId`。
+- 首次读取时，如果 `${instanceId}` 缓存不存在，尝试回退读取旧 `${platformName}` 缓存（迁移期内）。
+
+#### 6. WebAuthProfileRegistry 层
+
+**当前状态：**
+
+- `findFor(instanceKey: String, apiBase: String)` 按 `instanceKey` 匹配。
+- MiMo Profile：`instanceKey = "MiMo"`
+- 爱黄牛 Profile：`instanceKey = "OpenAI"`
+
+**耦合点评分：** 🟢 低
+
+**迁移方向：**
+
+- `findFor` 的 `instanceKey` 参数改为 `serviceType`（或新增 `findForServiceType`）。
+- Profile 注册表的 `instanceKey` 字段改为 `serviceType` 字段。
+- 兼容读取：保留旧 `instanceKey` 匹配逻辑作为回退。
+
+### Stage 8A-1 完成标准
+
+- [x] 固定槽位耦合点摸排完成（6 处）
+- [x] 迁移方向明确
+- [x] PROJECT.md 已追加 Stage 8A 设计
+- [ ] DEVELOPMENT_LOG.md 已追加 Stage 8A-1 记录
+- [ ] AI_HANDOFF.md 已更新当前状态
+- [ ] 提交并推送

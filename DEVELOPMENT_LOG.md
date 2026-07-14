@@ -739,3 +739,86 @@ Stage 8A——模型实例与固定平台槽位解耦。
 目标：让窗口不再天生等于 Kimi / MiMo / DeepSeek / OpenAI，而是绑定一个独立模型实例。
 
 **本任务内不得开始实现 Stage 8A。**
+
+---
+
+## 2026-07-14｜Stage 8A-1 模型实例解耦方案摸排与 PROJECT.md 落档
+
+**目标与背景**
+
+Stage 8A 目标是将固定四槽位（Kimi/MiMo/DeepSeek/OpenAI）解耦为独立模型实例体系。本阶段（8A-1）只做方案摸排与文档确认，不修改业务代码。
+
+**摸排结果**
+
+共发现 6 处固定槽位耦合点：
+
+| # | 耦合点 | 位置 | 评分 | 迁移方向 |
+|---|--------|------|------|----------|
+| 1 | 配置存储层 | `MainActivity` + `ConfigRepository` | 🔴 高 | `instanceId` 为 Key 存储，保留旧 Key 兼容读取 |
+| 2 | Widget Provider | `BalanceWidgetProvider` | 🔴 高 | `slotIds` 改为 `instanceId` 列表，`platformName` 拆分为 `instanceId` + `serviceType` |
+| 3 | AdapterFactory | `AdapterFactory.getAdapter()` | 🟡 中 | 新增 `getAdapterByServiceType()`，保留旧入口兼容 |
+| 4 | 后台授权 | `BackgroundAuthRepository` | 🟡 中 | 调用方改用 `instanceId`，兼容回退读取旧 Key |
+| 5 | WidgetData 缓存 | `WidgetData.kt` | 🟡 中 | 缓存 Key 改用 `instanceId`，兼容回退读取旧 Key |
+| 6 | WebAuthProfile | `WebAuthProfileRegistry` | 🟢 低 | `instanceKey` 改为 `serviceType`，保留旧匹配回退 |
+
+**核心概念**
+
+```text
+ModelInstance
+├─ instanceId        // 稳定唯一标识（如 legacy-kimi-001）
+├─ displayName       // 用户可修改的卡片名称
+├─ serviceType       // 决定 Adapter 类型：kimi / mimo / deepseek / openai-compatible
+├─ apiBase / apiKey / modelName / enabled
+├─ backgroundAuthType
+└─ capabilityProfile
+```
+
+关键区分：
+- `instanceId`：配置归属、Widget 绑定、授权归属、缓存归属。
+- `serviceType`：AdapterFactory 路由、平台协议差异。
+- `displayName`：只负责展示，不得作为存储 Key 或路由条件。
+
+**兼容迁移要求**
+
+- 旧配置迁移为 `legacy-kimi` / `legacy-mimo` / `legacy-deepseek` / `legacy-openai`。
+- API Base / Key / modelName / enabled 保留。
+- MiMo / 爱黄牛网页登录授权不得失效。
+- 旧 Widget 数据和持久化兜底不得被清空。
+- 迁移幂等，只执行一次。
+- 不卸载、不清除应用数据。
+
+**Stage 8A 子阶段拆分**
+
+| 子阶段 | 目标 |
+|--------|------|
+| 8A-1 | 方案摸排与文档确认（当前阶段） |
+| 8A-2 | 新增 ModelInstance 数据结构和实例仓库，完成旧配置只读迁移 |
+| 8A-3 | 后台授权和缓存 Key 从 platformName/index 迁移到 instanceId |
+| 8A-4 | Widget Provider 改为读取窗口绑定的 instanceId |
+
+**明确不在 Stage 8A 实现**
+
+- 新增/删除任意数量实例
+- 拖动排序
+- Widget 外观重做
+- 动态卡片数量
+- 多尺寸布局改版
+- 合并到 main
+
+**实际修改文件**
+
+- `PROJECT.md`：追加 Stage 8A 设计章节
+
+**明确未修改**
+
+- 不修改任何业务代码（Kotlin/XML）。
+- 不编译、不安装。
+
+**验证证据**
+
+- 耦合点摸排基于源码 grep 和文件阅读：`本地命令已核对`
+- PROJECT.md 追加内容已检查：`本地命令已核对`
+
+**下一项唯一任务**
+
+Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置只读迁移。
