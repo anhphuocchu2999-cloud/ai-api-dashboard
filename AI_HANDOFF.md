@@ -17,17 +17,14 @@
 
 `Stage 8B：四张配置卡统一连接方式面板` 尚未最终验收。当前限定子任务为：
 
-> DeepSeek 网页授权与真实账户汇总数据正式接入。
+> MiMo 网页授权后的 Billing / Usage 汇总正式接入。
 
 - 当前开发分支：`feature/stage-8a-model-instances`
 - Stage 8A-4 已验收基线：`f5a9507201f1bf836f2e03fbae2dd297eb2a3409`
-- Stage 8B 第二轮纠偏基线：`92e9c571ebfab3aa8954f84688fcefc7be7053e2`
-- DeepSeek 余额变化快照：`9319f628c62ce1354717d22e928abff05147ab17`
-- DeepSeek 网页接口摸排完成：`cabca26d62e282b6556c25e7b64ca079ff070c86`
-- DeepSeek 正式网页账单业务提交：`70a918188551f3743c3e6563622f69198d9e294c`
-- DeepSeek 正式网页登录配置：`d1ce70620e1a01dba2f06b840279e1b0d7cc7806`、`ad67c1ed493679e3dcb8e550f98e567c2a7d1561`、`f9116f507b3d375ce71a854216d455986ee38f71`
-- 当前状态：云端代码已推送，尚未声称编译、安装或真机数据成功
-- 下一步：一次 `assembleDebug`、一次覆盖安装、用户真机刷新 DeepSeek 验证
+- DeepSeek 网页账单接入 HEAD：`0b9d658eb27cc2dcb758edd98541a2f9a48423c1`
+- MiMo Billing 业务提交：`53aee213f4a906e6dff1a10cf8b8917e6681fb97`
+- 当前状态：云端代码已推送，尚未声称编译、安装或真机数据显示成功
+- 下一步：一次 `assembleDebug`、一次覆盖安装、用户真机刷新 MiMo 验证
 
 ## 主线目标
 
@@ -40,79 +37,93 @@
 
 未经真实接口验证的能力不得伪造。
 
-## DeepSeek 已验证接口
+## MiMo 已验证网页接口
 
-### 官方 API Key
+用户在 MiMo 开放平台 Billing / Usage 页面完成只读接口摸排，已验证：
 
-- `GET /user/balance`
-- 模型列表
-- 账户是否可调用
-- 总余额
-- 赠送余额
-- 充值余额
+### 余额汇总
 
-### 网页账户 Cookie
+`GET https://platform.xiaomimimo.com/api/v1/balance`
 
-用户本人登录并完成只读接口摸排后，已验证：
+返回字段包括：
 
-- `GET https://platform.deepseek.com/api/v0/users/get_user_summary`
-- HTTP 200
-- 返回 `normal_wallets`
-- 返回 `bonus_wallets`
-- 返回 `monthly_costs`
-- 返回 `monthly_token_usage`
-- 返回 `total_costs`
-- 返回 `total_available_token_estimation`
+- `balance`
+- `frozenBalance`
+- `currency`
+- `overdraftLimit`
+- `remainingOverdraftLimit`
+- `giftBalance`
+- `cashBalance`
 
-另已发现但本轮未正式解析：
+### 用量汇总
 
-- `/api/v0/usage/by_api_key/cost`
-- `/api/v0/usage/by_api_key/amount`
+`GET https://platform.xiaomimimo.com/api/v1/usage`
 
-按 API Key、模型、时间桶的明细留待后续独立任务，不在本轮扩大范围。
+返回字段包括：
+
+- `tokenUsage.inputToken`
+- `tokenUsage.outputToken`
+- `tokenUsage.cacheToken`
+- `tokenUsage.totalToken`
+- `tokenUsage.inputAudioDuration`
+- `accountRateLimit.tpm`
+- `accountRateLimit.rpm`
+- `accountRateLimit.queryTpm`
+- `accountRateLimit.concurrency`
+- `costUsage.totalCost`
+- `costUsage.currentMonthCost`
+- `pluginUsage.totalRequestCount`
+- `pluginUsage.webSearchRequestCount`
+
+### 已发现但本轮未接入
+
+`POST /api/v1/usage/detail/list`
+
+该接口包含按日期、模型和 API Key 的消费与 Token 明细，但请求体、分页和时间范围尚未单独验证。本轮不扩大到明细趋势。
 
 ## 本轮正式实现
 
-### DeepSeekOfficialAdapter
+### MiMoAdapter
 
-- `fetchData(AdapterRequest)` 先读取官方 API 余额；
-- 当前卡片存在有效 Cookie 时，再请求 `get_user_summary`；
-- Widget 主指标继续显示官方余额；
-- 近期轮播显示本月消费、本月 Token；
-- 辅助轮播显示充值余额、赠送余额、累计消费、余额预计可用 Token；
-- 网页接口失效或网络异常时保留 API 余额，不用网页失败覆盖真实余额；
-- Cookie、API Key、响应原文均不写日志。
+- 继续使用网页登录 Cookie 获取余额；
+- 余额成功后，同 Host 间隔至少 500ms，再请求 `/api/v1/usage`；
+- Widget 主指标继续显示余额；
+- 近期轮播显示本月消费、累计 Token；
+- 辅助轮播显示累计消费、累计请求、Web 搜索次数、输入／输出／缓存 Token、RPM／TPM；
+- 用量接口失败时保留正常余额，不用 Billing 失败覆盖真实余额；
+- Cookie 失效时提示“网页登录需重连”；
+- 不记录或输出 Cookie、API Key、响应原文。
 
 能力声明更新为：
 
 - 来源：`API + WEB_AUTH + BILLING`
 - 后台授权：`COOKIE`
-- 数据：`MODELS + BALANCE + USAGE + TOKENS`
+- 数据：`MODELS + BALANCE + USAGE + REQUESTS + TOKENS`
 
-### DeepSeek 网页登录
+## DeepSeek 当前已接入
 
-- `deepseek-probe` 已升级为正式 `deepseek` Profile；
-- 打开 `https://platform.deepseek.com/usage`；
-- Cookie 名称不固定，因此不凭“存在任意 Cookie”判断成功；
-- 使用 `get_user_summary` 验证 Cookie，只有真实返回 `code=0`、`biz_code=0` 和 `biz_data` 才保存；
-- 已有摸排阶段保存的 DeepSeek Cookie继续兼容，不要求主动清除或重新登录。
+- API Key：模型列表、总余额、赠送余额、充值余额；
+- 网页 Cookie：`get_user_summary`；
+- 近期轮播：本月消费、本月 Token；
+- 辅助轮播：充值余额、赠送余额、累计消费、预计可用 Token；
+- 网页失败时保留 API 余额。
 
-## 保留的备用补充
+## 已保留能力
 
-未登录网页账户时，仍可通过两次成功 `/user/balance` 快照展示：
-
-- 余额净减少
-- 余额增加
-- 余额无变化
-
-该数据明确不是官方消费明细，充值、赠送、退款也可能影响余额。网页登录汇总成功后，真实月度消费和月度 Token 优先展示。
+- Kimi / NewAPI API 与 Billing；
+- MiMo API、Cookie 网页授权、余额与 Billing / Usage；
+- DeepSeek API、Cookie 网页授权、余额与网页账单；
+- 爱黄牛 API、Bearer 网页授权、余额／用量／请求／Token；
+- 四张 Widget 原布局、缓存、断网快速兜底；
+- 旧配置、授权和最近成功数据不删除；
+- `main` 未合并。
 
 ## 本轮未修改
 
 - 未修改 Widget XML、四卡数量和布局；
-- 未接入按 API Key／模型／时间桶的明细接口；
+- 未接入 MiMo `usage/detail/list` 明细；
 - 未保存网页响应原文；
-- 未输出 API Key、Cookie、Token；
+- 未输出 API Key、Cookie、Bearer Token；
 - 未卸载、未清数据；
 - 未合并到 `main`。
 
@@ -120,14 +131,14 @@
 
 安装后确认：
 
-1. DeepSeek 卡的 API 余额仍正常；
-2. 已有网页登录状态不丢失；
-3. 刷新 Widget 后近期轮播出现“本月消费”和“本月 Token”；
-4. 辅助轮播可见充值余额、赠送余额、累计消费等真实汇总；
-5. 底部状态显示“网页账单已同步”；
-6. Cookie 失效时仍显示 API 余额，并提示“网页登录需重连”；
-7. Kimi、MiMo、爱黄牛、断网缓存不回归；
-8. App 无崩溃、空白或凭据泄露。
+1. MiMo 余额继续正常；
+2. 已有 MiMo 网页登录状态不丢失；
+3. 刷新后近期轮播出现“本月消费”和“累计 Token”；
+4. 辅助轮播可见累计消费、累计请求等真实汇总；
+5. 状态显示“网页账单已同步”；
+6. Cookie 失效时提示“网页登录需重连”，历史成功缓存仍保留；
+7. Kimi、DeepSeek、爱黄牛和断网兜底不回归；
+8. App 无崩溃、空白、串卡或凭据泄露。
 
 ## 应用信息
 
