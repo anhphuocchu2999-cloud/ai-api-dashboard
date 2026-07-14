@@ -15,93 +15,110 @@
 
 ## 当前阶段
 
-`Stage 8B：四张配置卡统一连接方式面板` 正在纠偏，同时补齐 DeepSeek 可真实实现的近期余额变化数据。
+`Stage 8B：四张配置卡统一连接方式面板` 尚未验收完成。当前正在执行一个限定范围的子任务：
+
+> DeepSeek 网页登录后的只读接口结构摸排。
 
 - 当前开发分支：`feature/stage-8a-model-instances`
 - Stage 8A-4 已验收基线：`f5a9507201f1bf836f2e03fbae2dd297eb2a3409`
-- Stage 8B 第一版：`514967ca0fb3919c88653e0dd3f12bc39fd8ea40`
-- Stage 8B 服务切换纠偏收口：`92e9c571ebfab3aa8954f84688fcefc7be7053e2`
+- Stage 8B 第二轮纠偏基线：`92e9c571ebfab3aa8954f84688fcefc7be7053e2`
 - DeepSeek 余额变化快照：`9319f628c62ce1354717d22e928abff05147ab17`
-- 当前状态：代码已推送，尚未声称编译、安装或真机通过
-- 下一步：只执行拉取、一次 `assembleDebug`、一次覆盖安装和真机验收
+- DeepSeek 网页摸排当前业务 HEAD：`8edd7c9bc2fb77f49859866b6c8e3b2336c43899`
+- 当前状态：云端代码已推送，尚未声称编译、登录或真机摸排成功
+- 下一步：拉取、一次 `assembleDebug`、一次覆盖安装；用户本人登录 DeepSeek 并查看捕获结果
 
 ## 主线目标
 
-四个 Widget / 配置窗口必须是独立模型实例，不再天生等于 Kimi、MiMo、DeepSeek、OpenAI。每个窗口可以选择当前已真实接入的服务，并按该服务真实能力开放：
+四个 Widget / 配置窗口必须是独立模型实例。每个窗口可以选择服务，并按服务真实能力开放：
 
 1. API
 2. 网页授权
 3. Billing
 4. 余额、近期消费/用量、请求次数、Token 等数据能力
 
-未经真实接口验证的能力不得显示为已接入，不得用 `0` 或估算值冒充官方数据。
+未经真实接口验证的能力必须明确标注“当前未接入”，不得伪造数据。
 
-## Stage 8B 当前实现
+## 已验收基础
 
-### 服务类型选择
+- Stage 8A 模型实例、instanceId、授权缓存迁移和 serviceType 路由已完成；
+- 四张 Widget 卡保留原布局；
+- MiMo Cookie 登录已验证；
+- 爱黄牛 localStorage Bearer Token 已验证；
+- Kimi / NewAPI Billing 已验证；
+- DeepSeek 官方 `/user/balance` 已验证；
+- 断网快速恢复最近成功数据已验证。
 
-四张配置卡都可以选择：
+## Stage 8B 当前页面
 
-- Kimi / NewAPI
-- MiMo
-- DeepSeek 官方
-- 爱黄牛
+- 四张配置卡可选择 Kimi / NewAPI、MiMo、DeepSeek 官方、爱黄牛；
+- 每张卡显示 API、网页授权、Billing 和可获取数据；
+- 不支持的能力显示“当前未接入”，不再显示“卡片锁定”；
+- Stage 8B 尚未由用户最终验收，页面易用性仍需要后续收口。
 
-切换服务后更新默认 API Base、清空旧模型名并要求重新测试。Adapter、网页登录和 Billing 能力随所选服务重新计算。
+## DeepSeek 当前真实能力
 
-### 网页授权
+### 官方 API
 
-- MiMo：已验证 Cookie 网页授权，可放到任意窗口；
-- 爱黄牛：已验证 localStorage Bearer Token，可放到任意窗口；
-- DeepSeek、Kimi：没有经过验证的网页登录数据接口，不伪造入口；
-- 网页凭据保存到当前目标卡片，不再固定写入历史平台槽位。
+已接入：
 
-### Billing
+- 模型列表；
+- 账户是否可调用；
+- 总余额；
+- 赠送余额；
+- 充值余额。
 
-- Kimi / NewAPI：真实 Subscription / Usage Billing 已接入；
-- MiMo、DeepSeek、爱黄牛：当前无已验证 Billing 接口；
-- Billing 是数据来源，不是第三份认证密码。
+本地补充：
 
-## DeepSeek 数据现状
+- 两次成功刷新之间的“余额净减少 / 余额增加 / 无变化”；
+- 该数据明确不是官方消费明细，充值、赠送、退款也可能影响余额。
 
-DeepSeek 官方公开账户接口当前使用：
+### 网页摸排
 
-- `GET /user/balance`
-- 可得到：账户是否可调用、币种、总余额、赠送余额、充值余额
+DeepSeek 新增 `deepseek-probe` Profile：
 
-本轮新增“余额变化快照”：
+- 打开 `https://platform.deepseek.com/usage`；
+- 用户本人完成登录；
+- WebView 只读观察 fetch / XMLHttpRequest；
+- 同时记录非静态网络请求作为兜底；
+- 仅保存去掉 query/fragment 的 endpoint、请求方法、HTTP 状态码、JSON 字段路径和字段类型；
+- 不保存响应值、请求头、Cookie、Token 或 URL 查询参数；
+- 页面底部提供“查看捕获结果”和“完成并返回”；
+- 有可识别 JSON 响应且存在会话 Cookie 时，才把 Cookie 保存到当前卡片；
+- 摸排结果在完成真实字段验证前不得声明为正式消费数据源。
 
-- 第一次成功刷新只建立基准，显示“余额变化统计中…”；
-- 后续余额下降显示“过去 X 余额净减少”；
-- 余额上升显示“过去 X 余额增加”，不误报为负消费；
-- API Key 只用于 SHA-256 指纹区分账户，不保存原文、不写日志；
-- 该数据是两次成功余额快照之间的净变化，不是 DeepSeek 官方消费明细；充值、赠送和退款也可能影响余额。
+相关文件：
 
-当前仍未实现：
+- `WebAuthActivity.kt`
+- `webauth/DeepSeekWebProbeRepository.kt`
+- `webauth/WebAuthProfile.kt`
+- `webauth/WebAuthProfileRegistry.kt`
+- `adapter/DeepSeekOfficialAdapter.kt`
+- `res/layout/activity_web_auth.xml`
 
-- DeepSeek 官方历史消费明细；
-- 全账户按日/按模型 Token 统计；
-- DeepSeek 网页后台 Usage 私有接口。
+## 本轮明确未修改
 
-这些能力必须通过真实网页登录与接口摸排确认后再接入。
-
-## 明确未修改
-
-- 未修改 Widget XML、卡片数量和布局顺序；
-- 未新增配置仓库、schema 或第二套授权体系；
-- 未清除 API Key、Cookie、Bearer Token、旧配置或 Widget 缓存；
+- 未修改 Widget XML、四卡数量和布局；
+- 未把任何未知网页字段接入 Adapter；
+- 未把余额差值冒充官方消费；
+- 未保存网页响应原始内容；
+- 未输出 API Key、Cookie 或 Token；
+- 未卸载、未清数据；
 - 未合并到 `main`。
 
-## 本轮验收重点
+## 本轮验收
 
-1. App 能正常启动，四张卡服务类型选择仍可使用；
-2. Kimi、MiMo、DeepSeek、爱黄牛原数据不回归；
-3. DeepSeek 第一次成功刷新显示“余额变化统计中…”；
-4. 第二次刷新显示余额无变化、净减少或增加中的一种；
-5. DeepSeek 余额、赠送余额、充值余额仍正常；
-6. 不把余额变化描述成官方 Billing 或官方消费明细；
-7. 断网快速兜底仍正常；
-8. 无崩溃、空白、串卡或凭据丢失。
+安装后：
+
+1. 在任意配置卡选择 DeepSeek 官方；
+2. “网页授权”区域应出现可点击入口；
+3. 打开后进入 DeepSeek 用量页并本人登录；
+4. 登录后停留在用量页，必要时刷新页面一次；
+5. 页面底部状态应从“尚未捕获”变为“已捕获 N 个接口”；
+6. 点击“查看捕获结果”，截图 endpoint、状态码和字段结构；
+7. 不得截图或发送账号密码、Cookie、Token、API Key 或账户数值；
+8. 点击“完成并返回”。
+
+只有拿到字段结构后，才能决定 DeepSeek 网页端可正式接入今日消费、历史趋势、Token、请求次数中的哪些能力。
 
 ## 应用信息
 
