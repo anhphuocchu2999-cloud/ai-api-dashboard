@@ -18,6 +18,17 @@ object WebAuthProfileRegistry {
             apiBaseHostContains = "platform.xiaomimimo.com"
         ),
         WebAuthProfile(
+            profileId = "deepseek-probe",
+            instanceKey = "DeepSeek",
+            displayName = "DeepSeek",
+            loginUrl = "https://platform.deepseek.com/usage",
+            cookieDomain = "https://platform.deepseek.com",
+            authType = BackgroundAuthType.COOKIE,
+            requiredCookieNames = emptySet(),
+            apiBaseHostContains = "api.deepseek.com",
+            probeOnly = true
+        ),
+        WebAuthProfile(
             profileId = "aihuangniu",
             instanceKey = "OpenAI",
             displayName = "爱黄牛",
@@ -39,11 +50,9 @@ object WebAuthProfileRegistry {
     }
 
     /**
-     * 根据当前卡片和 API Base 查找已经验证过的网页登录方案。
-     *
-     * Stage 8B 修正：卡片不再天生等于某个平台。配置了 host 约束的 Profile
-     * 以 API Base 为准，因此任意卡片切换为 MiMo 或爱黄牛后都能开放对应网页登录。
-     * 没有 host 约束的旧 Profile 仍按 instanceKey 匹配，保留兼容行为。
+     * 根据当前卡片和 API Base 查找网页登录方案。
+     * 配置 host 约束的 Profile 以 API Base 为准，使任意窗口切换服务后都能获得
+     * 对应入口；没有 host 约束的旧 Profile 继续按 instanceKey 兼容匹配。
      */
     fun findFor(instanceKey: String, apiBase: String): WebAuthProfile? {
         return profiles.firstOrNull { profile ->
