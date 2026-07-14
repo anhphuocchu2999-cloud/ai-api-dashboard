@@ -9,38 +9,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -50,7 +23,9 @@ import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
+import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.ui.theme.MyApplicationTheme
@@ -93,6 +68,19 @@ data class PlatformConfig(
     val apiKey: String,
     val model: String,
     val enabled: Boolean
+)
+
+data class ServiceOption(
+    val id: String,
+    val displayName: String,
+    val defaultApiBase: String
+)
+
+private val serviceOptions = listOf(
+    ServiceOption("newapi", "Kimi / NewAPI", "https://code.coolyeah.net"),
+    ServiceOption("mimo", "MiMo", "https://platform.xiaomimimo.com"),
+    ServiceOption("deepseek", "DeepSeek 官方", "https://api.deepseek.com/v1"),
+    ServiceOption("aihuangniu", "爱黄牛", "https://sub2.aihuangniu.com")
 )
 
 sealed class TestResult {
@@ -305,19 +293,18 @@ fun ConfigScreen(
     authRefreshToken: Int
 ) {
     val prefs = remember { context.getSharedPreferences("api_config", Context.MODE_PRIVATE) }
-    val platforms = remember { listOf("Kimi", "MiMo", "DeepSeek", "OpenAI") }
+    val slots = remember { listOf("Kimi", "MiMo", "DeepSeek", "OpenAI") }
     val scope = rememberCoroutineScope()
 
-    var configs by remember {
-        mutableStateOf(loadPlatformConfigs(prefs, platforms))
-    }
+    var configs by remember { mutableStateOf(loadPlatformConfigs(prefs, slots)) }
     var backgroundAuths by remember {
-        mutableStateOf(platforms.map { BackgroundAuthRepository.load(prefs, it) })
+        mutableStateOf(slots.map { BackgroundAuthRepository.load(prefs, it) })
     }
     var connectionStatuses by remember {
-        mutableStateOf(List<ConnectionStatus?>(platforms.size) { null })
+        mutableStateOf(List<ConnectionStatus?>(slots.size) { null })
     }
     var testingIndex by remember { mutableIntStateOf(-1) }
+    var serviceMenuIndex by remember { mutableIntStateOf(-1) }
 
     var showModelDialog by remember { mutableStateOf(false) }
     var modelList by remember { mutableStateOf(emptyList<String>()) }
@@ -335,13 +322,13 @@ fun ConfigScreen(
     var probePlatform by remember { mutableStateOf("") }
 
     LaunchedEffect(authRefreshToken) {
-        backgroundAuths = platforms.map { BackgroundAuthRepository.load(prefs, it) }
-        configs = loadPlatformConfigs(prefs, platforms)
+        backgroundAuths = slots.map { BackgroundAuthRepository.load(prefs, it) }
+        configs = loadPlatformConfigs(prefs, slots)
     }
 
     fun updateConfig(index: Int, newConfig: PlatformConfig) {
         configs = configs.toMutableList().apply { this[index] = newConfig }
-        savePlatformConfig(prefs, platforms[index], newConfig)
+        savePlatformConfig(prefs, slots[index], newConfig)
     }
 
     fun updateAuth(index: Int, newAuth: BackgroundAuthConfig) {
@@ -354,28 +341,26 @@ fun ConfigScreen(
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
+        Text("AI API Dashboard", style = MaterialTheme.typography.headlineMedium)
         Text(
-            text = "AI API Dashboard",
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Text(
-            text = "Build: 2026-07-14-8B-001 | Stage: 8B",
+            text = "Build: 2026-07-14-8B-002 | Stage: 8B",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 4.dp)
         )
         Text(
-            text = "每个实例统一展示 API、网页授权和 Billing。仅开放当前服务真实支持的能力。",
+            text = "四个窗口都可选择服务；API、网页授权、Billing 和数据能力会随所选服务变化。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp, bottom = 16.dp)
         )
 
-        platforms.forEachIndexed { index, platform ->
+        slots.forEachIndexed { index, slotName ->
             val config = configs[index]
-            val capabilityAdapter = AdapterFactory.getAdapter(platform, config.apiBase)
+            val selectedService = serviceOptionFor(slotName, config.apiBase)
+            val capabilityAdapter = AdapterFactory.getAdapter(slotName, config.apiBase)
             val capabilityProfile = capabilityAdapter?.capabilityProfile
-            val webAuthProfile = WebAuthProfileRegistry.findFor(platform, config.apiBase)
+            val webAuthProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
             val expectedAuthType = capabilityProfile?.backgroundAuthType
                 ?: webAuthProfile?.authType
                 ?: BackgroundAuthType.NONE
@@ -388,9 +373,7 @@ fun ConfigScreen(
                 auth.authValue.isNotBlank()
 
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -405,21 +388,11 @@ fun ConfigScreen(
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Text(
-                                text = config.name.ifBlank { platform },
+                                text = config.name.ifBlank { "窗口 ${index + 1}" },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
-                            capabilityProfile?.let { profile ->
-                                val dataText = profile.capabilities
-                                    .joinToString("、") { it.displayName }
-                                Text(
-                                    text = "可用数据：$dataText",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Switch(
@@ -437,6 +410,73 @@ fun ConfigScreen(
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("服务类型", style = MaterialTheme.typography.titleMedium)
+                    Box(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                        OutlinedButton(
+                            onClick = { serviceMenuIndex = index },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("${selectedService.displayName}　▼")
+                        }
+                        DropdownMenu(
+                            expanded = serviceMenuIndex == index,
+                            onDismissRequest = { serviceMenuIndex = -1 },
+                            modifier = Modifier.fillMaxWidth(0.86f)
+                        ) {
+                            serviceOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.displayName) },
+                                    onClick = {
+                                        serviceMenuIndex = -1
+                                        if (option.id != selectedService.id) {
+                                            val nextName = if (
+                                                config.name.isBlank() ||
+                                                config.name.equals(slotName, ignoreCase = true) ||
+                                                serviceOptions.any { it.displayName.equals(config.name, ignoreCase = true) }
+                                            ) {
+                                                option.displayName
+                                            } else {
+                                                config.name
+                                            }
+                                            updateConfig(
+                                                index,
+                                                config.copy(
+                                                    name = nextName,
+                                                    apiBase = option.defaultApiBase,
+                                                    model = ""
+                                                )
+                                            )
+                                            connectionStatuses = connectionStatuses.toMutableList().apply {
+                                                this[index] = null
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                "已切换为 ${option.displayName}，请确认 API Key 后测试连接",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "窗口身份不再固定；服务切换后，下面三类入口会自动按真实能力开放。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DataCapabilitySection(
+                        service = selectedService,
+                        profile = capabilityProfile
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     ConnectionMethodSection(
                         title = "1. API",
@@ -504,7 +544,7 @@ fun ConfigScreen(
                                     return@Button
                                 }
 
-                                savePlatformConfig(prefs, platform, config)
+                                savePlatformConfig(prefs, slotName, config)
                                 testingIndex = index
                                 connectionStatuses = connectionStatuses.toMutableList().apply {
                                     this[index] = null
@@ -565,13 +605,15 @@ fun ConfigScreen(
                         },
                         supported = webAuthSupported,
                         description = when {
-                            !webAuthSupported -> "当前服务没有经过验证的网页登录方案，不开放无效的 Cookie 或 Token 选择。"
+                            !webAuthSupported -> "当前选择的服务没有经过验证的网页登录方案。切换为 MiMo 或爱黄牛后会自动开放。"
                             expectedAuthType == BackgroundAuthType.COOKIE -> "网页登录后保存 Cookie，用于读取 API Key 无法提供的账户数据。"
                             else -> "网页登录后保存 Bearer Token，用于读取账户余额、Profile 等后台数据。"
                         }
                     ) {
                         if (webAuthSupported) {
-                            var authValueVisible by remember(platform) { mutableStateOf(false) }
+                            var authValueVisible by remember(slotName, expectedAuthType) {
+                                mutableStateOf(false)
+                            }
                             OutlinedTextField(
                                 value = auth.authValue,
                                 onValueChange = { newValue ->
@@ -623,10 +665,13 @@ fun ConfigScreen(
                                                 enabled = true,
                                                 updatedAt = System.currentTimeMillis()
                                             )
-                                            updateAuth(index, newAuth)
-                                            BackgroundAuthRepository.save(prefs, platform, newAuth)
-                                            Toast.makeText(context, "授权已保存", Toast.LENGTH_SHORT).show()
-                                            refreshWidget(context)
+                                            if (BackgroundAuthRepository.save(prefs, slotName, newAuth)) {
+                                                updateAuth(index, newAuth)
+                                                Toast.makeText(context, "授权已保存", Toast.LENGTH_SHORT).show()
+                                                refreshWidget(context)
+                                            } else {
+                                                Toast.makeText(context, "授权保存失败", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
                                     modifier = Modifier.weight(1f)
@@ -635,9 +680,10 @@ fun ConfigScreen(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        updateAuth(index, BackgroundAuthConfig())
-                                        BackgroundAuthRepository.clear(prefs, platform)
-                                        Toast.makeText(context, "授权已清除", Toast.LENGTH_SHORT).show()
+                                        if (BackgroundAuthRepository.clear(prefs, slotName)) {
+                                            updateAuth(index, BackgroundAuthConfig())
+                                            Toast.makeText(context, "授权已清除", Toast.LENGTH_SHORT).show()
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -651,7 +697,8 @@ fun ConfigScreen(
                                         context.startActivity(
                                             WebAuthActivity.createIntent(
                                                 context = context,
-                                                profileId = profile.profileId
+                                                profileId = profile.profileId,
+                                                targetInstanceKey = slotName
                                             )
                                         )
                                     },
@@ -672,7 +719,7 @@ fun ConfigScreen(
                         description = if (billingSupported) {
                             "Billing 是数据来源，不是第三份密码。当前自动复用模型 API Key 读取 Subscription / Usage Billing。"
                         } else {
-                            "当前服务没有已经验证并接入的 Billing 数据接口，不伪造额度、套餐或用量。"
+                            "当前选择的服务没有已经验证并接入的 Billing 数据接口，不伪造额度、套餐或用量。"
                         }
                     ) {
                         if (billingSupported) {
@@ -695,7 +742,7 @@ fun ConfigScreen(
                                         testingIndex = index
                                         scope.launch {
                                             probeResults = probeEndpoints(config.apiBase, config.apiKey)
-                                            probePlatform = config.model.ifBlank { platform }
+                                            probePlatform = config.model.ifBlank { selectedService.displayName }
                                             testingIndex = -1
                                             showProbeDialog = true
                                         }
@@ -715,7 +762,7 @@ fun ConfigScreen(
         Button(
             onClick = {
                 configs.forEachIndexed { index, config ->
-                    savePlatformConfig(prefs, platforms[index], config)
+                    savePlatformConfig(prefs, slots[index], config)
                 }
                 refreshWidget(context)
                 Toast.makeText(context, "全部配置已保存", Toast.LENGTH_SHORT).show()
@@ -726,7 +773,7 @@ fun ConfigScreen(
         }
     }
 
-    if (showModelDialog && modelList.isNotEmpty() && selectedPlatformIndex in platforms.indices) {
+    if (showModelDialog && modelList.isNotEmpty() && selectedPlatformIndex in slots.indices) {
         AlertDialog(
             onDismissRequest = { showModelDialog = false },
             title = { Text("🎉 API 已连接") },
@@ -839,6 +886,75 @@ fun ConfigScreen(
 }
 
 @Composable
+private fun DataCapabilitySection(
+    service: ServiceOption,
+    profile: ProviderCapabilityProfile?
+) {
+    val capabilities = profile?.capabilities.orEmpty()
+    val balanceSupported = DataCapability.BALANCE in capabilities
+    val usageSupported = DataCapability.USAGE in capabilities
+    val requestsSupported = DataCapability.REQUESTS in capabilities
+    val tokensSupported = DataCapability.TOKENS in capabilities
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("可获取数据", style = MaterialTheme.typography.titleMedium)
+            CapabilityRow("账户余额", balanceSupported, if (balanceSupported) "已接入" else "当前未接入")
+            CapabilityRow(
+                "近期消费 / 用量",
+                usageSupported,
+                when {
+                    usageSupported -> "已接入"
+                    service.id == "deepseek" -> "待接入：当前已验证的 DeepSeek 官方 API 只有余额"
+                    else -> "当前未接入"
+                }
+            )
+            CapabilityRow("请求次数", requestsSupported, if (requestsSupported) "已接入" else "当前未接入")
+            CapabilityRow("Token", tokensSupported, if (tokensSupported) "已接入" else "当前未接入")
+            if (service.id == "deepseek" && !usageSupported) {
+                Text(
+                    text = "DeepSeek 近期消费确实需要补齐；在找到并验证真实接口前不会显示 0.00 冒充数据。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityRow(
+    label: String,
+    supported: Boolean,
+    status: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(0.38f))
+        Text(
+            status,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (supported) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            },
+            modifier = Modifier.weight(0.62f)
+        )
+    }
+}
+
+@Composable
 private fun ConnectionMethodSection(
     title: String,
     status: String,
@@ -882,7 +998,7 @@ private fun ConnectionMethodSection(
                 content()
             } else {
                 Text(
-                    text = "该入口已锁定，待服务提供真实接口并完成验证后再开放。",
+                    text = "当前尚未接入，并不是卡片被锁死。切换服务类型后，会按所选服务的真实能力自动开放。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -947,6 +1063,19 @@ private fun authTypeLabel(type: BackgroundAuthType): String {
         BackgroundAuthType.NONE -> "无需网页授权"
         BackgroundAuthType.COOKIE -> "Cookie"
         BackgroundAuthType.BEARER_TOKEN -> "Bearer Token"
+    }
+}
+
+private fun serviceOptionFor(slotName: String, apiBase: String): ServiceOption {
+    return when {
+        apiBase.contains("coolyeah.net", ignoreCase = true) -> serviceOptions[0]
+        apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> serviceOptions[1]
+        apiBase.contains("api.deepseek.com", ignoreCase = true) -> serviceOptions[2]
+        apiBase.contains("aihuangniu.com", ignoreCase = true) -> serviceOptions[3]
+        slotName.equals("MiMo", ignoreCase = true) -> serviceOptions[1]
+        slotName.equals("DeepSeek", ignoreCase = true) -> serviceOptions[2]
+        slotName.equals("OpenAI", ignoreCase = true) -> serviceOptions[3]
+        else -> serviceOptions[0]
     }
 }
 
