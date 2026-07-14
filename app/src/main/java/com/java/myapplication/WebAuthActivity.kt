@@ -1,35 +1,46 @@
 package com.java.myapplication
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.webauth.DeepSeekWebProbeRepository
 import com.java.myapplication.webauth.WebAuthProfile
 import com.java.myapplication.webauth.WebAuthProfileRegistry
+import org.json.JSONObject
 
 /**
  * 通用网页登录授权 Activity。
  *
- * 已验证路径：
- * - MiMo COOKIE
+ * 已验证正式路径：
+ * - MiMo Cookie
  * - 爱黄牛 localStorage auth_token
  *
- * Stage 8B：允许调用方传入目标卡片 instanceKey。网页登录 Profile 只描述
- * 登录方式，凭据保存到用户当前选择该服务的卡片，而不再固定保存到原历史槽位。
+ * DeepSeek 当前进入 probeOnly 只读摸排模式：用户登录后，仅保存去掉查询参数的
+ * endpoint、HTTP 状态码和 JSON 字段结构，不保存响应值、请求头或会话凭据原文。
  */
 class WebAuthActivity : Activity() {
 
@@ -37,6 +48,66 @@ class WebAuthActivity : Activity() {
         private const val EXTRA_PROFILE_ID = "web_auth_profile_id"
         private const val EXTRA_TARGET_INSTANCE_KEY = "web_auth_target_instance_key"
         private const val PREFS_NAME = "api_config"
+        private const val PROBE_INSTALL_ATTEMPTS = 24
+        private const val PROBE_INSTALL_INTERVAL_MS = 250L
+
+        private val PROBE_SCRIPT = """
+            (function() {
+                if (window.__dashboardProbeInstalled) return 'ready';
+                window.__dashboardProbeInstalled = true;
+
+                function report(url, method, status, body) {
+                    try {
+                        if (!window.DashboardProbe) return;
+                        window.DashboardProbe.onResponse(JSON.stringify({
+                            url: String(url || ''),
+                            method: String(method || 'GET'),
+                            status: Number(status || 0),
+                            body: String(body || '').substring(0, 200000)
+                        }));
+                    } catch (e) {}
+                }
+
+                var originalFetch = window.fetch;
+                if (originalFetch) {
+                    window.fetch = function(input, init) {
+                        var method = (init && init.method) || (input && input.method) || 'GET';
+                        var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+                        return originalFetch.apply(this, arguments).then(function(response) {
+                            try {
+                                var clone = response.clone();
+                                clone.text().then(function(text) {
+                                    report(clone.url || url, method, clone.status, text);
+                                }).catch(function() {});
+                            } catch (e) {}
+                            return response;
+                        });
+                    };
+                }
+
+                var originalOpen = XMLHttpRequest.prototype.open;
+                var originalSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this.__dashboardProbeMethod = method || 'GET';
+                    this.__dashboardProbeUrl = url || '';
+                    return originalOpen.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function() {
+                    var xhr = this;
+                    xhr.addEventListener('loadend', function() {
+                        try {
+                            var text = '';
+                            if (!xhr.responseType || xhr.responseType === 'text' || xhr.responseType === 'json') {
+                                text = (typeof xhr.responseText === 'string') ? xhr.responseText : JSON.stringify(xhr.response || {});
+                            }
+                            report(xhr.responseURL || xhr.__dashboardProbeUrl, xhr.__dashboardProbeMethod, xhr.status, text);
+                        } catch (e) {}
+                    });
+                    return originalSend.apply(this, arguments);
+                };
+                return 'installed';
+            })();
+        """.trimIndent()
 
         fun createIntent(
             context: Context,
@@ -60,8 +131,21 @@ class WebAuthActivity : Activity() {
     private var loginDetected = false
     private var showCancelToast = false
 
-    private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pollHandler = Handler(Looper.getMainLooper())
     private var pollRunnable: Runnable? = null
+
+    private val probeHandler = Handler(Looper.getMainLooper())
+    private var probeInstallAttemptsRemaining = 0
+    private val probeInstallRunnable = object : Runnable {
+        override fun run() {
+            if (!::webView.isInitialized || !::profile.isInitialized || !profile.probeOnly) return
+            webView.evaluateJavascript(PROBE_SCRIPT, null)
+            probeInstallAttemptsRemaining--
+            if (probeInstallAttemptsRemaining > 0) {
+                probeHandler.postDelayed(this, PROBE_INSTALL_INTERVAL_MS)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,10 +170,14 @@ class WebAuthActivity : Activity() {
         targetInstanceKey = intent.getStringExtra(EXTRA_TARGET_INSTANCE_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: profile.instanceKey
-        showCancelToast = true
+        showCancelToast = !profile.probeOnly
 
         setContentView(R.layout.activity_web_auth)
-        title = "${profile.displayName} 网页登录授权"
+        title = if (profile.probeOnly) {
+            "${profile.displayName} 网页数据摸排"
+        } else {
+            "${profile.displayName} 网页登录授权"
+        }
 
         webView = findViewById(R.id.web_view)
         progressBar = findViewById(R.id.progress_bar)
@@ -105,12 +193,33 @@ class WebAuthActivity : Activity() {
             userAgentString = "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
         }
 
+        if (profile.probeOnly) {
+            DeepSeekWebProbeRepository.clear(this, targetInstanceKey)
+            webView.addJavascriptInterface(ProbeBridge(), "DashboardProbe")
+            configureProbePanel()
+        }
+
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
             ): Boolean = false
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                if (profile.probeOnly && request != null) {
+                    DeepSeekWebProbeRepository.recordRequest(
+                        context = applicationContext,
+                        instanceKey = targetInstanceKey,
+                        url = request.url.toString(),
+                        method = request.method
+                    )
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
 
             override fun onPageStarted(
                 view: WebView?,
@@ -119,11 +228,18 @@ class WebAuthActivity : Activity() {
             ) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
+                if (profile.probeOnly) scheduleProbeInjection()
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+
+                if (profile.probeOnly) {
+                    scheduleProbeInjection()
+                    updateProbeStatus()
+                    return
+                }
 
                 when (profile.authType) {
                     BackgroundAuthType.COOKIE -> checkAndSaveCookies()
@@ -138,6 +254,7 @@ class WebAuthActivity : Activity() {
 
     override fun onDestroy() {
         pollRunnable?.let { pollHandler.removeCallbacks(it) }
+        probeHandler.removeCallbacks(probeInstallRunnable)
         if (showCancelToast && !loginDetected) {
             Toast.makeText(
                 this,
@@ -146,6 +263,82 @@ class WebAuthActivity : Activity() {
             ).show()
         }
         super.onDestroy()
+    }
+
+    private fun scheduleProbeInjection() {
+        probeHandler.removeCallbacks(probeInstallRunnable)
+        probeInstallAttemptsRemaining = PROBE_INSTALL_ATTEMPTS
+        probeHandler.post(probeInstallRunnable)
+    }
+
+    private fun configureProbePanel() {
+        val panel = findViewById<LinearLayout>(R.id.probe_panel)
+        panel.visibility = View.VISIBLE
+
+        findViewById<Button>(R.id.probe_results).setOnClickListener {
+            showProbeResults()
+        }
+
+        findViewById<Button>(R.id.probe_finish).setOnClickListener {
+            finishProbeSession()
+        }
+
+        updateProbeStatus()
+    }
+
+    private fun updateProbeStatus() {
+        if (!profile.probeOnly) return
+        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
+        val structured = records.count { it.fields.isNotEmpty() }
+        findViewById<TextView>(R.id.probe_status).text = when {
+            records.isEmpty() -> "请登录 DeepSeek，进入并停留在用量页面。系统只读取接口地址和字段结构。"
+            structured == 0 -> "已看到 ${records.size} 个网络请求，正在等待可读取的 JSON 数据接口…"
+            else -> "已捕获 ${records.size} 个接口，其中 $structured 个返回了可识别字段。可以查看结果后完成返回。"
+        }
+    }
+
+    private fun showProbeResults() {
+        val textView = TextView(this).apply {
+            text = DeepSeekWebProbeRepository.summary(this@WebAuthActivity, targetInstanceKey)
+            textSize = 13f
+            val padding = (16 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+            setTextIsSelectable(true)
+        }
+        val scrollView = ScrollView(this).apply { addView(textView) }
+
+        AlertDialog.Builder(this)
+            .setTitle("DeepSeek 捕获结果")
+            .setMessage("这里只显示 endpoint、状态码和 JSON 字段类型，不显示账户数值、Cookie 或 Token。")
+            .setView(scrollView)
+            .setPositiveButton("继续摸排", null)
+            .show()
+    }
+
+    private fun finishProbeSession() {
+        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
+        val hasStructuredResponse = records.any {
+            it.fields.isNotEmpty() && (it.statusCode == null || it.statusCode in 200..299)
+        }
+
+        if (hasStructuredResponse) {
+            val cookie = CookieManager.getInstance().getCookie(profile.cookieDomain).orEmpty()
+            if (cookie.isNotBlank()) {
+                saveCredentialAndRefresh(cookie, closeAfterSave = false)
+            }
+        }
+
+        showCancelToast = false
+        Toast.makeText(
+            this,
+            if (hasStructuredResponse) {
+                "摸排完成，返回配置页查看下一步"
+            } else {
+                "尚未捕获到 JSON 数据；请登录后进入用量页再试"
+            },
+            Toast.LENGTH_LONG
+        ).show()
+        finish()
     }
 
     private fun checkAndSaveCookies() {
@@ -157,7 +350,6 @@ class WebAuthActivity : Activity() {
         val cookies = parseCookieString(cookieString)
         if (!profile.requiredCookieNames.all(cookies::containsKey)) return
 
-        loginDetected = true
         val allCookies = buildString {
             cookies.forEach { (name, value) ->
                 if (isNotEmpty()) append("; ")
@@ -167,7 +359,10 @@ class WebAuthActivity : Activity() {
         saveCredentialAndRefresh(allCookies)
     }
 
-    private fun saveCredentialAndRefresh(credential: String) {
+    private fun saveCredentialAndRefresh(
+        credential: String,
+        closeAfterSave: Boolean = true
+    ): Boolean {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val authConfig = BackgroundAuthConfig(
             authType = profile.authType,
@@ -185,22 +380,24 @@ class WebAuthActivity : Activity() {
         if (!saved) {
             loginDetected = false
             Toast.makeText(this, "授权保存失败，请重试", Toast.LENGTH_SHORT).show()
-            return
+            return false
         }
 
-        Toast.makeText(
-            this,
-            "${profile.displayName} 网页授权成功",
-            Toast.LENGTH_SHORT
-        ).show()
+        loginDetected = true
+        if (!profile.probeOnly) {
+            Toast.makeText(
+                this,
+                "${profile.displayName} 网页授权成功",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         refreshWidget(this)
-        finish()
+        if (closeAfterSave) finish()
+        return true
     }
 
-    /**
-     * 每 2 秒读取一次 localStorage，直到获得非空 Token。
-     */
+    /** 每 2 秒读取一次 localStorage，直到获得非空 Token。 */
     private fun startLocalStoragePolling() {
         if (loginDetected) return
         val key = profile.localStorageKey ?: return
@@ -214,7 +411,6 @@ class WebAuthActivity : Activity() {
                         if (loginDetected) return@ValueCallback
                         val token = value?.trim()?.removeSurrounding("\"")?.trim()
                         if (!token.isNullOrBlank() && token != "null") {
-                            loginDetected = true
                             saveCredentialAndRefresh(token)
                         }
                     }
@@ -257,5 +453,25 @@ class WebAuthActivity : Activity() {
             }
         }
         return result
+    }
+
+    private inner class ProbeBridge {
+        @JavascriptInterface
+        fun onResponse(payload: String) {
+            try {
+                val obj = JSONObject(payload)
+                DeepSeekWebProbeRepository.recordResponse(
+                    context = applicationContext,
+                    instanceKey = targetInstanceKey,
+                    url = obj.optString("url", ""),
+                    method = obj.optString("method", "GET"),
+                    statusCode = obj.optInt("status", 0),
+                    body = obj.optString("body", "")
+                )
+                runOnUiThread { updateProbeStatus() }
+            } catch (_: Exception) {
+                // 诊断桥只忽略无法解析的事件，不影响网页登录。
+            }
+        }
     }
 }
