@@ -90,7 +90,10 @@ class MiMoAdapter : PlatformAdapter {
 
         return when (val usageResult = fetchJson(USAGE_URL, cleanCookie)) {
             is HttpJsonResult.Success -> {
-                val usageSummary = parseUsageResponse(usageResult.body)
+                val usageSummary = parseUsageResponse(
+                    response = usageResult.body,
+                    currencySymbol = balanceData.displayLabel.orEmpty()
+                )
                 if (usageSummary == null) {
                     balanceData.copy(statusText = "余额已同步")
                 } else {
@@ -206,7 +209,7 @@ class MiMoAdapter : PlatformAdapter {
                 total = balance.toDouble(),
                 used = null,
                 remaining = balance.toDouble(),
-                usagePercent = percentage?.toDouble(),
+                usagePercent = percentage,
                 isAvailable = true
             )
         } catch (_: Exception) {
@@ -214,7 +217,10 @@ class MiMoAdapter : PlatformAdapter {
         }
     }
 
-    private fun parseUsageResponse(response: String): UsageSummary? {
+    private fun parseUsageResponse(
+        response: String,
+        currencySymbol: String
+    ): UsageSummary? {
         return try {
             val root = JSONObject(response)
             val data = root.optJSONObject("data") ?: return null
@@ -222,11 +228,12 @@ class MiMoAdapter : PlatformAdapter {
             val costUsage = data.optJSONObject("costUsage")
             val pluginUsage = data.optJSONObject("pluginUsage")
             val rateLimit = data.optJSONObject("accountRateLimit")
+            val symbol = currencySymbol.ifBlank { "¥" }
 
             val usageMetrics = mutableListOf<WidgetData.DisplayMetric>()
             decimal(costUsage, "currentMonthCost")?.let {
                 usageMetrics.add(
-                    WidgetData.DisplayMetric("本月消费", "¥${formatMoney(it)}")
+                    WidgetData.DisplayMetric("本月消费", "$symbol${formatMoney(it)}")
                 )
             }
             longValue(tokenUsage, "totalToken")?.let {
@@ -238,7 +245,7 @@ class MiMoAdapter : PlatformAdapter {
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
             decimal(costUsage, "totalCost")?.let {
                 auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("累计消费", "¥${formatMoney(it)}")
+                    WidgetData.DisplayMetric("累计消费", "$symbol${formatMoney(it)}")
                 )
             }
             longValue(pluginUsage, "totalRequestCount")?.let {
