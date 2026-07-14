@@ -1,306 +1,151 @@
 # AI API Dashboard｜AI 交接状态
 
 > 最近更新：2026-07-14
-> 本文件是当前状态快照；历史过程见 `DEVELOPMENT_LOG.md`。
+> 本文件只保存当前状态快照；历史过程以 `DEVELOPMENT_LOG.md` 和 GitHub 提交为准。
 
-## 新 AI 的强制阅读顺序
+## 强制阅读顺序
 
 1. `AGENTS.md`
 2. `PROJECT.md`
 3. `AI_HANDOFF.md`
-4. `DEVELOPMENT_LOG.md` 最近两个阶段
+4. `DEVELOPMENT_LOG.md` 最近阶段
 5. 当前任务直接相关源码
 
 不得只依据聊天摘要直接改代码。
 
 ## 当前阶段
 
-`Stage 8A-2C：修复实例仓库剩余语义缺口` — 已完成代码实现，等待用户真机验收。
+`Stage 8A-3：后台授权和 Widget 持久化缓存 Key 迁移到 instanceId` 已完成，并通过编译、覆盖安装和用户真机验收。
 
-- 分支：`feature/stage-8a-model-instances`
-- 当前已验收业务基线：`686340095e53775e7ad4b92e2cb13feaec2a884c`
-- 目标：修复 ModelInstanceRepository 剩余语义缺口，完成 Stage 8A-2 最终收口
-- 当前状态：
-  - schema version 重试逻辑已修复（A/B/C 三种状态区分）
-  - serviceType 严格校验（只接受枚举声明的持久化字符串）
-  - 七个字段完整性严格检查（`has()` + `getString`/`getBoolean`）
-  - OpenAI 历史槽位无法识别域名时回退到 `OPENAI_COMPATIBLE`（不是 `UNKNOWN`）
-  - 额外配置无法识别时才返回 `UNKNOWN`
-  - 当前四个真实实例不重迁移
-  - 用户已确认 8A-2B 真机测试通过
-- 下一子阶段：8A-3（后台授权和缓存 Key 从 platformName/index 迁移到 instanceId）
+- 当前开发分支：`feature/stage-8a-model-instances`
+- Stage 8A-2C 基线：`9bd9aa4e67e3aaedb2eb35e588fbc46160b5de1c`
+- Stage 8A-3 当前业务提交：`a144230bd31948018113206d9395cbabb28e1646`
+- 当前文档收口提交：以本文件所在提交为准
+- 下一项唯一任务：`Stage 8A-4——BalanceWidgetProvider 读取窗口绑定的 instanceId，现有四卡外观保持不变`
 
-## 仓库与当前基线
+## Stage 8A 当前进度
 
-- 仓库：`anhphuocchu2999-cloud/ai-api-dashboard`
-- `main`：保持未合并，不直接开发。
-- Stage 6-2 基线：`baseline/stage-6-2` / `cd64310d9abf604b11acebbf8549b62649487431`
-- **当前已验收业务基线**：`8fa901c3ac2822ae843a6d7c25667423e05b9a01`
-- 当前文档基线分支：`docs/development-handoff-baseline`
-- 当前文档基线提交：`289c98c64b020c2c5cfe60272bbd5a081b7d83d0`
-- 下一业务阶段应从当前业务基线提交创建新分支；不得合并到 `main`，除非用户明确决定。
-- **当前开发分支**：`feature/stage-8a-model-instances`
+- Stage 8A-1：方案摸排与文档确认——完成
+- Stage 8A-2：ModelInstance、ServiceType、实例仓库和旧配置迁移——完成
+- Stage 8A-2B：实例仓库有效性、稳定 ID 和两步写入加固——完成
+- Stage 8A-2C：schema 重试、严格字段和 serviceType 校验、OpenAI 回退修正——完成
+- Stage 8A-3：授权与持久化缓存 Key 迁移到 instanceId——完成
+- Stage 8A-4：Widget 窗口绑定 instanceId——尚未开始
+
+## Stage 8A-3 实现结果
+
+### 稳定实例 Key
+
+新增 `config/InstanceKeyResolver.kt`，把历史槽位别名归一化为稳定实例 ID：
+
+- `Kimi` → `legacy-kimi`
+- `MiMo` → `legacy-mimo`
+- `DeepSeek` → `legacy-deepseek`
+- `OpenAI` → `legacy-openai`
+- Adapter 内部名称 `Aihuangniu` → `legacy-openai`
+
+旧别名只用于兼容读取，不删除。
+
+### 后台授权
+
+`BackgroundAuthRepository` 当前规则：
+
+1. 优先读取 `${instanceId}_auth`；
+2. 新键不存在时，兼容读取原平台键；
+3. 读取到旧 Cookie / Bearer Token 后复制到新键；
+4. 旧键保留，便于回滚；
+5. 用户明确点击“清除授权”时，同时删除新键和兼容旧键，防止旧凭据被重新恢复；
+6. 不改变授权 JSON 字段和凭据格式；
+7. 不打印 Cookie、Bearer Token 或 API Key。
+
+### Widget 最近成功数据
+
+`WidgetData` 当前规则：
+
+1. 成功数据统一保存到稳定 `instanceId` 键；
+2. 读取时优先读取稳定键；
+3. 新键不存在时兼容读取历史平台键并复制到新键；
+4. 旧缓存键保留；
+5. 临时网络故障继续显示最近成功数据和既有兜底提示。
+
+### 本阶段明确未修改
+
+- 未修改 `BalanceWidgetProvider` 的固定四槽读取与布局绑定；
+- 未修改 `AdapterFactory` 路由；
+- 未修改任何 Adapter 协议和接口解析；
+- 未修改配置页外观；
+- 未修改 Widget XML 或响应式布局；
+- 未合并到 `main`。
+
+## Stage 8A-3 验证证据
+
+本地执行端仅负责拉取、编译、覆盖安装和启动，没有修改代码、文档、提交或推送。
+
+- 拉取后 HEAD：`a144230bd31948018113206d9395cbabb28e1646`
+- `git pull --ff-only`：Fast-forward 成功
+- `./gradlew assembleDebug`：`BUILD SUCCESSFUL in 39s`
+- `pm install -r`：`Success`
+- App 启动：成功
+- 本地工作区：干净
+- 用户真机验收：通过
+
+用户确认的真机结果：
+
+- MiMo 无需重新登录，余额正常；
+- 爱黄牛无需重新登录，余额和用量正常；
+- Kimi、DeepSeek 正常；
+- Kimi Billing 中性展示正常；
+- Widget 四张卡无空白、崩溃或长时间异常加载；
+- 临时网络故障下最近成功数据兜底正常。
+
+## 当前核心数据流
+
+```text
+历史平台槽位 / instanceId
+        ↓
+InstanceKeyResolver
+        ↓
+稳定 instanceId
+        ├─ BackgroundAuthRepository 授权归属
+        └─ WidgetData 最近成功缓存归属
+```
+
+Provider 仍通过 `AdapterFactory` 获取 Adapter，不得解析平台协议、Cookie 或 Bearer Token。
 
 ## 应用信息
 
 - Android 包名：`com.java.myapplication.dev`
 - Debug 构建：`./gradlew assembleDebug`
 - APK：`app/build/outputs/apk/debug/app-debug.apk`
-- 覆盖安装：
+- 覆盖安装：`pm install -r`
 
-```bash
-cp app/build/outputs/apk/debug/app-debug.apk /data/local/tmp/app-debug.apk
-pm install -r /data/local/tmp/app-debug.apk
-```
+严禁卸载、`pm clear` 或清除应用数据，因为会破坏现有配置和网页登录授权。
 
-严禁通过卸载、`pm clear` 或清数据解决问题，因为会丢失 MiMo 网页授权。
+## 下一阶段边界
 
-## 产品目标
+Stage 8A-4 只处理：
 
-桌面 Widget 监控多个 AI API 模型实例的真实余额、用量、Token、请求次数或平台可提供的其他指标。
+- Provider 从 ModelInstanceRepository 读取现有四个实例；
+- 四个现有窗口绑定稳定 instanceId；
+- Adapter 路由使用 serviceType；
+- 卡片布局、数量和外观保持不变；
+- 保留旧配置、旧授权和旧缓存的兼容读取。
 
-当前固定卡片：
+Stage 8A-4 不处理：
 
-- Kimi
-- MiMo
-- DeepSeek
-- OpenAI（当前实际可承载爱黄牛等 OpenAI 兼容实例）
-
-Widget 主标题显示模型名称；中转站名称只作为备注。不得为统一界面伪造平台不存在的数据。
-
-## 当前核心数据流
-
-```text
-配置页保存模型实例
-        ↓
-BalanceWidgetProvider
-        ↓
-AdapterFactory 路由
-        ↓
-AdapterRequest
-├─ apiBase
-├─ modelApiKey
-├─ modelName
-├─ backgroundAuthType
-└─ backgroundCredential
-        ↓
-对应 PlatformAdapter
-        ↓
-统一 WidgetData
-        ↓
-每卡片缓存与 Widget 展示
-```
-
-Provider 不应解析平台协议，也不应直接特殊构造某个平台 Adapter。
-
-## 当前授权流
-
-```text
-模型 API Key
-→ 模型列表、模型调用或模型用量接口
-
-网页登录 Cookie / Bearer Token
-→ BackgroundAuthRepository
-→ `${instanceKey}_auth`
-→ AdapterRequest.backgroundCredential
-→ 账户余额 / 套餐 / Profile 等后台接口
-```
-
-授权类型：
-
-- `NONE`
-- `COOKIE`
-- `BEARER_TOKEN`
-
-重要：Billing、Usage、Balance、Profile 是数据接口能力，不是新的认证类型。
-
-## 平台现状
-
-### MiMo
-
-- 网页登录已实现：`WebAuthActivity.kt`（通用网页登录授权）
-- 登录页：`https://platform.xiaomimimo.com/#/console/balance`
-- 必要 Cookie：`api-platform_serviceToken`、`userId`
-- 保存位置：`api_config / MiMo_auth`
-- 读取方式：`BackgroundAuthRepository`
-- 当前真机状态：无需重新登录，余额正常（用户确认）。
-
-### Kimi / New API
-
-- 主要使用模型 API Key。
-- 已验证过 `/v1/models`、billing subscription 和 usage 类接口的兼容路径。
-- 当前真机状态：请求次数仍正常（用户确认）。
-
-### DeepSeek 官方
-
-- 按官方 API Key 路径处理。
-- 网页登录未设计为当前必需能力。
-- `MainActivity.fetchModels()` 已兼容 API Base 带或不带 `/v1`。
-- `DeepSeekOfficialAdapter` 已真机验证余额展示（总余额 + 赠送/充值余额）。
-- 当前真机状态：模型获取正常，余额正常（用户确认）。
-
-### OpenAI 卡片 / 爱黄牛
-
-- `AihuangniuAdapter` 支持模型 API Key + 后台 Bearer Token 分离使用。
-- `/v1/usage` 使用模型 Key；Profile/余额优先使用后台 Bearer Token。
-- 自动网页登录获取 Bearer Token 已实现：WebAuthActivity 通过 localStorage 轮询读取 `auth_token`。
-- 配置页展开高级设置后，点击“连接账户”即可自动完成爱黄牛网页登录授权。
-
-## 核心文件
-
-- `MainActivity.kt`：配置页、测试连接、高级授权入口。
-- `WebAuthActivity.kt`：通用网页登录授权（MiMo Cookie + 爱黄牛 localStorage Bearer Token）。
-- `BalanceWidgetProvider.kt`：刷新、Adapter 调用、缓存、Widget 渲染。
-- `adapter/AdapterFactory.kt`：平台路由唯一入口。
-- `adapter/AdapterRequest.kt`：模型 Key 与后台凭据分离输入。
-- `adapter/PlatformAdapter.kt`：统一 Adapter 接口。
-- `adapter/auth/BackgroundAuthConfig.kt`：后台授权数据模型。
-- `adapter/auth/BackgroundAuthRepository.kt`：后台授权唯一持久化入口。
-- `config/ConfigRepository.kt`：模型实例配置持久化。
-- `PROJECT.md`：产品和架构规则。
-- `AGENTS.md`：开发纪律。
-- `DEVELOPMENT_LOG.md`：历史日志。
-
-## 已完成能力
-
-- 标准 Android 项目骨架、Widget Provider 和配置页。
-- 四平台卡片与模型名称显示。
-- `/v1/models` 测试连接；单模型自动选择，多模型弹窗选择。
-- AdapterFactory 平台路由。
-- Kimi、MiMo、DeepSeek、爱黄牛等 Adapter 路径。
-- 每卡片最近成功数据持久化和临时网络故障兜底。
-- MiMo 网页 Cookie 登录。
-- API Key / Cookie / Bearer Token 分离传递。
-- 后台授权 JSON 统一读写仓库。
-
-## 已完成阶段
-
-`Stage 7A-3B + 3C：爱黄牛 Bearer Token 来源确认与自动网页登录获取` 已完成。
-
-- 开发分支：`feature/stage-7a-3c-aihuangniu-web-auth`
-- 最终提交：`08c7751`
-- 提交信息：`Stage 7A-3B+3C: Add aihuangniu web auth with localStorage auth_token auto-extraction`
-- `WebAuthProfile` 扩展 `apiBaseHostContains` 和 `localStorageKey` 字段
-- `WebAuthProfileRegistry` 注册爱黄牛 profile（instanceKey=OpenAI，authType=BEARER_TOKEN）
-- `WebAuthProfileRegistry.findFor(instanceKey, apiBase)` 支持按 apiBase 匹配
-- `WebAuthActivity` 扩展 localStorage 轮询自动提取（COOKIE 路径完全保留）
-- 配置页使用 `findFor(platform, apiBase)` 替代 `findByInstanceKey(platform)`，不重新写死 platform == "xxx"
-- 爱黄牛后台授权保存到 `OpenAI_auth`（实例位于 OpenAI 槽位）
-- 用户本人已明确确认真机测试通过（爱黄牛自动获取 + MiMo 不受影响）。
-
-## 最近完成的阶段
-
-`Stage 7A-3D：WebAuthProfile 匹配规则修复` 已完成。
-
-- 修复分支：`fix/stage-7a-3d-web-auth-profile-match`
-- 最终提交：`5d707575a1c9f98ca603d645a1794ab74a2c950b`
-- 提交信息：`Fix WebAuthProfile API base matching`
-- `WebAuthProfileRegistry.findFor()` 匹配语义已修复：
-  - Profile 无 `apiBaseHostContains`（如 MiMo）：仅按 `instanceKey` 匹配
-  - Profile 有 `apiBaseHostContains`（如爱黄牛）：`instanceKey` + `apiBase` 同时匹配
-- 非爱黄牛 OpenAI 地址不再误显示"连接账户"
-- 用户本人已明确确认真机测试通过（MiMo 回归 + 爱黄牛匹配 + 非爱黄牛不匹 + Widget 正常）。
-
-## 最近完成的阶段
-
-`Stage 7B：DeepSeek 官方能力闭环` 已完成。
-
-- 开发分支：`feature/stage-7b-deepseek-official-closure`
-- 最终提交：`b7933edb48a607f57d91b0f12f67aa610a307155`
-- `MainActivity.fetchModels()` 已兼容 API Base 带或不带 `/v1`
-- `DeepSeekOfficialAdapter` 保留配置中选中的真实模型名
-- Widget 展示真实余额及接口真实返回的赠送/充值余额
-- 用户本人已明确确认真机测试通过（DeepSeek 模型获取 + 余额展示 + 全平台回归）
-
-## 最近完成的阶段
-
-`Stage 7C：认证与数据能力模型统一` 已完成。
-
-- 开发分支：`feature/stage-7c-capability-model`
-- 最终提交：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
-- `DataSourceType`（API / 网页授权 / Billing）、`DataCapability`、`ProviderCapabilityProfile` 已建立
-- `PlatformAdapter` 统一暴露 `capabilityProfile`
-- 四个 Adapter 已按真实实现声明能力，无 Billing 虚假接入
-- 配置页高级设置动态展示数据来源、账户授权、Billing 状态、可用数据
-- 用户本人已明确确认真机测试通过（四个平台能力摘要 + 全平台数据回归）
-
-## 最近完成的阶段
-
-`Stage 7D：Kimi / NewAPI Billing 数据源真实接入` 已完成。
-
-- 开发分支：`feature/stage-7d-newapi-billing`
-- 最终提交：`46a08936d00b3c0f0907b020e561e19d36377a03`
-- Kimi / NewAPI 已成为第一个真实接入 Billing 的 Adapter
-- 数据来源：`API + Billing`
-- 真实接口：`/v1/dashboard/billing/subscription`、`/v1/dashboard/billing/usage`
-- Billing 与原次数卡相互独立，失败不覆盖原数据
-- 用户本人已明确确认真机测试通过（Billing 数据真实显示 + 全平台回归）
-
-## Stage 7D 纠偏：Billing 数据真实性表达修正
-
-`Stage 7D Billing 数据真实性纠偏` 已完成。
-
-- 业务纠偏提交：`5f9dafa56149b943254ee161eda026c2337af778`
-- 文档收口提交：`27480252ee1f552df1ac0ce6720933d21b0bda50`
-- 推送状态：已推送
-- 纠偏内容：
-  - 原 Stage 7D 直接将 Billing 数据解释为美元金额（显示 `$200163.06` 等）
-  - 用户真机发现金额语义明显不可信
-  - 后续原始字段对照证明 Billing 与次数卡是独立数据源，但未证明美元换算
-  - 已撤销原货币解释（`/100` 和 `$` 展示）
-  - 当前按“Billing 额度 / Billing 用量”中性展示
-  - 只在显示层保留两位小数
-- 真实性边界确认：
-  1. Billing HTTP 数据链真实接入成功（subscription 和 usage 接口均已真机确认 HTTP 200）
-  2. 现有证据不足以证明这些数值可以直接解释为用户侧美元金额
-  3. 次数数据保持独立真实计算（`/api/usage/token`）
-  4. 用户确认 Kimi 的“加载中...”只是正常刷新瞬时状态
-  5. 用户本人确认最终真机结果正常
-- 下一项唯一任务：Stage 8A——模型实例与固定平台槽位解耦
+- 任意新增或删除实例；
+- 动态卡片数量；
+- 拖动排序；
+- Widget 外观重做；
+- 多尺寸布局改版；
+- 合并到 main。
 
 ## 严禁操作
 
-- 不得修改 `main`。
-- 不得未经用户确认合并分支。
-- 不得卸载 App、`pm clear` 或清除应用数据。
-- 不得删除、打印或暴露 MiMo Cookie、API Key、Bearer Token。
-- 不得绕过 `AdapterFactory`。
-- 不得让 Provider 解析平台协议或 Cookie。
-- 不得同时修改布局、授权和平台接口。
-- 每个阶段只做一个可独立验收的小目标。
-- 业务代码变化后只编译一次、覆盖安装一次；真机测试需要用户介入时必须用醒目标题明确提醒。
-
-## 最近真机验证状态
-
-以 Stage 7D 纠偏后代码为当前业务基线：
-
-- Kimi Billing 两个真实接口已经接通（subscription 和 usage 接口均已真机确认 HTTP 200）：用户确认。
-- 原先把 Billing 数据直接解释为美元金额是不可靠的，已撤销：用户确认。
-- 当前采用中性真实表达（Billing 额度 / Billing 用量，无 $ 符号）：用户确认。
-- 显示层最多保留两位小数：用户确认。
-- Kimi 截图中的“加载中...”只是正常刷新瞬时状态，不是故障：用户确认。
-- 用户本人已经确认当前真机显示没有问题：用户确认。
-- 其他平台（MiMo、DeepSeek、爱黄牛）无回归：用户确认。
-- Widget 无空白、崩溃或异常退出：用户确认。
-
-已知非阻断 Kotlin 警告仍存在，未专门清理。
-
-## 回滚点
-
-- Stage 7D 纠偏后业务基线：`5f9dafa56149b943254ee161eda026c2337af778`
-- Stage 7D 原始业务基线：`46a08936d00b3c0f0907b020e561e19d36377a03`
-- Stage 7C 业务基线：`04be69ffd7e9a0b38f36574295f0bdd994a7d14b`
-- Stage 7A-2：`f2a67cd66aa7d989d285d71805deef44ed8319b1`
-- Stage 7A-1：`7f1cfa1140aff2c609a666a89d2274788030c947`
-- 持久化兜底：`51f934773ca6da305080d4c49fb2b805c47480c3`
-- Stage 6-2 基线：`cd64310d9abf604b11acebbf8549b62649487431`
-
-## 接手时的第一条检查命令
-
-```bash
-git branch --show-current
-git status --short
-git log -1 --oneline
-```
-
-输出与本文件不一致时，先核对 Git，不得直接继续开发。
+- 不得修改 `main`；
+- 不得未经用户确认合并分支；
+- 不得卸载 App、`pm clear` 或清数据；
+- 不得打印或暴露 API Key、Cookie、Bearer Token；
+- 不得绕过 `AdapterFactory`；
+- 不得让 Provider 解析平台协议或授权内容；
+- 每次只推进一个可独立验收的目标。
