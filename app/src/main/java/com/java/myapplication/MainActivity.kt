@@ -850,6 +850,91 @@ fun ConfigScreen(modifier: Modifier = Modifier, context: Context) {
                             Text("🔍 探测接口")
                         }
                     }
+                    
+                    // 调试：打印原始响应按钮（仅 Kimi 显示）
+                    if (platform == "Kimi") {
+                        Button(
+                            onClick = {
+                                if (apiBase.isBlank() || apiKey.isBlank()) {
+                                    connectionStatus = ConnectionStatus.Error(
+                                        title = "🌐 没有连接成功",
+                                        reason = "API Base URL 或 API Key 没有填写。",
+                                        suggestion = "请确认 API Base URL 和 API Key 都已填写完整，然后再试一次。"
+                                    )
+                                    return@Button
+                                }
+                                testingIndex = index
+                                scope.launch {
+                                    val results = withContext(Dispatchers.IO) {
+                                        val results = mutableListOf<ProbeResultData>()
+                                        val normalizedBase = apiBase.trim().trimEnd('/')
+                                        
+                                        // 1. 请求 subscription
+                                        try {
+                                            val url = URL("$normalizedBase/v1/dashboard/billing/subscription")
+                                            val conn = url.openConnection() as HttpURLConnection
+                                            conn.requestMethod = "GET"
+                                            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                                            conn.setRequestProperty("Accept", "application/json")
+                                            conn.connectTimeout = 10000
+                                            conn.readTimeout = 10000
+                                            
+                                            val code = conn.responseCode
+                                            val body = if (code == 200) {
+                                                conn.inputStream.bufferedReader().use { it.readText() }
+                                            } else {
+                                                val error = try { conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch (_: Exception) { "" }
+                                                "HTTP $code: $error"
+                                            }
+                                            conn.disconnect()
+                                            results.add(ProbeResultData("/v1/dashboard/billing/subscription", code, body, emptyList()))
+                                        } catch (e: Exception) {
+                                            results.add(ProbeResultData("/v1/dashboard/billing/subscription", -1, "异常: ${e.javaClass.simpleName}", emptyList()))
+                                        }
+                                        
+                                        kotlinx.coroutines.delay(500)
+                                        
+                                        // 2. 请求 usage
+                                        try {
+                                            val url = URL("$normalizedBase/v1/dashboard/billing/usage")
+                                            val conn = url.openConnection() as HttpURLConnection
+                                            conn.requestMethod = "GET"
+                                            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                                            conn.setRequestProperty("Accept", "application/json")
+                                            conn.connectTimeout = 10000
+                                            conn.readTimeout = 10000
+                                            
+                                            val code = conn.responseCode
+                                            val body = if (code == 200) {
+                                                conn.inputStream.bufferedReader().use { it.readText() }
+                                            } else {
+                                                val error = try { conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch (_: Exception) { "" }
+                                                "HTTP $code: $error"
+                                            }
+                                            conn.disconnect()
+                                            results.add(ProbeResultData("/v1/dashboard/billing/usage", code, body, emptyList()))
+                                        } catch (e: Exception) {
+                                            results.add(ProbeResultData("/v1/dashboard/billing/usage", -1, "异常: ${e.javaClass.simpleName}", emptyList()))
+                                        }
+                                        
+                                        results
+                                    }
+                                    
+                                    probeResults = results
+                                    probePlatform = platform
+                                    testingIndex = -1
+                                    showProbeDialog = true
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            enabled = testingIndex != index,
+                            colors = ButtonDefaults.outlinedButtonColors()
+                        ) {
+                            Text("🐛 调试 Billing 原始响应")
+                        }
+                    }
                 }
             }
         }

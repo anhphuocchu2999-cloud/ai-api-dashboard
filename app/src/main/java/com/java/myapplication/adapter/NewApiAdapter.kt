@@ -122,20 +122,15 @@ class NewApiAdapter : PlatformAdapter {
             apiKey
         )
 
-        val softLimitUsd = readDecimal(subscription, "soft_limit_usd", "soft_limit")
+        val softLimitRaw = readDecimal(subscription, "soft_limit_usd", "soft_limit")
         val totalUsageRaw = readDecimal(usage, "total_usage")
-        val totalUsageUsd = totalUsageRaw?.divide(
-            BigDecimal("100"),
-            6,
-            RoundingMode.HALF_UP
-        )
 
-        return if (softLimitUsd == null && totalUsageUsd == null) {
+        return if (softLimitRaw == null && totalUsageRaw == null) {
             null
         } else {
             BillingSnapshot(
-                softLimitUsd = softLimitUsd,
-                totalUsageUsd = totalUsageUsd
+                softLimitRaw = softLimitRaw,
+                totalUsageRaw = totalUsageRaw
             )
         }
     }
@@ -173,12 +168,17 @@ class NewApiAdapter : PlatformAdapter {
             return tokenData
         }
 
+        // 中性 Billing 表达（无货币符号）
         val billingParts = mutableListOf<String>()
-        billingSnapshot.softLimitUsd?.let {
-            billingParts.add("额度 \$${formatUsd(it)}")
+        billingSnapshot.softLimitRaw?.let {
+            billingParts.add("额度 ${formatDecimal(it)}")
         }
-        billingSnapshot.totalUsageUsd?.let {
-            billingParts.add("已用 \$${formatUsd(it)}")
+        billingSnapshot.totalUsageRaw?.let {
+            billingParts.add("用量 ${formatDecimal(it)}")
+        }
+
+        if (billingParts.isEmpty()) {
+            return tokenData
         }
 
         val billingMetric = WidgetData.DisplayMetric(
@@ -186,6 +186,7 @@ class NewApiAdapter : PlatformAdapter {
             billingParts.joinToString(" · ")
         )
 
+        // 如果次数卡数据成功，将 Billing 作为辅助指标追加
         if (tokenData.isSuccess && tokenData.isAvailable) {
             return tokenData.copy(
                 modelName = tokenData.modelName ?: configuredModelName,
@@ -193,19 +194,20 @@ class NewApiAdapter : PlatformAdapter {
             )
         }
 
-        val primaryMetric = billingSnapshot.softLimitUsd?.let {
-            WidgetData.DisplayMetric("Billing额度", "\$${formatUsd(it)}")
-        } ?: billingSnapshot.totalUsageUsd?.let {
-            WidgetData.DisplayMetric("Billing已用", "\$${formatUsd(it)}")
+        // 如果次数卡数据失败，尝试仅用 Billing 构建主指标
+        val primaryMetric = billingSnapshot.softLimitRaw?.let {
+            WidgetData.DisplayMetric("Billing额度", formatDecimal(it))
+        } ?: billingSnapshot.totalUsageRaw?.let {
+            WidgetData.DisplayMetric("Billing用量", formatDecimal(it))
         }
 
         val auxiliaryMetrics = if (
-            billingSnapshot.softLimitUsd != null && billingSnapshot.totalUsageUsd != null
+            billingSnapshot.softLimitRaw != null && billingSnapshot.totalUsageRaw != null
         ) {
             listOf(
                 WidgetData.DisplayMetric(
-                    "Billing已用",
-                    "\$${formatUsd(billingSnapshot.totalUsageUsd)}"
+                    "Billing用量",
+                    formatDecimal(billingSnapshot.totalUsageRaw)
                 )
             )
         } else {
@@ -234,10 +236,9 @@ class NewApiAdapter : PlatformAdapter {
         return null
     }
 
-    private fun formatUsd(value: BigDecimal): String {
+    private fun formatDecimal(value: BigDecimal): String {
         return value
-            .setScale(6, RoundingMode.HALF_UP)
-            .stripTrailingZeros()
+            .setScale(2, RoundingMode.HALF_UP)
             .toPlainString()
     }
 
@@ -259,8 +260,8 @@ class NewApiAdapter : PlatformAdapter {
     }
 
     private data class BillingSnapshot(
-        val softLimitUsd: BigDecimal?,
-        val totalUsageUsd: BigDecimal?
+        val softLimitRaw: BigDecimal?,
+        val totalUsageRaw: BigDecimal?
     )
 
     /**

@@ -1302,7 +1302,7 @@ Authorization: Bearer <模型 API Key>
 - `soft_limit_usd`，兼容旧返回字段 `soft_limit`
 - `total_usage`
 
-`total_usage` 按项目既有 Billing 探测语义以“美分 → 美元”换算后展示；不得把原始美分数直接冒充美元。
+`total_usage` 原始值以中性数值展示（当前未确认单位，不添加货币符号）。
 
 ### 数据合并规则
 
@@ -1320,7 +1320,7 @@ Authorization: Bearer <模型 API Key>
 
 - 现有核心指标继续优先保留“剩余次数”。
 - Billing 成功时，在辅助轮播数据中增加一条真实 Billing 指标：
-  - `Billing 额度 $X · 已用 $Y`
+   - `Billing 额度 X · 用量 Y`（中性数值，最多保留2位小数，无货币符号）
 - 如果只取得其中一个真实字段，只显示实际取得的字段。
 - 不伪造余额、Token、请求次数或使用率。
 
