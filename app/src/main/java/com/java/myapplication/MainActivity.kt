@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
@@ -241,8 +242,8 @@ fun ConfigScreen(
         mutableStateOf(List<ConnectionStatus?>(slots.size) { null })
     }
     var testingIndex by remember { mutableIntStateOf(-1) }
-    var serviceMenuIndex by remember { mutableIntStateOf(-1) }
-    var expandedIndex by remember { mutableIntStateOf(-1) }
+    var editingIndex by remember { mutableIntStateOf(-1) }
+    var showServicePicker by remember { mutableStateOf(false) }
 
     var showModelDialog by remember { mutableStateOf(false) }
     var modelList by remember { mutableStateOf(emptyList<String>()) }
@@ -274,352 +275,173 @@ fun ConfigScreen(
         prefs.edit().putString(connectionModeKey(slots[index]), mode.name).apply()
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("AI API Dashboard", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = "Build: 2026-07-14-8B-R001",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-        Text(
-            text = "打开需要显示的槽位，再选择“使用 API”或“登录官网账户”。账户用量会在后台自动同步。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-        )
+    fun closeEditor() {
+        editingIndex = -1
+        showServicePicker = false
+    }
 
-        Text("选择要显示的槽位", style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = "最多 4 个。关闭槽位不会删除原配置和历史数据。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
-        )
+    BackHandler(enabled = editingIndex >= 0) {
+        closeEditor()
+    }
 
-        slots.forEachIndexed { index, slotName ->
-            val config = configs[index]
-            val selectedService = serviceOptionFor(slotName, config.apiBase)
-            val webAuthProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
-            val capabilityAdapter = AdapterFactory.getAdapter(slotName, config.apiBase)
-            val expectedAuthType = capabilityAdapter?.capabilityProfile?.backgroundAuthType
-                ?: webAuthProfile?.authType
-                ?: BackgroundAuthType.NONE
-            val webAuthSupported = webAuthProfile != null && expectedAuthType != BackgroundAuthType.NONE
-            val auth = backgroundAuths[index]
-            val authConnected = webAuthSupported &&
-                auth.enabled &&
-                auth.authType == expectedAuthType &&
-                auth.authValue.isNotBlank()
-            val mode = if (!webAuthSupported && connectionModes[index] == ConnectionMode.WEB) {
-                ConnectionMode.API
-            } else {
-                connectionModes[index]
+    if (editingIndex < 0) {
+        SlotListScreen(
+            modifier = modifier,
+            configs = configs,
+            slots = slots,
+            backgroundAuths = backgroundAuths,
+            connectionModes = connectionModes,
+            onToggle = { index, enabled ->
+                updateConfig(index, configs[index].copy(enabled = enabled))
+                refreshWidget(context)
+            },
+            onEdit = { index ->
+                editingIndex = index
+                showServicePicker = false
             }
-            val expanded = expandedIndex == index
+        )
+    } else {
+        val index = editingIndex
+        val slotName = slots[index]
+        val config = configs[index]
+        val service = serviceOptionFor(slotName, config.apiBase)
+        val webProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
+        val adapter = AdapterFactory.getAdapter(slotName, config.apiBase)
+        val expectedAuthType = adapter?.capabilityProfile?.backgroundAuthType
+            ?: webProfile?.authType
+            ?: BackgroundAuthType.NONE
+        val webSupported = webProfile != null && expectedAuthType != BackgroundAuthType.NONE
+        val auth = backgroundAuths[index]
+        val authConnected = webSupported &&
+            auth.enabled &&
+            auth.authType == expectedAuthType &&
+            auth.authValue.isNotBlank()
+        val mode = if (!webSupported && connectionModes[index] == ConnectionMode.WEB) {
+            ConnectionMode.API
+        } else {
+            connectionModes[index]
+        }
 
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "槽位 ${index + 1}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = slotTitle(config, selectedService),
-                                style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                            Text(
-                                text = slotStatus(config, mode, authConnected),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Switch(
-                                checked = config.enabled,
-                                onCheckedChange = { enabled ->
-                                    updateConfig(index, config.copy(enabled = enabled))
+        SlotEditorScreen(
+            modifier = modifier,
+            slotNumber = index + 1,
+            config = config,
+            service = service,
+            showServicePicker = showServicePicker,
+            webSupported = webSupported,
+            authConnected = authConnected,
+            mode = mode,
+            status = connectionStatuses[index],
+            isTesting = testingIndex == index,
+            onBack = { closeEditor() },
+            onShowServicePicker = { showServicePicker = !showServicePicker },
+            onChooseService = { option ->
+                showServicePicker = false
+                if (option.id != service.id) {
+                    BackgroundAuthRepository.clear(prefs, slotName)
+                    updateAuth(index, BackgroundAuthConfig())
+                    updateMode(index, ConnectionMode.API)
+                    updateConfig(
+                        index,
+                        config.copy(
+                            name = option.displayName,
+                            apiBase = option.defaultApiBase,
+                            model = ""
+                        )
+                    )
+                    connectionStatuses = connectionStatuses.toMutableList().apply {
+                        this[index] = null
+                    }
+                    Toast.makeText(context, "已选择 ${option.displayName}", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onModeChange = { newMode -> updateMode(index, newMode) },
+            onConfigChange = { updated -> updateConfig(index, updated) },
+            onTest = {
+                val testConfig = configs[index]
+                if (testConfig.apiBase.isBlank() || testConfig.apiKey.isBlank()) {
+                    connectionStatuses = connectionStatuses.toMutableList().apply {
+                        this[index] = ConnectionStatus.Error(
+                            title = "还不能检测",
+                            reason = "API 地址或 API Key 没有填写。",
+                            suggestion = "把两项填写完整后再试一次。"
+                        )
+                    }
+                } else {
+                    savePlatformConfig(prefs, slotName, testConfig)
+                    testingIndex = index
+                    connectionStatuses = connectionStatuses.toMutableList().apply {
+                        this[index] = null
+                    }
+                    scope.launch {
+                        when (val result = fetchModels(testConfig.apiBase, testConfig.apiKey)) {
+                            is TestResult.Success -> {
+                                testingIndex = -1
+                                if (result.models.size == 1) {
+                                    val selectedModel = result.models.first()
+                                    updateConfig(index, testConfig.copy(model = selectedModel))
+                                    connectionStatuses = connectionStatuses.toMutableList().apply {
+                                        this[index] = ConnectionStatus.Success(selectedModel)
+                                    }
                                     refreshWidget(context)
+                                } else {
+                                    modelList = result.models
+                                    selectedPlatformIndex = index
+                                    showModelDialog = true
                                 }
-                            )
-                            Text(
-                                text = if (config.enabled) "显示" else "隐藏",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (config.enabled) {
-                        OutlinedButton(
-                            onClick = { expandedIndex = if (expanded) -1 else index },
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-                        ) {
-                            Text(if (expanded) "收起设置" else if (isConfigured(config, authConnected)) "编辑连接" else "开始配置")
-                        }
-                    }
-
-                    if (config.enabled && expanded) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-                        Text("选择服务", style = MaterialTheme.typography.titleMedium)
-                        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                            OutlinedButton(
-                                onClick = { serviceMenuIndex = index },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("${selectedService.displayName}　▼")
                             }
-                            DropdownMenu(
-                                expanded = serviceMenuIndex == index,
-                                onDismissRequest = { serviceMenuIndex = -1 },
-                                modifier = Modifier.fillMaxWidth(0.86f)
-                            ) {
-                                serviceOptions.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.displayName) },
-                                        onClick = {
-                                            serviceMenuIndex = -1
-                                            if (option.id != selectedService.id) {
-                                                BackgroundAuthRepository.clear(prefs, slotName)
-                                                updateAuth(index, BackgroundAuthConfig())
-                                                updateMode(index, ConnectionMode.API)
-                                                updateConfig(
-                                                    index,
-                                                    config.copy(
-                                                        name = option.displayName,
-                                                        apiBase = option.defaultApiBase,
-                                                        model = ""
-                                                    )
-                                                )
-                                                connectionStatuses = connectionStatuses.toMutableList().apply {
-                                                    this[index] = null
-                                                }
-                                                Toast.makeText(
-                                                    context,
-                                                    "已切换为 ${option.displayName}，请重新连接",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
+                            is TestResult.Error -> {
+                                testingIndex = -1
+                                connectionStatuses = connectionStatuses.toMutableList().apply {
+                                    this[index] = ConnectionStatus.Error(
+                                        result.title,
+                                        result.reason,
+                                        result.suggestion
                                     )
                                 }
+                                errorTitle = result.title
+                                errorReason = result.reason
+                                errorSuggestion = result.suggestion
+                                errorDetail = result.detail
+                                showDetail = false
+                                showErrorDialog = true
                             }
-                        }
-
-                        val currentConfig = configs[index]
-                        val currentService = serviceOptionFor(slotName, currentConfig.apiBase)
-                        val currentWebProfile = WebAuthProfileRegistry.findFor(slotName, currentConfig.apiBase)
-                        val currentAdapter = AdapterFactory.getAdapter(slotName, currentConfig.apiBase)
-                        val currentExpectedAuth = currentAdapter?.capabilityProfile?.backgroundAuthType
-                            ?: currentWebProfile?.authType
-                            ?: BackgroundAuthType.NONE
-                        val currentWebSupported = currentWebProfile != null && currentExpectedAuth != BackgroundAuthType.NONE
-                        val currentAuth = backgroundAuths[index]
-                        val currentAuthConnected = currentWebSupported &&
-                            currentAuth.enabled &&
-                            currentAuth.authType == currentExpectedAuth &&
-                            currentAuth.authValue.isNotBlank()
-                        val currentMode = if (!currentWebSupported && connectionModes[index] == ConnectionMode.WEB) {
-                            ConnectionMode.API
-                        } else {
-                            connectionModes[index]
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("选择连接方式", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            text = "只需要选择一种你最方便的方式。账户用量会自动读取，不需要单独配置 Billing。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (currentMode == ConnectionMode.API) {
-                                Button(
-                                    onClick = { updateMode(index, ConnectionMode.API) },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("使用 API") }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { updateMode(index, ConnectionMode.API) },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("使用 API") }
-                            }
-
-                            if (currentWebSupported) {
-                                if (currentMode == ConnectionMode.WEB) {
-                                    Button(
-                                        onClick = { updateMode(index, ConnectionMode.WEB) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("登录官网") }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { updateMode(index, ConnectionMode.WEB) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("登录官网") }
-                                }
-                            }
-                        }
-
-                        if (!currentWebSupported) {
-                            Text(
-                                text = "${currentService.displayName} 当前只开放 API 连接。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        if (currentMode == ConnectionMode.API) {
-                            ApiConnectionEditor(
-                                config = currentConfig,
-                                status = connectionStatuses[index],
-                                isTesting = testingIndex == index,
-                                dataSummary = apiDataSummary(currentService),
-                                onConfigChange = { updateConfig(index, it) },
-                                onTest = {
-                                    val testConfig = configs[index]
-                                    if (testConfig.apiBase.isBlank() || testConfig.apiKey.isBlank()) {
-                                        val status = ConnectionStatus.Error(
-                                            title = "🌐 还不能检测",
-                                            reason = "API 地址或 API Key 没有填写。",
-                                            suggestion = "把两项填写完整后再试一次。"
-                                        )
-                                        connectionStatuses = connectionStatuses.toMutableList().apply {
-                                            this[index] = status
-                                        }
-                                    } else {
-                                        savePlatformConfig(prefs, slotName, testConfig)
-                                        testingIndex = index
-                                        connectionStatuses = connectionStatuses.toMutableList().apply {
-                                            this[index] = null
-                                        }
-                                        scope.launch {
-                                            when (val result = fetchModels(testConfig.apiBase, testConfig.apiKey)) {
-                                                is TestResult.Success -> {
-                                                    testingIndex = -1
-                                                    if (result.models.size == 1) {
-                                                        val selectedModel = result.models.first()
-                                                        updateConfig(index, testConfig.copy(model = selectedModel))
-                                                        connectionStatuses = connectionStatuses.toMutableList().apply {
-                                                            this[index] = ConnectionStatus.Success(selectedModel)
-                                                        }
-                                                        refreshWidget(context)
-                                                    } else {
-                                                        modelList = result.models
-                                                        selectedPlatformIndex = index
-                                                        showModelDialog = true
-                                                    }
-                                                }
-                                                is TestResult.Error -> {
-                                                    testingIndex = -1
-                                                    val status = ConnectionStatus.Error(
-                                                        result.title,
-                                                        result.reason,
-                                                        result.suggestion
-                                                    )
-                                                    connectionStatuses = connectionStatuses.toMutableList().apply {
-                                                        this[index] = status
-                                                    }
-                                                    errorTitle = result.title
-                                                    errorReason = result.reason
-                                                    errorSuggestion = result.suggestion
-                                                    errorDetail = result.detail
-                                                    showDetail = false
-                                                    showErrorDialog = true
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                        } else {
-                            OfficialAccountEditor(
-                                service = currentService,
-                                config = currentConfig,
-                                authConnected = currentAuthConnected,
-                                dataSummary = webDataSummary(currentService),
-                                onNameChange = { name -> updateConfig(index, currentConfig.copy(name = name)) },
-                                onConnect = {
-                                    currentWebProfile?.let { profile ->
-                                        context.startActivity(
-                                            WebAuthActivity.createIntent(
-                                                context = context,
-                                                profileId = profile.profileId,
-                                                targetInstanceKey = slotName
-                                            )
-                                        )
-                                    }
-                                },
-                                onDisconnect = {
-                                    if (BackgroundAuthRepository.clear(prefs, slotName)) {
-                                        updateAuth(index, BackgroundAuthConfig())
-                                        Toast.makeText(context, "官网账户已断开", Toast.LENGTH_SHORT).show()
-                                        refreshWidget(context)
-                                    }
-                                }
-                            )
                         }
                     }
                 }
-            }
-        }
-
-        Button(
-            onClick = {
-                configs.forEachIndexed { index, config ->
-                    savePlatformConfig(prefs, slots[index], config)
-                }
-                refreshWidget(context)
-                Toast.makeText(context, "配置已保存，Widget 正在刷新", Toast.LENGTH_SHORT).show()
             },
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 32.dp)
-        ) {
-            Text("保存并刷新 Widget")
-        }
+            onConnect = {
+                webProfile?.let { profile ->
+                    context.startActivity(
+                        WebAuthActivity.createIntent(
+                            context = context,
+                            profileId = profile.profileId,
+                            targetInstanceKey = slotName
+                        )
+                    )
+                }
+            },
+            onDisconnect = {
+                if (BackgroundAuthRepository.clear(prefs, slotName)) {
+                    updateAuth(index, BackgroundAuthConfig())
+                    Toast.makeText(context, "官网账户已断开", Toast.LENGTH_SHORT).show()
+                    refreshWidget(context)
+                }
+            }
+        )
     }
 
     if (showModelDialog && modelList.isNotEmpty() && selectedPlatformIndex in slots.indices) {
         AlertDialog(
             onDismissRequest = { showModelDialog = false },
-            title = { Text("选择要显示的模型") },
+            title = { Text("选择模型") },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        text = "已经找到 ${modelList.size} 个模型，请选择这个槽位要显示的模型。",
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                     modelList.forEach { modelId ->
                         TextButton(
                             onClick = {
                                 val index = selectedPlatformIndex
-                                val selectedConfig = configs[index].copy(model = modelId)
-                                updateConfig(index, selectedConfig)
+                                updateConfig(index, configs[index].copy(model = modelId))
                                 connectionStatuses = connectionStatuses.toMutableList().apply {
                                     this[index] = ConnectionStatus.Success(modelId)
                                 }
@@ -645,13 +467,14 @@ fun ConfigScreen(
             title = { Text(errorTitle) },
             text = {
                 Column {
-                    Text("发生了什么", style = MaterialTheme.typography.titleSmall)
-                    Text(errorReason, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-                    Text("怎么解决", style = MaterialTheme.typography.titleSmall)
-                    Text(errorSuggestion, modifier = Modifier.padding(top = 4.dp))
+                    Text(errorReason)
+                    Text(
+                        text = errorSuggestion,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
                     errorDetail?.let { detail ->
                         TextButton(onClick = { showDetail = !showDetail }) {
-                            Text(if (showDetail) "隐藏技术详情" else "查看技术详情")
+                            Text(if (showDetail) "隐藏详情" else "查看详情")
                         }
                         if (showDetail) {
                             Text(
@@ -671,6 +494,249 @@ fun ConfigScreen(
 }
 
 @Composable
+private fun SlotListScreen(
+    modifier: Modifier,
+    configs: List<PlatformConfig>,
+    slots: List<String>,
+    backgroundAuths: List<BackgroundAuthConfig>,
+    connectionModes: List<ConnectionMode>,
+    onToggle: (Int, Boolean) -> Unit,
+    onEdit: (Int) -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("AI API Dashboard", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            text = "打开要显示的槽位，点设置即可。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp, bottom = 16.dp)
+        )
+
+        configs.forEachIndexed { index, config ->
+            val slotName = slots[index]
+            val service = serviceOptionFor(slotName, config.apiBase)
+            val webProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
+            val adapter = AdapterFactory.getAdapter(slotName, config.apiBase)
+            val expectedAuthType = adapter?.capabilityProfile?.backgroundAuthType
+                ?: webProfile?.authType
+                ?: BackgroundAuthType.NONE
+            val auth = backgroundAuths[index]
+            val authConnected = webProfile != null &&
+                expectedAuthType != BackgroundAuthType.NONE &&
+                auth.enabled &&
+                auth.authType == expectedAuthType &&
+                auth.authValue.isNotBlank()
+            val mode = connectionModes[index]
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "槽位 ${index + 1}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = slotTitle(config, service),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            Text(
+                                text = simpleSlotStatus(config, mode, authConnected),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Switch(
+                            checked = config.enabled,
+                            onCheckedChange = { onToggle(index, it) }
+                        )
+                    }
+
+                    if (config.enabled) {
+                        Button(
+                            onClick = { onEdit(index) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                        ) {
+                            Text(if (isConfigured(config, authConnected)) "编辑" else "设置")
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun SlotEditorScreen(
+    modifier: Modifier,
+    slotNumber: Int,
+    config: PlatformConfig,
+    service: ServiceOption,
+    showServicePicker: Boolean,
+    webSupported: Boolean,
+    authConnected: Boolean,
+    mode: ConnectionMode,
+    status: ConnectionStatus?,
+    isTesting: Boolean,
+    onBack: () -> Unit,
+    onShowServicePicker: () -> Unit,
+    onChooseService: (ServiceOption) -> Unit,
+    onModeChange: (ConnectionMode) -> Unit,
+    onConfigChange: (PlatformConfig) -> Unit,
+    onTest: () -> Unit,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        TextButton(onClick = onBack) { Text("‹ 返回") }
+        Text("设置槽位 $slotNumber", style = MaterialTheme.typography.headlineMedium)
+
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("服务", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = service.displayName,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onShowServicePicker) {
+                        Text(if (showServicePicker) "收起" else "更换")
+                    }
+                }
+
+                if (showServicePicker) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    serviceOptions.chunked(2).forEach { rowOptions ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowOptions.forEach { option ->
+                                if (option.id == service.id) {
+                                    Button(
+                                        onClick = { onChooseService(option) },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text(option.displayName) }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { onChooseService(option) },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text(option.displayName) }
+                                }
+                            }
+                            if (rowOptions.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "连接方式",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (mode == ConnectionMode.API) {
+                Button(
+                    onClick = { onModeChange(ConnectionMode.API) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("使用 API") }
+            } else {
+                OutlinedButton(
+                    onClick = { onModeChange(ConnectionMode.API) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("使用 API") }
+            }
+
+            if (webSupported) {
+                if (mode == ConnectionMode.WEB) {
+                    Button(
+                        onClick = { onModeChange(ConnectionMode.WEB) },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("登录官网") }
+                } else {
+                    OutlinedButton(
+                        onClick = { onModeChange(ConnectionMode.WEB) },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("登录官网") }
+                }
+            }
+        }
+
+        if (!webSupported) {
+            Text(
+                text = "该服务目前使用 API 连接。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                if (mode == ConnectionMode.API) {
+                    ApiConnectionEditor(
+                        config = config,
+                        status = status,
+                        isTesting = isTesting,
+                        dataSummary = apiDataSummary(service),
+                        onConfigChange = onConfigChange,
+                        onTest = onTest
+                    )
+                } else {
+                    OfficialAccountEditor(
+                        service = service,
+                        authConnected = authConnected,
+                        dataSummary = webDataSummary(service),
+                        onConnect = onConnect,
+                        onDisconnect = onDisconnect
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ApiConnectionEditor(
     config: PlatformConfig,
     status: ConnectionStatus?,
@@ -679,26 +745,12 @@ private fun ApiConnectionEditor(
     onConfigChange: (PlatformConfig) -> Unit,
     onTest: () -> Unit
 ) {
-    Text("使用 API", style = MaterialTheme.typography.titleMedium)
-    Text(
-        text = "填入 API 地址和 API Key，系统会自动查找模型。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-    )
-
-    OutlinedTextField(
-        value = config.name,
-        onValueChange = { onConfigChange(config.copy(name = it)) },
-        label = { Text("备注名称（可选）") },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true
-    )
+    Text("API 连接", style = MaterialTheme.typography.titleMedium)
     OutlinedTextField(
         value = config.apiBase,
         onValueChange = { onConfigChange(config.copy(apiBase = it, model = "")) },
         label = { Text("API 地址") },
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         singleLine = true
     )
     OutlinedTextField(
@@ -712,7 +764,7 @@ private fun ApiConnectionEditor(
 
     if (config.model.isNotBlank()) {
         Text(
-            text = "当前模型：${config.model}",
+            text = "模型：${config.model}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 10.dp)
@@ -722,8 +774,8 @@ private fun ApiConnectionEditor(
     status?.let {
         when (it) {
             is ConnectionStatus.Success -> SimpleStatusCard(
-                title = "API 已连接",
-                body = "已选择模型：${it.model}\n$dataSummary",
+                title = "连接成功",
+                body = "已选择 ${it.model}\n$dataSummary",
                 isError = false
             )
             is ConnectionStatus.Error -> SimpleStatusCard(
@@ -736,78 +788,47 @@ private fun ApiConnectionEditor(
 
     Button(
         onClick = onTest,
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         enabled = !isTesting
     ) {
-        Text(if (isTesting) "正在查找模型…" else "检测连接并选择模型")
+        Text(if (isTesting) "正在查找模型…" else "检测并选择模型")
     }
-
-    Text(
-        text = "连接成功后：$dataSummary",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 10.dp)
-    )
 }
 
 @Composable
 private fun OfficialAccountEditor(
     service: ServiceOption,
-    config: PlatformConfig,
     authConnected: Boolean,
     dataSummary: String,
-    onNameChange: (String) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit
 ) {
-    Text("登录官网账户", style = MaterialTheme.typography.titleMedium)
-    Text(
-        text = "App 会打开 ${service.displayName} 官网。你亲自登录后，账户状态只保存在本机。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-    )
-
-    OutlinedTextField(
-        value = config.name,
-        onValueChange = onNameChange,
-        label = { Text("显示名称（可选）") },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true
-    )
-
+    Text("官网账户", style = MaterialTheme.typography.titleMedium)
     SimpleStatusCard(
-        title = if (authConnected) "官网账户已连接" else "官网账户未连接",
+        title = if (authConnected) "已连接" else "未连接",
         body = if (authConnected) {
-            "可自动读取：$dataSummary"
+            "正在自动同步：$dataSummary"
         } else {
-            "登录后可读取：$dataSummary"
+            "登录后自动同步：$dataSummary"
         },
         isError = false
     )
 
     Button(
         onClick = onConnect,
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
     ) {
-        Text(if (authConnected) "重新连接官网账户" else "登录 ${service.displayName}")
+        Text(if (authConnected) "重新登录 ${service.displayName}" else "登录 ${service.displayName}")
     }
 
     if (authConnected) {
-        OutlinedButton(
+        TextButton(
             onClick = onDisconnect,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
         ) {
-            Text("断开官网账户")
+            Text("断开账户")
         }
     }
-
-    Text(
-        text = "无需手动复制 Cookie 或 Token；余额和用量会在后台自动同步。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 10.dp)
-    )
 }
 
 @Composable
@@ -875,23 +896,15 @@ private fun slotTitle(config: PlatformConfig, service: ServiceOption): String {
     }
 }
 
-private fun slotStatus(
+private fun simpleSlotStatus(
     config: PlatformConfig,
     mode: ConnectionMode,
     authConnected: Boolean
 ): String {
-    if (!config.enabled) return "此槽位已隐藏"
+    if (!config.enabled) return "已隐藏"
     return when (mode) {
-        ConnectionMode.API -> when {
-            config.apiBase.isBlank() || config.apiKey.isBlank() -> "等待填写 API"
-            config.model.isBlank() -> "API 已填写，等待检测模型"
-            else -> "API 已连接 · ${config.model}"
-        }
-        ConnectionMode.WEB -> if (authConnected) {
-            "官网账户已连接 · 用量自动同步"
-        } else {
-            "等待登录官网账户"
-        }
+        ConnectionMode.API -> if (config.model.isNotBlank()) "API 已连接" else "未配置"
+        ConnectionMode.WEB -> if (authConnected) "官网账户已连接" else "未配置"
     }
 }
 
@@ -901,10 +914,10 @@ private fun isConfigured(config: PlatformConfig, authConnected: Boolean): Boolea
 
 private fun apiDataSummary(service: ServiceOption): String {
     return when (service.id) {
-        "newapi" -> "模型列表，以及服务实际开放的额度和用量"
-        "mimo" -> "模型列表；官网登录后还能补充余额和用量"
-        "deepseek" -> "模型列表和账户余额"
-        "aihuangniu" -> "模型列表和接口实际返回的用量"
+        "newapi" -> "模型及服务返回的额度和用量"
+        "mimo" -> "模型列表"
+        "deepseek" -> "模型和余额"
+        "aihuangniu" -> "模型和接口返回的用量"
         else -> "接口实际返回的数据"
     }
 }
@@ -913,8 +926,8 @@ private fun webDataSummary(service: ServiceOption): String {
     return when (service.id) {
         "mimo" -> "余额、本月消费、Token、请求次数"
         "deepseek" -> "余额、本月消费、累计消费、Token"
-        "aihuangniu" -> "余额、账户用量、请求次数、Token"
-        else -> "官网账户实际开放的数据"
+        "aihuangniu" -> "余额、用量、请求次数、Token"
+        else -> "官网账户数据"
     }
 }
 
