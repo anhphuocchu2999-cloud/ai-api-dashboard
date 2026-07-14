@@ -11,18 +11,19 @@ import java.math.RoundingMode
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * DeepSeek 官方平台适配器。
  *
- * 已验证的官方账户接口只有 GET /user/balance。
- * “近期余额变化”通过两次成功余额快照的真实差值计算：
- * - 余额下降：显示“余额净减少”
- * - 余额上升：显示“余额增加”（不误报为负消费）
+ * 数据来源：
+ * 1. API Key：GET /user/balance，读取官方余额；
+ * 2. 网页 Cookie：GET /api/v0/users/get_user_summary，读取网页登录后的
+ *    月度消费、月度 Token、累计消费、充值钱包和赠送钱包。
  *
- * 该差值不是 DeepSeek 官方消费明细；充值、赠送、退款也可能影响余额。
- * 网页授权目前只开放只读摸排入口，尚未声明为正式消费数据源。
+ * 网页汇总接口失效时仍保留 API Key 余额，不用网页失败覆盖真实余额。
+ * 余额快照差值仅作为未登录网页账户时的补充，不冒充官方消费明细。
  */
 class DeepSeekOfficialAdapter : PlatformAdapter {
 
@@ -31,10 +32,16 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
     override val capabilityProfile = ProviderCapabilityProfile(
         modelApiKeyRequired = true,
         backgroundAuthType = BackgroundAuthType.COOKIE,
-        sources = setOf(DataSourceType.API, DataSourceType.WEB_AUTH),
+        sources = setOf(
+            DataSourceType.API,
+            DataSourceType.WEB_AUTH,
+            DataSourceType.BILLING
+        ),
         capabilities = setOf(
             DataCapability.MODELS,
-            DataCapability.BALANCE
+            DataCapability.BALANCE,
+            DataCapability.USAGE,
+            DataCapability.TOKENS
         )
     )
 
@@ -42,7 +49,36 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         return apiBase.contains("api.deepseek.com", ignoreCase = true)
     }
 
+    override fun fetchData(request: AdapterRequest): WidgetData {
+        val apiData = fetchApiBalance(
+            apiBase = request.apiBase,
+            apiKey = request.modelApiKey,
+            modelName = request.modelName
+        )
+
+        if (!apiData.isSuccess ||
+            request.backgroundAuthType != BackgroundAuthType.COOKIE ||
+            request.backgroundCredential.isBlank()
+        ) {
+            return apiData
+        }
+
+        return when (val webResult = fetchWebSummary(request.backgroundCredential)) {
+            is WebSummaryResult.Success -> mergeWebSummary(apiData, webResult.summary)
+            WebSummaryResult.AuthExpired -> apiData.copy(statusText = "网页登录需重连")
+            WebSummaryResult.Unavailable -> apiData
+        }
+    }
+
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
+        return fetchApiBalance(apiBase, apiKey, modelName)
+    }
+
+    private fun fetchApiBalance(
+        apiBase: String,
+        apiKey: String,
+        modelName: String?
+    ): WidgetData {
         val normalizedBase = apiBase.trim().trimEnd('/').removeSuffix("/v1")
 
         if (apiKey.isBlank()) {
@@ -112,31 +148,21 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
             val balanceInfo = balanceInfos.getJSONObject(0)
             val currency = balanceInfo.optString("currency", "")
-            val totalBalanceRaw = balanceInfo.optString("total_balance", "")
-            val grantedBalanceRaw = balanceInfo.optString("granted_balance", "")
-            val toppedUpBalanceRaw = balanceInfo.optString("topped_up_balance", "")
-
-            val totalBalance = totalBalanceRaw.toBigDecimalOrNull()
+            val totalBalance = balanceInfo.optString("total_balance", "").toBigDecimalOrNull()
                 ?: return WidgetData.error(platformName, "余额解析失败")
-            val grantedBalance = grantedBalanceRaw.toBigDecimalOrNull()
-            val toppedUpBalance = toppedUpBalanceRaw.toBigDecimalOrNull()
+            val grantedBalance = balanceInfo.optString("granted_balance", "").toBigDecimalOrNull()
+            val toppedUpBalance = balanceInfo.optString("topped_up_balance", "").toBigDecimalOrNull()
             val currencySymbol = currencySymbol(currency)
 
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            if (grantedBalance != null) {
+            grantedBalance?.let {
                 auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric(
-                        "赠送余额",
-                        "$currencySymbol${formatAmount(grantedBalance)}"
-                    )
+                    WidgetData.DisplayMetric("赠送余额", "$currencySymbol${formatAmount(it)}")
                 )
             }
-            if (toppedUpBalance != null) {
+            toppedUpBalance?.let {
                 auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric(
-                        "充值余额",
-                        "$currencySymbol${formatAmount(toppedUpBalance)}"
-                    )
+                    WidgetData.DisplayMetric("充值余额", "$currencySymbol${formatAmount(it)}")
                 )
             }
 
@@ -173,6 +199,131 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
+    private fun fetchWebSummary(cookie: String): WebSummaryResult {
+        return try {
+            val conn = URL(WEB_SUMMARY_URL).openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Cookie", cookie)
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
+            conn.setRequestProperty("Origin", "https://platform.deepseek.com")
+            conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+
+            val responseCode = conn.responseCode
+            val responseBody = if (responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            }
+            conn.disconnect()
+
+            when (responseCode) {
+                401, 403 -> WebSummaryResult.AuthExpired
+                in 200..299 -> {
+                    val summary = parseWebSummary(responseBody)
+                    if (summary != null) {
+                        WebSummaryResult.Success(summary)
+                    } else {
+                        WebSummaryResult.AuthExpired
+                    }
+                }
+                else -> WebSummaryResult.Unavailable
+            }
+        } catch (_: Exception) {
+            WebSummaryResult.Unavailable
+        }
+    }
+
+    private fun parseWebSummary(response: String): WebSummary? {
+        return try {
+            val root = JSONObject(response)
+            val data = root.optJSONObject("data") ?: return null
+            if (root.optInt("code", -1) != 0 || data.optInt("biz_code", -1) != 0) {
+                return null
+            }
+            val bizData = data.optJSONObject("biz_data") ?: return null
+
+            val usageMetrics = mutableListOf<WidgetData.DisplayMetric>()
+            parseMoneyArray(bizData.optJSONArray("monthly_costs"), "本月消费")
+                .forEach(usageMetrics::add)
+
+            bizData.optString("monthly_token_usage", "")
+                .toBigDecimalOrNull()
+                ?.let { monthlyTokens ->
+                    usageMetrics.add(
+                        WidgetData.DisplayMetric("本月 Token", formatTokenAmount(monthlyTokens))
+                    )
+                }
+
+            val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
+            parseWalletArray(bizData.optJSONArray("normal_wallets"), "充值余额")
+                .forEach(auxiliaryMetrics::add)
+            parseWalletArray(bizData.optJSONArray("bonus_wallets"), "赠送余额")
+                .forEach(auxiliaryMetrics::add)
+            parseMoneyArray(bizData.optJSONArray("total_costs"), "累计消费")
+                .forEach(auxiliaryMetrics::add)
+
+            bizData.optString("total_available_token_estimation", "")
+                .toBigDecimalOrNull()
+                ?.let { tokenEstimate ->
+                    auxiliaryMetrics.add(
+                        WidgetData.DisplayMetric(
+                            "余额预计可用 Token",
+                            formatTokenAmount(tokenEstimate)
+                        )
+                    )
+                }
+
+            if (usageMetrics.isEmpty() && auxiliaryMetrics.isEmpty()) {
+                null
+            } else {
+                WebSummary(
+                    usageMetrics = usageMetrics,
+                    auxiliaryMetrics = auxiliaryMetrics
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun parseMoneyArray(array: JSONArray?, label: String): List<WidgetData.DisplayMetric> {
+        if (array == null) return emptyList()
+        val result = mutableListOf<WidgetData.DisplayMetric>()
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val amount = item.optString("amount", "").toBigDecimalOrNull() ?: continue
+            val symbol = currencySymbol(item.optString("currency", ""))
+            result.add(WidgetData.DisplayMetric(label, "$symbol${formatAmount(amount)}"))
+        }
+        return result
+    }
+
+    private fun parseWalletArray(array: JSONArray?, label: String): List<WidgetData.DisplayMetric> {
+        if (array == null) return emptyList()
+        val result = mutableListOf<WidgetData.DisplayMetric>()
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val balance = item.optString("balance", "").toBigDecimalOrNull() ?: continue
+            val symbol = currencySymbol(item.optString("currency", ""))
+            result.add(WidgetData.DisplayMetric(label, "$symbol${formatAmount(balance)}"))
+        }
+        return result
+    }
+
+    private fun mergeWebSummary(apiData: WidgetData, summary: WebSummary): WidgetData {
+        val mergedAuxiliary = (apiData.auxiliaryMetrics + summary.auxiliaryMetrics)
+            .distinctBy { "${it.label}|${it.value}" }
+
+        return apiData.copy(
+            usageMetrics = summary.usageMetrics.ifEmpty { apiData.usageMetrics },
+            auxiliaryMetrics = mergedAuxiliary,
+            statusText = "网页账单已同步"
+        )
+    }
+
     /**
      * 用真实余额快照计算两次成功刷新之间的余额变化。
      * API Key 只参与 SHA-256 指纹计算，不保存原文，也不写日志。
@@ -184,8 +335,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         currencySymbol: String,
         currentBalance: BigDecimal
     ): List<WidgetData.DisplayMetric> {
-        val context = DashboardApplication.appContextOrNull()
-            ?: return emptyList()
+        val context = DashboardApplication.appContextOrNull() ?: return emptyList()
         val prefs = context.getSharedPreferences(SNAPSHOT_PREFS_NAME, Context.MODE_PRIVATE)
         val identity = snapshotIdentity(normalizedBase, apiKey)
         val balanceKey = "${identity}_balance"
@@ -251,8 +401,26 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
+    private fun formatTokenAmount(value: BigDecimal): String {
+        val absolute = value.abs()
+        val divisorAndSuffix = when {
+            absolute >= BILLION -> BILLION to "B"
+            absolute >= MILLION -> MILLION to "M"
+            absolute >= THOUSAND -> THOUSAND to "K"
+            else -> null
+        }
+
+        if (divisorAndSuffix == null) {
+            return value.setScale(0, RoundingMode.HALF_UP).toPlainString()
+        }
+
+        val (divisor, suffix) = divisorAndSuffix
+        val compact = value.divide(divisor, 2, RoundingMode.HALF_UP).stripTrailingZeros()
+        return "${compact.toPlainString()}$suffix"
+    }
+
     private fun formatTimeDiff(diffMs: Long): String {
-        val minutes = (diffMs.coerceAtLeast(0L)) / 60000L
+        val minutes = diffMs.coerceAtLeast(0L) / 60000L
         val hours = minutes / 60L
         val remainingMinutes = minutes % 60L
         return when {
@@ -263,7 +431,25 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
+    private data class WebSummary(
+        val usageMetrics: List<WidgetData.DisplayMetric>,
+        val auxiliaryMetrics: List<WidgetData.DisplayMetric>
+    )
+
+    private sealed class WebSummaryResult {
+        data class Success(val summary: WebSummary) : WebSummaryResult()
+        data object AuthExpired : WebSummaryResult()
+        data object Unavailable : WebSummaryResult()
+    }
+
     companion object {
         private const val SNAPSHOT_PREFS_NAME = "deepseek_balance_snapshots"
+        private const val WEB_SUMMARY_URL =
+            "https://platform.deepseek.com/api/v0/users/get_user_summary"
+        private const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36"
+        private val THOUSAND = BigDecimal("1000")
+        private val MILLION = BigDecimal("1000000")
+        private val BILLION = BigDecimal("1000000000")
     }
 }
