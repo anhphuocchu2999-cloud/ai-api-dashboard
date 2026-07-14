@@ -7,6 +7,7 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
  *
  * 已验证正式路径：
  * - MiMo Cookie
+ * - DeepSeek Cookie + get_user_summary 验证
  * - 爱黄牛 localStorage Bearer Token
  *
  * probeOnly=true 表示只做网页登录后的接口结构摸排；在真实字段与凭据有效性完成
@@ -24,6 +25,8 @@ data class WebAuthProfile(
     val apiBaseHostContains: String? = null,
     /** 可选：localStorage 键名（如 auth_token），用于 BEARER_TOKEN 自动提取 */
     val localStorageKey: String? = null,
+    /** Cookie 名不固定时，用真实账户接口验证当前 Cookie 是否已经登录。 */
+    val cookieVerificationUrl: String? = null,
     /** 只读摸排模式：捕获 endpoint、状态码和 JSON 字段结构，不保存响应值。 */
     val probeOnly: Boolean = false
 )
