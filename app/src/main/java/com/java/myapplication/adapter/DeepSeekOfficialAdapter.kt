@@ -22,6 +22,7 @@ import org.json.JSONObject
  * - 余额上升：显示“余额增加”（不误报为负消费）
  *
  * 该差值不是 DeepSeek 官方消费明细；充值、赠送、退款也可能影响余额。
+ * 网页授权目前只开放只读摸排入口，尚未声明为正式消费数据源。
  */
 class DeepSeekOfficialAdapter : PlatformAdapter {
 
@@ -29,8 +30,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
     override val capabilityProfile = ProviderCapabilityProfile(
         modelApiKeyRequired = true,
-        backgroundAuthType = BackgroundAuthType.NONE,
-        sources = setOf(DataSourceType.API),
+        backgroundAuthType = BackgroundAuthType.COOKIE,
+        sources = setOf(DataSourceType.API, DataSourceType.WEB_AUTH),
         capabilities = setOf(
             DataCapability.MODELS,
             DataCapability.BALANCE
