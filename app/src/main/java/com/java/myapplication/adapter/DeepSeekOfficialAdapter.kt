@@ -18,14 +18,9 @@ import org.json.JSONObject
 /**
  * DeepSeek 官方平台适配器。
  *
- * 数据来源：
- * 1. API Key：GET /user/balance，读取官方余额；
- * 2. 平台账户：先用网页登录 Cookie 获取临时访问 Token，再读取
- *    /api/v0/users/get_user_summary 的 Token、累计消耗和钱包余额；
- * 3. 服务端累计值由 RecentUsageTracker 在本机计算近 1/6/12/24 小时消耗。
- *
- * 网页汇总接口失效时仍保留 API Key 余额，不用网页失败覆盖真实余额。
- * 访问 Token 只作为内部凭据使用，不输出到日志或界面。
+ * - API Key：读取官方余额；
+ * - 平台账户：读取本月消耗、累计消耗、本月 Token、钱包和预计可用 Token；
+ * - 本地：使用平台真实累计值计算近 1/6/12/24 小时消耗。
  */
 class DeepSeekOfficialAdapter : PlatformAdapter {
 
@@ -58,7 +53,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             modelName = request.modelName
         )
 
-        if (!apiData.isSuccess ||
+        if (
+            !apiData.isSuccess ||
             request.backgroundAuthType != BackgroundAuthType.COOKIE ||
             request.backgroundCredential.isBlank()
         ) {
@@ -67,7 +63,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
         return when (val webResult = fetchWebSummary(request.backgroundCredential)) {
             is WebSummaryResult.Success -> {
-                val merged = mergeWebSummary(apiData, webResult.summary)
+                val summary = webResult.summary
+                val merged = mergeWebSummary(apiData, summary)
                 RecentUsageTracker.apply(
                     context = DashboardApplication.appContextOrNull(),
                     identity = RecentUsageTracker.identity(
@@ -79,12 +76,13 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                     data = merged,
                     cumulative = RecentUsageTracker.CumulativeUsage(
                         requests = null,
-                        tokens = webResult.summary.cumulativeTokens,
-                        cost = webResult.summary.cumulativeCost,
-                        currency = webResult.summary.currency
+                        tokens = summary.cumulativeTokens,
+                        cost = summary.cumulativeCost,
+                        currency = summary.currency
                     )
                 )
             }
+
             WebSummaryResult.AuthExpired -> apiData.copy(statusText = "网页登录需重连")
             WebSummaryResult.Unavailable -> apiData
         }
@@ -100,42 +98,34 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         modelName: String?
     ): WidgetData {
         val normalizedBase = apiBase.trim().trimEnd('/').removeSuffix("/v1")
-
-        if (apiKey.isBlank()) {
-            return WidgetData.error(platformName, "Key未配置")
-        }
-
-        val url = "$normalizedBase/user/balance"
+        if (apiKey.isBlank()) return WidgetData.error(platformName, "Key未配置")
 
         return try {
-            val conn = URL(url).openConnection() as HttpURLConnection
+            val conn = URL("$normalizedBase/user/balance").openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("Authorization", "Bearer $apiKey")
             conn.setRequestProperty("Accept", "application/json")
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            if (responseCode == 200) {
-                val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
+            val code = conn.responseCode
+            if (code == 200) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                parseBalanceResponse(
-                    response = responseBody,
-                    configuredModelName = modelName,
-                    normalizedBase = normalizedBase,
-                    apiKey = apiKey
-                )
+                parseBalanceResponse(body, modelName, normalizedBase, apiKey)
             } else {
                 conn.disconnect()
-                val errorMessage = when (responseCode) {
-                    401 -> "Key无效"
-                    403 -> "余额接口被拒绝"
-                    404 -> "余额接口不存在"
-                    429 -> "请求过于频繁"
-                    in 500..599 -> "服务器错误"
-                    else -> "请求失败 ($responseCode)"
-                }
-                WidgetData.error(platformName, errorMessage)
+                WidgetData.error(
+                    platformName,
+                    when (code) {
+                        401 -> "Key无效"
+                        403 -> "余额接口被拒绝"
+                        404 -> "余额接口不存在"
+                        429 -> "请求过于频繁"
+                        in 500..599 -> "服务器错误"
+                        else -> "请求失败 ($code)"
+                    }
+                )
             }
         } catch (_: java.net.SocketTimeoutException) {
             WidgetData.error(platformName, "连接超时")
@@ -158,61 +148,46 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
     ): WidgetData {
         return try {
             val root = JSONObject(response)
-            val isAvailable = root.optBoolean("is_available", false)
-            val effectiveModelName = configuredModelName?.trim()?.takeIf { it.isNotEmpty() }
-            val balanceInfos = root.optJSONArray("balance_infos")
-
-            if (balanceInfos == null || balanceInfos.length() == 0) {
-                return WidgetData.error(platformName, "余额解析失败")
-            }
-
-            val balanceInfo = balanceInfos.getJSONObject(0)
-            val currency = balanceInfo.optString("currency", "")
-            val totalBalance = balanceInfo.optString("total_balance", "").toBigDecimalOrNull()
+            val available = root.optBoolean("is_available", false)
+            val info = root.optJSONArray("balance_infos")?.optJSONObject(0)
                 ?: return WidgetData.error(platformName, "余额解析失败")
-            val grantedBalance = balanceInfo.optString("granted_balance", "").toBigDecimalOrNull()
-            val toppedUpBalance = balanceInfo.optString("topped_up_balance", "").toBigDecimalOrNull()
-            val currencySymbol = currencySymbol(currency)
 
-            val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            toppedUpBalance?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("充值余额", "$currencySymbol${formatAmount(it)}")
-                )
-            }
-            grantedBalance?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("赠送余额", "$currencySymbol${formatAmount(it)}")
-                )
-            }
+            val currency = info.optString("currency", "")
+            val symbol = currencySymbol(currency)
+            val total = info.optString("total_balance", "").toBigDecimalOrNull()
+                ?: return WidgetData.error(platformName, "余额解析失败")
+            val granted = info.optString("granted_balance", "").toBigDecimalOrNull()
+            val toppedUp = info.optString("topped_up_balance", "").toBigDecimalOrNull()
 
-            // API-only 时保留明确标注的余额变化；平台账户成功后会被近期消耗替换。
-            val balanceChangeMetrics = buildBalanceChangeMetrics(
-                normalizedBase = normalizedBase,
-                apiKey = apiKey,
-                currency = currency,
-                currencySymbol = currencySymbol,
-                currentBalance = totalBalance
-            )
+            val auxiliary = buildList {
+                toppedUp?.let {
+                    add(WidgetData.DisplayMetric("充值余额", "$symbol${formatAmount(it)}"))
+                }
+                granted?.let {
+                    add(WidgetData.DisplayMetric("赠送余额", "$symbol${formatAmount(it)}"))
+                }
+            }
 
             WidgetData(
                 platformName = platformName,
-                modelName = effectiveModelName,
+                modelName = configuredModelName?.trim()?.takeIf { it.isNotEmpty() },
                 primaryMetric = WidgetData.DisplayMetric(
                     "余额",
-                    "$currencySymbol${formatAmount(totalBalance)}"
+                    "$symbol${formatAmount(total)}"
                 ),
-                usageMetrics = balanceChangeMetrics,
-                percentage = null,
-                percentageLabel = null,
-                auxiliaryMetrics = auxiliaryMetrics,
-                statusText = if (isAvailable) "正常" else "余额不足",
+                usageMetrics = buildBalanceChangeMetrics(
+                    normalizedBase = normalizedBase,
+                    apiKey = apiKey,
+                    currency = currency,
+                    currencySymbol = symbol,
+                    currentBalance = total
+                ),
+                auxiliaryMetrics = auxiliary,
+                statusText = if (available) "正常" else "余额不足",
                 isSuccess = true,
-                displayLabel = currencySymbol,
-                total = totalBalance.toDouble(),
-                used = null,
-                remaining = totalBalance.toDouble(),
-                usagePercent = null,
+                displayLabel = symbol,
+                total = total.toDouble(),
+                remaining = total.toDouble(),
                 isAvailable = true
             )
         } catch (_: Exception) {
@@ -226,7 +201,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             return WebSummaryResult.AuthExpired
         }
 
-        val refreshedToken = credential.cookie.takeIf { it.isNotBlank() }
+        val refreshedToken = credential.cookie
+            .takeIf { it.isNotBlank() }
             ?.let(::fetchCurrentAccessToken)
             .orEmpty()
         val accessToken = refreshedToken.ifBlank { credential.accessToken }
@@ -234,11 +210,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         if (accessToken.isBlank() && credential.cookie.isBlank()) {
             return WebSummaryResult.AuthExpired
         }
-
-        return requestWebSummary(
-            cookie = credential.cookie,
-            accessToken = accessToken
-        )
+        return requestWebSummary(credential.cookie, accessToken)
     }
 
     private fun parseWebCredential(rawCredential: String): WebCredential {
@@ -246,7 +218,6 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         if (!trimmed.startsWith("{")) {
             return WebCredential(cookie = trimmed, accessToken = "")
         }
-
         return try {
             val obj = JSONObject(trimmed)
             WebCredential(
@@ -260,28 +231,24 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
     private fun fetchCurrentAccessToken(cookie: String): String? {
         if (cookie.isBlank()) return null
-
         return try {
             val conn = URL(CURRENT_USER_URL).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("Cookie", cookie)
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
-            conn.setRequestProperty("Origin", "https://platform.deepseek.com")
-            conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            applyWebHeaders(conn)
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            val responseBody = if (responseCode in 200..299) {
+            val code = conn.responseCode
+            val body = if (code in 200..299) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
                 conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
             }
             conn.disconnect()
 
-            if (responseCode !in 200..299) return null
-            val root = JSONObject(responseBody)
+            if (code !in 200..299) return null
+            val root = JSONObject(body)
             val data = root.optJSONObject("data") ?: return null
             if (root.optInt("code", -1) != 0 || data.optInt("biz_code", -1) != 0) {
                 return null
@@ -303,36 +270,35 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             if (accessToken.isNotBlank()) {
                 conn.setRequestProperty("Authorization", "Bearer $accessToken")
             }
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
-            conn.setRequestProperty("Origin", "https://platform.deepseek.com")
-            conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            applyWebHeaders(conn)
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            val responseBody = if (responseCode in 200..299) {
+            val code = conn.responseCode
+            val body = if (code in 200..299) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
                 conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
             }
             conn.disconnect()
 
-            when (responseCode) {
+            when (code) {
                 401, 403 -> WebSummaryResult.AuthExpired
-                in 200..299 -> {
-                    val summary = parseWebSummary(responseBody)
-                    if (summary != null) {
-                        WebSummaryResult.Success(summary)
-                    } else {
-                        WebSummaryResult.AuthExpired
-                    }
-                }
+                in 200..299 -> parseWebSummary(body)
+                    ?.let(WebSummaryResult::Success)
+                    ?: WebSummaryResult.AuthExpired
                 else -> WebSummaryResult.Unavailable
             }
         } catch (_: Exception) {
             WebSummaryResult.Unavailable
         }
+    }
+
+    private fun applyWebHeaders(conn: HttpURLConnection) {
+        conn.setRequestProperty("Accept", "application/json")
+        conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
+        conn.setRequestProperty("Origin", "https://platform.deepseek.com")
+        conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
     }
 
     private fun parseWebSummary(response: String): WebSummary? {
@@ -344,39 +310,57 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             }
             val bizData = data.optJSONObject("biz_data") ?: return null
 
-            val monthlyTokens = bizData.optString("monthly_token_usage", "")
+            val monthlyTokensAmount = bizData.optString("monthly_token_usage", "")
                 .toBigDecimalOrNull()
-                ?.toLong()
-
+            val monthlyCost = firstMoney(bizData.optJSONArray("monthly_costs"))
             val totalCost = firstMoney(bizData.optJSONArray("total_costs"))
-                ?: firstMoney(bizData.optJSONArray("monthly_costs"))
 
-            // 动态位②只放账户资源，不重复动态位①的近期消耗。
-            val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
+            val auxiliary = mutableListOf<WidgetData.DisplayMetric>()
+
+            monthlyCost?.let { (amount, currency) ->
+                auxiliary.add(
+                    WidgetData.DisplayMetric(
+                        "本月消耗",
+                        "${currencySymbol(currency)}${formatAmount(amount)}"
+                    )
+                )
+            }
+            totalCost?.let { (amount, currency) ->
+                auxiliary.add(
+                    WidgetData.DisplayMetric(
+                        "累计消耗",
+                        "${currencySymbol(currency)}${formatAmount(amount)}"
+                    )
+                )
+            }
+            monthlyTokensAmount?.let {
+                auxiliary.add(
+                    WidgetData.DisplayMetric("本月 Token", formatTokenAmount(it))
+                )
+            }
+
             parseWalletArray(bizData.optJSONArray("normal_wallets"), "充值余额")
-                .forEach(auxiliaryMetrics::add)
+                .forEach(auxiliary::add)
             parseWalletArray(bizData.optJSONArray("bonus_wallets"), "赠送余额")
-                .forEach(auxiliaryMetrics::add)
+                .forEach(auxiliary::add)
 
             bizData.optString("total_available_token_estimation", "")
                 .toBigDecimalOrNull()
-                ?.let { tokenEstimate ->
-                    auxiliaryMetrics.add(
-                        WidgetData.DisplayMetric(
-                            "预计可用 Token",
-                            formatTokenAmount(tokenEstimate)
-                        )
+                ?.let {
+                    auxiliary.add(
+                        WidgetData.DisplayMetric("预计可用 Token", formatTokenAmount(it))
                     )
                 }
 
-            if (monthlyTokens == null && totalCost == null && auxiliaryMetrics.isEmpty()) {
+            val cumulativeCost = totalCost ?: monthlyCost
+            if (monthlyTokensAmount == null && cumulativeCost == null && auxiliary.isEmpty()) {
                 null
             } else {
                 WebSummary(
-                    auxiliaryMetrics = auxiliaryMetrics,
-                    cumulativeTokens = monthlyTokens,
-                    cumulativeCost = totalCost?.first,
-                    currency = totalCost?.second ?: "CNY"
+                    auxiliaryMetrics = auxiliary.distinctBy { "${it.label}|${it.value}" },
+                    cumulativeTokens = monthlyTokensAmount?.toLong(),
+                    cumulativeCost = cumulativeCost?.first,
+                    currency = cumulativeCost?.second ?: "CNY"
                 )
             }
         } catch (_: Exception) {
@@ -389,39 +373,35 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val amount = item.optString("amount", "").toBigDecimalOrNull() ?: continue
-            val currency = item.optString("currency", "CNY")
-            return amount to currency
+            return amount to item.optString("currency", "CNY")
         }
         return null
     }
 
-    private fun parseWalletArray(array: JSONArray?, label: String): List<WidgetData.DisplayMetric> {
+    private fun parseWalletArray(
+        array: JSONArray?,
+        label: String
+    ): List<WidgetData.DisplayMetric> {
         if (array == null) return emptyList()
-        val result = mutableListOf<WidgetData.DisplayMetric>()
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val balance = item.optString("balance", "").toBigDecimalOrNull() ?: continue
-            val symbol = currencySymbol(item.optString("currency", ""))
-            result.add(WidgetData.DisplayMetric(label, "$symbol${formatAmount(balance)}"))
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val balance = item.optString("balance", "").toBigDecimalOrNull() ?: continue
+                val symbol = currencySymbol(item.optString("currency", ""))
+                add(WidgetData.DisplayMetric(label, "$symbol${formatAmount(balance)}"))
+            }
         }
-        return result
     }
 
     private fun mergeWebSummary(apiData: WidgetData, summary: WebSummary): WidgetData {
-        val mergedAuxiliary = (apiData.auxiliaryMetrics + summary.auxiliaryMetrics)
-            .distinctBy { "${it.label}|${it.value}" }
-
         return apiData.copy(
             usageMetrics = emptyList(),
-            auxiliaryMetrics = mergedAuxiliary,
+            auxiliaryMetrics = (apiData.auxiliaryMetrics + summary.auxiliaryMetrics)
+                .distinctBy { "${it.label}|${it.value}" },
             statusText = "网页账单已同步"
         )
     }
 
-    /**
-     * API-only 时用真实余额快照计算两次成功刷新之间的余额变化。
-     * API Key 只参与 SHA-256 指纹计算，不保存原文，也不写日志。
-     */
     private fun buildBalanceChangeMetrics(
         normalizedBase: String,
         apiKey: String,
@@ -436,12 +416,12 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         val currencyKey = "${identity}_currency"
         val timeKey = "${identity}_time"
 
-        val previousBalance = prefs.getString(balanceKey, null)?.toBigDecimalOrNull()
+        val previous = prefs.getString(balanceKey, null)?.toBigDecimalOrNull()
         val previousCurrency = prefs.getString(currencyKey, null)
         val previousTime = prefs.getLong(timeKey, -1L)
         val now = System.currentTimeMillis()
 
-        fun saveCurrentSnapshot() {
+        fun save() {
             prefs.edit()
                 .putString(balanceKey, currentBalance.toPlainString())
                 .putString(currencyKey, currency.uppercase())
@@ -449,26 +429,25 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 .apply()
         }
 
-        if (previousBalance == null || previousTime < 0L || previousCurrency != currency.uppercase()) {
-            saveCurrentSnapshot()
+        if (previous == null || previousTime < 0L || previousCurrency != currency.uppercase()) {
+            save()
             return listOf(WidgetData.DisplayMetric("余额变化统计中…", ""))
         }
 
-        val netDecrease = previousBalance.subtract(currentBalance)
+        val decrease = previous.subtract(currentBalance)
         val timeLabel = formatTimeDiff(now - previousTime)
         val metric = when {
-            netDecrease > BigDecimal.ZERO -> WidgetData.DisplayMetric(
+            decrease > BigDecimal.ZERO -> WidgetData.DisplayMetric(
                 "${timeLabel}余额净减少",
-                "$currencySymbol${formatAmount(netDecrease)}"
+                "$currencySymbol${formatAmount(decrease)}"
             )
-            netDecrease < BigDecimal.ZERO -> WidgetData.DisplayMetric(
+            decrease < BigDecimal.ZERO -> WidgetData.DisplayMetric(
                 "${timeLabel}余额增加",
-                "$currencySymbol${formatAmount(netDecrease.abs())}"
+                "$currencySymbol${formatAmount(decrease.abs())}"
             )
             else -> WidgetData.DisplayMetric("${timeLabel}余额无变化～", "")
         }
-
-        saveCurrentSnapshot()
+        save()
         return listOf(metric)
     }
 
@@ -503,18 +482,16 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             absolute >= THOUSAND -> THOUSAND to "K"
             else -> null
         }
-
         if (divisorAndSuffix == null) {
             return value.setScale(0, RoundingMode.HALF_UP).toPlainString()
         }
-
         val (divisor, suffix) = divisorAndSuffix
         val compact = value.divide(divisor, 2, RoundingMode.HALF_UP).stripTrailingZeros()
         return "${compact.toPlainString()}$suffix"
     }
 
     private fun formatTimeDiff(diffMs: Long): String {
-        val minutes = diffMs.coerceAtLeast(0L) / 60000L
+        val minutes = diffMs.coerceAtLeast(0L) / 60_000L
         val hours = minutes / 60L
         val remainingMinutes = minutes % 60L
         return when {
