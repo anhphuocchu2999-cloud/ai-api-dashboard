@@ -7,75 +7,131 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 统一 Widget 数据模型 — 五层卡片结构
+ * 统一 Widget 数据模型。
  *
- * 所有平台适配器最终都转换为这个结构
+ * 每张卡片固定承载：
+ * 1. 模型名称；
+ * 2. 云端真实核心指标；
+ * 3. 近期消耗；
+ * 4. 百分比；
+ * 5. 云端真实辅助指标。
  *
- * 五层结构：
- * 第1层：modelName — 模型名称（固定）
- * 第2层：primaryMetric — Core 1 固定核心指标（固定，不参与轮播）
- * 第3层：usageMetrics — Core 2 动态轮播位①（近期消耗数据列表）
- * 第4层：percentage + percentageLabel — 百分比视觉层（固定）
- * 第5层：auxiliaryMetrics — B级辅助轮播位②（辅助数据列表）
- *
- * 状态：statusText（固定底部角标，不参与轮播）
+ * DisplayMetric 会在桌面上明确标记“云端”或“本地”。
  */
 data class WidgetData(
-    val platformName: String,         // 平台名称，用于内部路由
-    val modelName: String? = null,    // 第1层：模型名称
-
-    // 第2层：Core 1 固定核心指标
+    val platformName: String,
+    val modelName: String? = null,
     val primaryMetric: DisplayMetric? = null,
-
-    // 第3层：Core 2 动态轮播位①（近期消耗数据列表）
-    val usageMetrics: List<DisplayMetric> = emptyList(),
-
-    // 第4层：百分比视觉层
-    val percentage: Int? = null,         // 百分比数值 0-100
-    val percentageLabel: String? = null, // 百分比含义标签
-
-    // 第5层：B级辅助轮播位②（辅助数据列表）
+    var usageMetrics: List<DisplayMetric> = emptyList(),
+    val percentage: Int? = null,
+    var percentageLabel: String? = null,
     val auxiliaryMetrics: List<DisplayMetric> = emptyList(),
+    val statusText: String? = null,
+    val isSuccess: Boolean = true,
 
-    // 状态
-    val statusText: String? = null,      // 固定状态文字（底部角标）
-    val isSuccess: Boolean = true,       // 是否成功获取数据
+    // 兼容旧字段
+    val displayLabel: String? = null,
+    val total: Double? = null,
+    val used: Double? = null,
+    val remaining: Double? = null,
+    val callCount: Long? = null,
+    val usagePercent: Int? = null,
+    val isAvailable: Boolean = true,
+    val errorMessage: String? = null,
 
-    // 兼容旧字段（逐步迁移）
-    val displayLabel: String? = null,    // 【旧】显示标签
-    val total: Double? = null,           // 【旧】总量
-    val used: Double? = null,            // 【旧】已用量
-    val remaining: Double? = null,       // 【旧】剩余量
-    val callCount: Long? = null,         // 【旧】调用次数
-    val usagePercent: Int? = null,       // 【旧】使用率
-    val isAvailable: Boolean = true,     // 【旧】是否可用
-    val errorMessage: String? = null,    // 【旧】错误信息
+    // Kimi 累计统计输入
+    val cumulativeUsedCalls: Long? = null,
 
-    // --- Kimi 本地快照统计字段 ---
-    val cumulativeUsedCalls: Long? = null, // 累计已用次数（仅 Kimi）
+    // 爱黄牛历史兼容累计统计输入
+    val cumulativeUsageRequests: Long? = null,
+    val cumulativeUsageTokens: Long? = null,
+    val cumulativeUsageActualCost: String? = null,
 
-    // --- Aihuangniu 本地快照统计字段 ---
-    val cumulativeUsageRequests: Long? = null,    // 累计请求次数
-    val cumulativeUsageTokens: Long? = null,      // 累计 Token 数
-    val cumulativeUsageActualCost: String? = null, // 累计消费金额（字符串避免浮点误差）
-
-    // 仅用于 UI 状态：当前是否正在展示最近一次成功数据
+    // 当前是否展示最近一次成功缓存
     val isFallback: Boolean = false
 ) {
 
     init {
+        // 百分比均由本机基于云端真实数字计算，避免误认为平台直接返回。
+        percentageLabel = percentageLabel?.let { decorateLocalLabel(it) }
+
+        // 不再由渲染层随机生成“正在排队”等假动态内容。
+        // 有真实核心数据但暂时没有可计算的近期消耗时，只展示明确状态。
+        if (
+            isSuccess &&
+            isAvailable &&
+            !isFallback &&
+            primaryMetric != null &&
+            usageMetrics.isEmpty()
+        ) {
+            usageMetrics = listOf(
+                DisplayMetric(
+                    label = "近期消耗",
+                    value = "暂无可计算数据",
+                    source = MetricSource.STATUS
+                )
+            )
+        }
+
         if (shouldPersistAsSuccessfulData()) {
             persistLastSuccessfulData()
         }
     }
 
-    /**
-     * 单个展示指标
-     */
+    enum class MetricSource {
+        AUTO,
+        CLOUD,
+        LOCAL,
+        STATUS
+    }
+
+    /** 单个桌面展示指标。 */
     data class DisplayMetric(
-        val label: String, // 标签，例如 "剩余"、"近10分钟消费"
-        val value: String  // 值，例如 "5000 次"、"¥0.15"
-    )
+        var label: String,
+        val value: String,
+        val source: MetricSource = MetricSource.AUTO
+    ) {
+        init {
+            label = decorateMetricLabel(label, source)
+        }
+
+        companion object {
+            private const val CLOUD_PREFIX = "云端·"
+            private const val LOCAL_PREFIX = "本地·"
+
+            private fun decorateMetricLabel(raw: String, source: MetricSource): String {
+                val clean = raw.trim()
+                if (clean.isBlank()) return clean
+                if (clean.startsWith(CLOUD_PREFIX) || clean.startsWith(LOCAL_PREFIX)) return clean
+
+                return when (resolveSource(clean, source)) {
+                    MetricSource.CLOUD -> "$CLOUD_PREFIX$clean"
+                    MetricSource.LOCAL -> "$LOCAL_PREFIX$clean"
+                    MetricSource.STATUS,
+                    MetricSource.AUTO -> clean
+                }
+            }
+
+            private fun resolveSource(label: String, source: MetricSource): MetricSource {
+                if (source != MetricSource.AUTO) return source
+
+                return if (
+                    label.startsWith("近") ||
+                    label.startsWith("过去") ||
+                    label.contains("统计中") ||
+                    label.contains("统计基准") ||
+                    label.contains("余额变化") ||
+                    label.contains("余额净减少") ||
+                    label.contains("余额增加") ||
+                    label.contains("余额无变化")
+                ) {
+                    MetricSource.LOCAL
+                } else {
+                    MetricSource.CLOUD
+                }
+            }
+        }
+    }
 
     companion object {
         private const val CACHE_PREFS_NAME = "widget_last_success"
@@ -93,17 +149,12 @@ data class WidgetData(
             "获取失败"
         )
 
-        /**
-         * 创建一个表示错误的 WidgetData。
-         * 对临时网络类错误：优先返回该卡片最近一次成功数据。
-         * 对认证失败、配置错误、解析错误等：继续展示真实错误。
-         */
         fun error(platformName: String, message: String): WidgetData {
             if (isTransientError(message)) {
                 val cached = loadLastSuccessfulData(platformName)
                 if (cached != null) {
                     val markedAuxiliary = if (cached.auxiliaryMetrics.isEmpty()) {
-                        listOf(DisplayMetric("", "😂"))
+                        listOf(DisplayMetric("", "😂", MetricSource.STATUS))
                     } else {
                         cached.auxiliaryMetrics.map { metric ->
                             metric.copy(value = "${metric.value} 😂")
@@ -111,7 +162,9 @@ data class WidgetData(
                     }
 
                     return cached.copy(
-                        usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
+                        usageMetrics = listOf(
+                            DisplayMetric(FALLBACK_MESSAGE, "", MetricSource.STATUS)
+                        ),
                         auxiliaryMetrics = markedAuxiliary,
                         statusText = FALLBACK_MESSAGE,
                         isSuccess = true,
@@ -135,9 +188,6 @@ data class WidgetData(
             )
         }
 
-        /**
-         * 创建一个空数据的 WidgetData（用于未配置的平台）
-         */
         fun empty(platformName: String): WidgetData {
             return WidgetData(
                 platformName = platformName,
@@ -147,28 +197,26 @@ data class WidgetData(
             )
         }
 
-        /**
-         * 公共数字格式化方法
-         * - 10000以下：显示完整数字
-         * - 10000以上：使用 K/M 缩写
-         */
         fun formatNumber(value: Double): String {
             return when {
-                value >= 1000000 -> "%.2fM".format(value / 1000000)
-                value >= 10000 -> "%.0fK".format(value / 1000)
+                value >= 1_000_000 -> "%.2fM".format(value / 1_000_000)
+                value >= 10_000 -> "%.0fK".format(value / 1_000)
                 value == value.toLong().toDouble() -> "%,d".format(value.toLong())
                 else -> "%.2f".format(value)
             }
+        }
+
+        private fun decorateLocalLabel(raw: String): String {
+            val clean = raw.trim()
+            if (clean.isBlank()) return clean
+            if (clean.startsWith("本地·") || clean.startsWith("云端·")) return clean
+            return "本地·$clean"
         }
 
         private fun isTransientError(message: String): Boolean {
             return TRANSIENT_ERROR_KEYWORDS.any { keyword -> message.contains(keyword) }
         }
 
-        /**
-         * Stage 8A-3：先读稳定 instanceId 键；若不存在，再兼容读取历史平台键，
-         * 并把原始缓存复制到新键。旧键保留用于回滚。
-         */
         private fun loadLastSuccessfulData(platformName: String): WidgetData? {
             val context = DashboardApplication.appContextOrNull() ?: return null
             val prefs = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
@@ -180,7 +228,6 @@ data class WidgetData(
                     val legacyRaw = prefs.getString(legacyAlias, null)?.takeIf { it.isNotBlank() }
                         ?: continue
                     raw = legacyRaw
-                    // 复制而不删除；失败时仍可继续使用旧缓存，下次再重试。
                     prefs.edit().putString(canonicalKey, legacyRaw).commit()
                     break
                 }
@@ -193,7 +240,7 @@ data class WidgetData(
                 WidgetData(
                     platformName = platformName,
                     modelName = obj.optString("modelName", "").takeIf { it.isNotBlank() },
-                    primaryMetric = obj.optJSONObject("primaryMetric")?.let { jsonToMetric(it) },
+                    primaryMetric = obj.optJSONObject("primaryMetric")?.let(::jsonToMetric),
                     usageMetrics = jsonToMetrics(obj.optJSONArray("usageMetrics")),
                     percentage = if (obj.has("percentage")) obj.optInt("percentage") else null,
                     percentageLabel = obj.optString("percentageLabel", "").takeIf { it.isNotBlank() },
@@ -220,6 +267,7 @@ data class WidgetData(
             return JSONObject()
                 .put("label", metric.label)
                 .put("value", metric.value)
+                .put("source", metric.source.name)
         }
 
         private fun metricsToJson(metrics: List<DisplayMetric>): JSONArray {
@@ -229,17 +277,23 @@ data class WidgetData(
         }
 
         private fun jsonToMetric(obj: JSONObject): DisplayMetric {
+            val source = try {
+                MetricSource.valueOf(obj.optString("source", MetricSource.AUTO.name))
+            } catch (_: Exception) {
+                MetricSource.AUTO
+            }
             return DisplayMetric(
                 label = obj.optString("label", ""),
-                value = obj.optString("value", "")
+                value = obj.optString("value", ""),
+                source = source
             )
         }
 
         private fun jsonToMetrics(array: JSONArray?): List<DisplayMetric> {
             if (array == null) return emptyList()
             val result = mutableListOf<DisplayMetric>()
-            for (i in 0 until array.length()) {
-                array.optJSONObject(i)?.let { result.add(jsonToMetric(it)) }
+            for (index in 0 until array.length()) {
+                array.optJSONObject(index)?.let { result.add(jsonToMetric(it)) }
             }
             return result
         }
@@ -249,7 +303,7 @@ data class WidgetData(
         if (!isSuccess || !isAvailable || isFallback) return false
 
         return primaryMetric != null ||
-            usageMetrics.isNotEmpty() ||
+            usageMetrics.any { it.source != MetricSource.STATUS } ||
             percentage != null ||
             auxiliaryMetrics.isNotEmpty() ||
             !modelName.isNullOrBlank() ||
@@ -260,9 +314,6 @@ data class WidgetData(
             usagePercent != null
     }
 
-    /**
-     * Stage 8A-3：成功数据统一写入稳定 instanceId 键。
-     */
     private fun persistLastSuccessfulData() {
         val context = DashboardApplication.appContextOrNull() ?: return
         val canonicalKey = InstanceKeyResolver.canonicalInstanceId(platformName)
@@ -296,76 +347,33 @@ data class WidgetData(
         }
     }
 
-    /**
-     * 是否有模型名称可显示
-     */
     fun hasModelName(): Boolean = !modelName.isNullOrBlank()
-
-    /**
-     * 是否有总量可显示
-     */
     fun hasTotal(): Boolean = total != null && total >= 0
-
-    /**
-     * 是否有已用量可显示
-     */
     fun hasUsed(): Boolean = used != null && used >= 0
-
-    /**
-     * 是否有剩余量可显示
-     */
     fun hasRemaining(): Boolean = remaining != null && remaining >= 0
-
-    /**
-     * 是否有调用次数可显示
-     */
     fun hasCallCount(): Boolean = callCount != null && callCount >= 0
-
-    /**
-     * 是否有使用率可显示（用于进度条）
-     */
     fun hasUsagePercent(): Boolean = usagePercent != null
 
-    /**
-     * 获取格式化后的总量字符串
-     */
     fun formatTotal(): String = total?.let { formatNumber(it) } ?: ""
-
-    /**
-     * 获取格式化后的已用量字符串
-     */
     fun formatUsed(): String = used?.let { formatNumber(it) } ?: ""
-
-    /**
-     * 获取格式化后的剩余量字符串
-     */
     fun formatRemaining(): String = remaining?.let { formatNumber(it) } ?: ""
-
-    /**
-     * 获取格式化后的调用次数字符串
-     */
     fun formatCallCount(): String = callCount?.toString() ?: ""
-
-    /**
-     * 判断当前数据是否为空（未配置状态）
-     */
-    fun isEmpty(): Boolean {
-        return !hasModelName() && !hasTotal() && !hasUsed() && !hasRemaining() && !hasCallCount() && !hasUsagePercent()
-    }
-
-    /**
-     * 获取使用率百分比字符串
-     */
     fun formatPercent(): String = usagePercent?.let { "$it%" } ?: ""
-
-    /**
-     * 获取进度条进度值
-     */
     fun getProgressValue(): Int = usagePercent?.coerceIn(0, 100) ?: 0
 
-    /**
-     * 清理字符串中的多余引号和空白
-     */
+    fun isEmpty(): Boolean {
+        return primaryMetric == null &&
+            usageMetrics.isEmpty() &&
+            percentage == null &&
+            auxiliaryMetrics.isEmpty() &&
+            !hasModelName() &&
+            !hasTotal() &&
+            !hasUsed() &&
+            !hasRemaining() &&
+            !hasCallCount() &&
+            !hasUsagePercent()
+    }
+
     private fun cleanString(input: String?): String {
         if (input == null) return ""
         return input.trim()
@@ -375,10 +383,6 @@ data class WidgetData(
             .trim()
     }
 
-    /**
-     * 获取第一层显示内容（最高优先级：剩余）
-     * 返回 null 表示没有数据
-     */
     fun getPrimaryDisplay(): String? {
         return when {
             hasRemaining() -> {
@@ -393,30 +397,19 @@ data class WidgetData(
         }
     }
 
-    /**
-     * 获取第二层显示内容（辅助信息：已用/总额/调用次数）
-     * 最多返回2项
-     *
-     * 去重规则：
-     * - 如果已用和调用次数表达的是同一个意思（例如都是次数），只显示一个
-     */
     fun getSecondaryDisplay(): String? {
         val parts = mutableListOf<String>()
 
-        // 已用（优先显示）
         if (hasUsed()) {
             val label = cleanString(displayLabel)
             parts.add("已用: ${formatUsed()}${if (label.isNotBlank()) " $label" else ""}")
         }
 
-        // 总额（如果剩余不存在，且已用没有显示）
         if (hasTotal() && !hasRemaining() && !hasUsed()) {
             val label = cleanString(displayLabel)
             parts.add("总额: ${formatTotal()}${if (label.isNotBlank()) " $label" else ""}")
         }
 
-        // 调用次数（如果已用不存在，或者已用和调用次数不是同一个意思）
-        // 去重：如果已用和调用次数都代表"次数"，只显示已用
         if (hasCallCount() && !hasUsed()) {
             parts.add("调用: ${formatCallCount()} 次")
         }
@@ -424,39 +417,17 @@ data class WidgetData(
         return if (parts.isEmpty()) null else parts.take(2).joinToString(" | ")
     }
 
-    /**
-     * 获取第三层显示内容（模型名称）
-     */
-    fun getModelDisplay(): String? {
-        return if (hasModelName()) modelName else null
-    }
+    fun getModelDisplay(): String? = if (hasModelName()) modelName else null
+    fun getPercentDisplay(): String? = if (hasUsagePercent()) formatPercent() else null
 
-    /**
-     * 获取第四层显示内容（使用率百分比）
-     */
-    fun getPercentDisplay(): String? {
-        return if (hasUsagePercent()) formatPercent() else null
-    }
-
-    /**
-     * 获取错误信息显示
-     */
     fun getErrorDisplay(): String? {
-        return if (!isAvailable) {
-            val msg = errorMessage ?: "未配置"
-            cleanString(msg)
-        } else null
+        return if (!isAvailable) cleanString(errorMessage ?: "未配置") else null
     }
 
-    /**
-     * 数字格式化规则：
-     * - 10000以下：显示完整数字（例如：1957 次）
-     * - 10000以上：使用 K/M 缩写（例如：12K、1.2M）
-     */
     private fun formatNumber(value: Double): String {
         return when {
-            value >= 1000000 -> "%.2fM".format(value / 1000000)
-            value >= 10000 -> "%.0fK".format(value / 1000)
+            value >= 1_000_000 -> "%.2fM".format(value / 1_000_000)
+            value >= 10_000 -> "%.0fK".format(value / 1_000)
             value == value.toLong().toDouble() -> "%,d".format(value.toLong())
             else -> "%.2f".format(value)
         }
