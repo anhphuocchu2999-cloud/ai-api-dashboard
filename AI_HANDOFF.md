@@ -8,7 +8,7 @@
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - Widget 数据与来源标识：`476678173d5bcf525dbaef294105e83f17c96472`
-- 自动刷新周期：`c8058186e5bceefde82912d0c2ba25ce78ade78c`
+- 正式 Widget 自动刷新周期：`7e6c9a2b274fc505fead4a55916407bddd02878b`
 - 当前状态：云端代码已推送，尚未声称编译、安装或真机验收成功
 
 ## 用户确认目标
@@ -36,8 +36,8 @@
   - Kimi 累计调用统一交给 `RecentUsageTracker` 计算近期窗口；
   - 同一 Host 继续串行请求，间隔 1 秒；
   - 配置缺失或请求失败不展示虚假数字。
-- `widget_info.xml`
-  - 自动刷新周期由 6 小时调整为 Android Widget 支持的 30 分钟。
+- `balance_widget_info.xml`
+  - 正式生效的自动刷新周期由 6 小时调整为 Android Widget 支持的 30 分钟。
 
 ## 真机验收
 
