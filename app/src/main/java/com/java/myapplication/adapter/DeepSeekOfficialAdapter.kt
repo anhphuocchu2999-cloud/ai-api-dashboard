@@ -19,11 +19,11 @@ import org.json.JSONObject
  *
  * 数据来源：
  * 1. API Key：GET /user/balance，读取官方余额；
- * 2. 网页 Cookie：GET /api/v0/users/get_user_summary，读取网页登录后的
- *    月度消费、月度 Token、累计消费、充值钱包和赠送钱包。
+ * 2. 平台账户：先用网页登录 Cookie 获取临时访问 Token，再读取
+ *    /api/v0/users/get_user_summary 的月度消费、Token、累计消费和钱包余额。
  *
  * 网页汇总接口失效时仍保留 API Key 余额，不用网页失败覆盖真实余额。
- * 余额快照差值仅作为未登录网页账户时的补充，不冒充官方消费明细。
+ * 访问 Token 只作为内部凭据使用，不输出到日志或界面。
  */
 class DeepSeekOfficialAdapter : PlatformAdapter {
 
@@ -199,11 +199,89 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
-    private fun fetchWebSummary(cookie: String): WebSummaryResult {
+    private fun fetchWebSummary(rawCredential: String): WebSummaryResult {
+        val credential = parseWebCredential(rawCredential)
+        if (credential.cookie.isBlank() && credential.accessToken.isBlank()) {
+            return WebSummaryResult.AuthExpired
+        }
+
+        val refreshedToken = credential.cookie.takeIf { it.isNotBlank() }
+            ?.let(::fetchCurrentAccessToken)
+            .orEmpty()
+        val accessToken = refreshedToken.ifBlank { credential.accessToken }
+
+        if (accessToken.isBlank() && credential.cookie.isBlank()) {
+            return WebSummaryResult.AuthExpired
+        }
+
+        return requestWebSummary(
+            cookie = credential.cookie,
+            accessToken = accessToken
+        )
+    }
+
+    private fun parseWebCredential(rawCredential: String): WebCredential {
+        val trimmed = rawCredential.trim()
+        if (!trimmed.startsWith("{")) {
+            return WebCredential(cookie = trimmed, accessToken = "")
+        }
+
+        return try {
+            val obj = JSONObject(trimmed)
+            WebCredential(
+                cookie = obj.optString("cookie", "").trim(),
+                accessToken = obj.optString("accessToken", "").trim()
+            )
+        } catch (_: Exception) {
+            WebCredential(cookie = trimmed, accessToken = "")
+        }
+    }
+
+    private fun fetchCurrentAccessToken(cookie: String): String? {
+        if (cookie.isBlank()) return null
+
+        return try {
+            val conn = URL(CURRENT_USER_URL).openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Cookie", cookie)
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
+            conn.setRequestProperty("Origin", "https://platform.deepseek.com")
+            conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+
+            val responseCode = conn.responseCode
+            val responseBody = if (responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            }
+            conn.disconnect()
+
+            if (responseCode !in 200..299) return null
+            val root = JSONObject(responseBody)
+            val data = root.optJSONObject("data") ?: return null
+            if (root.optInt("code", -1) != 0 || data.optInt("biz_code", -1) != 0) {
+                return null
+            }
+            data.optJSONObject("biz_data")
+                ?.optString("token", "")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun requestWebSummary(cookie: String, accessToken: String): WebSummaryResult {
         return try {
             val conn = URL(WEB_SUMMARY_URL).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.setRequestProperty("Cookie", cookie)
+            if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
+            if (accessToken.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $accessToken")
+            }
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("Referer", "https://platform.deepseek.com/usage")
             conn.setRequestProperty("Origin", "https://platform.deepseek.com")
@@ -431,6 +509,11 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
+    private data class WebCredential(
+        val cookie: String,
+        val accessToken: String
+    )
+
     private data class WebSummary(
         val usageMetrics: List<WidgetData.DisplayMetric>,
         val auxiliaryMetrics: List<WidgetData.DisplayMetric>
@@ -444,6 +527,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
     companion object {
         private const val SNAPSHOT_PREFS_NAME = "deepseek_balance_snapshots"
+        private const val CURRENT_USER_URL =
+            "https://platform.deepseek.com/auth-api/v0/users/current"
         private const val WEB_SUMMARY_URL =
             "https://platform.deepseek.com/api/v0/users/get_user_summary"
         private const val MOBILE_USER_AGENT =
