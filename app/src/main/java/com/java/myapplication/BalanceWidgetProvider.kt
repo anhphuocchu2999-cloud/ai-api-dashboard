@@ -183,7 +183,12 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             slot: String,
             config: ApiAccountConfig
         ): WidgetData {
-            if (!config.enabled || config.apiBase.isBlank() || config.apiKey.isBlank()) {
+            if (
+                !config.enabled ||
+                config.apiBase.isBlank() ||
+                config.apiKey.isBlank() ||
+                config.model.isBlank()
+            ) {
                 return WidgetData.empty(slot)
             }
             val adapter = AdapterFactory.getAdapter(slot, config.apiBase)
@@ -325,11 +330,11 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             .removePrefix("缓存·")
 
         private fun setTitle(views: RemoteViews, prefix: String, config: ApiAccountConfig) {
-            val title = when {
-                config.model.isNotBlank() -> config.model
-                config.name.isNotBlank() -> config.name
-                else -> "暂无模型"
-            }
+            val configured = config.enabled &&
+                config.apiBase.isNotBlank() &&
+                config.apiKey.isNotBlank() &&
+                config.model.isNotBlank()
+            val title = if (configured) config.model else "未配置"
             views.setTextViewText(ids(prefix).title, title)
         }
 
