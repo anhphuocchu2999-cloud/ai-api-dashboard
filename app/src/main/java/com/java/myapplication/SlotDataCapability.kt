@@ -1,23 +1,44 @@
 package com.java.myapplication
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.java.myapplication.adapter.AdapterFactory
+import com.java.myapplication.adapter.AdapterRequest
+import com.java.myapplication.adapter.WidgetData
+import com.java.myapplication.adapter.auth.BackgroundAuthRepository
+import com.java.myapplication.config.ApiAccountConfig
+import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.webauth.WebAuthProfile
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class SlotServiceKind {
     KIMI_NEW_API,
@@ -41,11 +62,29 @@ private data class CapabilityItem(
     val active: Boolean
 )
 
+private data class LiveMetric(
+    val title: String,
+    val value: String,
+    val source: CapabilitySource,
+    val available: Boolean = true
+)
+
+private sealed class LiveDataState {
+    data object Waiting : LiveDataState()
+    data object Loading : LiveDataState()
+    data class Success(
+        val metrics: List<LiveMetric>,
+        val updatedAt: String,
+        val note: String? = null
+    ) : LiveDataState()
+    data class Error(val message: String) : LiveDataState()
+}
+
 /**
- * 设置页的数据能力说明。
+ * 设置页的数据能力与当前真实值。
  *
- * 这里只展示当前代码已经真实接入或明确支持的能力，不发起额外网络请求，
- * 不展示演示数值，也不把“登录后可用”冒充为当前已可用。
+ * 进入已配置槽位时会通过与桌面 Widget 相同的 Adapter 请求一次真实数据。
+ * 页面不展示演示值；接口未返回的项目会明确标记为未返回、登录后可用或仍在积累。
  */
 @Composable
 fun SlotDataCapabilityCard(
@@ -54,8 +93,22 @@ fun SlotDataCapabilityCard(
     authConnected: Boolean,
     webProfile: WebAuthProfile?
 ) {
+    val context = LocalContext.current
     val service = detectService(apiBase, webProfile)
     val items = capabilityItems(service, apiConnected, authConnected)
+    var refreshVersion by remember { mutableIntStateOf(0) }
+    var liveState by remember(apiBase) { mutableStateOf<LiveDataState>(LiveDataState.Waiting) }
+
+    LaunchedEffect(apiBase, apiConnected, authConnected, refreshVersion) {
+        if (!apiConnected) {
+            liveState = LiveDataState.Waiting
+        } else {
+            liveState = LiveDataState.Loading
+            liveState = withContext(Dispatchers.IO) {
+                loadCurrentSlotData(context, apiBase, service)
+            }
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -65,20 +118,33 @@ fun SlotDataCapabilityCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "这个槽位能展示什么",
+                text = "当前真实数据",
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                text = "云端数据会随桌面小组件自动更新；本地测算只使用平台真实累计值。",
+                text = "这里直接请求当前账户。返回多少就显示多少；没有返回的不会补数字。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+            )
+
+            LiveDataContent(
+                state = liveState,
+                apiConnected = apiConnected,
+                onRefresh = { refreshVersion++ }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text(
+                text = "这个槽位还能展示什么",
+                style = MaterialTheme.typography.titleMedium
             )
             Text(
-                text = "每 30 分钟自动刷新，也可以点击桌面小组件立即刷新。",
+                text = "云端数据每 30 分钟随桌面小组件更新；本地测算只使用平台真实累计值。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
             )
 
             items.forEachIndexed { index, item ->
@@ -88,6 +154,114 @@ fun SlotDataCapabilityCard(
                 CapabilityRow(item)
             }
         }
+    }
+}
+
+@Composable
+private fun LiveDataContent(
+    state: LiveDataState,
+    apiConnected: Boolean,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        LiveDataState.Waiting -> {
+            Text(
+                text = if (apiConnected) {
+                    "等待读取当前真实数据。"
+                } else {
+                    "完成 API 检测并选择模型后，这里会显示当前真实数值。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        LiveDataState.Loading -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator()
+                Text("正在读取平台当前数据…")
+            }
+        }
+
+        is LiveDataState.Error -> {
+            Text(
+                text = "当前没有取得真实数值：${state.message}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+            Button(
+                onClick = onRefresh,
+                modifier = Modifier.padding(top = 10.dp)
+            ) {
+                Text("重新读取")
+            }
+        }
+
+        is LiveDataState.Success -> {
+            state.metrics.forEachIndexed { index, metric ->
+                if (index > 0) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 9.dp))
+                }
+                LiveMetricRow(metric)
+            }
+            state.note?.let { note ->
+                Text(
+                    text = note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "读取时间 ${state.updatedAt}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onClick = onRefresh) {
+                    Text("刷新真实数据")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveMetricRow(metric: LiveMetric) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = metric.title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = metric.value,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (metric.available) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+        SourceBadge(
+            source = metric.source,
+            modifier = Modifier.padding(top = 6.dp)
+        )
     }
 }
 
@@ -126,7 +300,10 @@ private fun CapabilityRow(item: CapabilityItem) {
 }
 
 @Composable
-private fun SourceBadge(source: CapabilitySource) {
+private fun SourceBadge(
+    source: CapabilitySource,
+    modifier: Modifier = Modifier
+) {
     val containerColor: Color = when (source) {
         CapabilitySource.API -> MaterialTheme.colorScheme.primaryContainer
         CapabilitySource.ACCOUNT -> MaterialTheme.colorScheme.secondaryContainer
@@ -139,6 +316,7 @@ private fun SourceBadge(source: CapabilitySource) {
     }
 
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(50),
         color = containerColor
     ) {
@@ -149,6 +327,184 @@ private fun SourceBadge(source: CapabilitySource) {
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
         )
     }
+}
+
+private fun loadCurrentSlotData(
+    context: Context,
+    apiBase: String,
+    service: SlotServiceKind
+): LiveDataState {
+    val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
+    val normalizedBase = normalizeApiBase(apiBase)
+    val matching = ConfigRepository.loadAllConfigs(prefs)
+        .filter { config ->
+            config.enabled &&
+                config.apiKey.isNotBlank() &&
+                config.model.isNotBlank() &&
+                normalizeApiBase(config.apiBase) == normalizedBase
+        }
+
+    val config = matching.firstOrNull()
+        ?: return LiveDataState.Error("没有找到这个槽位的完整 API 配置")
+
+    val adapter = AdapterFactory.getAdapter(config.id, config.apiBase)
+        ?: return LiveDataState.Error("当前服务还没有可读取余额或用量的适配器")
+    val auth = BackgroundAuthRepository.load(prefs, config.id)
+
+    val data = try {
+        adapter.fetchData(
+            AdapterRequest(
+                apiBase = config.apiBase,
+                modelApiKey = config.apiKey,
+                modelName = config.model,
+                backgroundAuthType = auth.authType,
+                backgroundCredential = auth.authValue
+            )
+        )
+    } catch (_: Exception) {
+        return LiveDataState.Error("读取失败，请稍后重试")
+    }
+
+    if (!data.isSuccess || !data.isAvailable) {
+        return LiveDataState.Error(
+            data.statusText ?: data.errorMessage ?: "平台没有返回可展示数据"
+        )
+    }
+
+    val metrics = buildLiveMetrics(service, data)
+    if (metrics.isEmpty()) {
+        return LiveDataState.Error("平台本次没有返回可展示数值")
+    }
+
+    val note = if (matching.size > 1) {
+        "检测到多个槽位使用同一 API 地址，当前展示第一个完整配置返回的数据。"
+    } else {
+        null
+    }
+
+    return LiveDataState.Success(
+        metrics = metrics,
+        updatedAt = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()),
+        note = note
+    )
+}
+
+private fun buildLiveMetrics(
+    service: SlotServiceKind,
+    data: WidgetData
+): List<LiveMetric> {
+    val result = mutableListOf<LiveMetric>()
+
+    data.primaryMetric?.let { metric ->
+        result.add(
+            LiveMetric(
+                title = cleanMetricLabel(metric.label),
+                value = metric.value.ifBlank { "未返回" },
+                source = primarySource(service),
+                available = metric.value.isNotBlank()
+            )
+        )
+    }
+
+    data.usageMetrics.forEach { metric ->
+        val label = cleanMetricLabel(metric.label)
+        val value = metric.value.ifBlank {
+            when {
+                label.contains("统计中") -> "正在积累"
+                label.contains("暂无") -> "暂无可计算数据"
+                else -> "当前未返回数值"
+            }
+        }
+        result.add(
+            LiveMetric(
+                title = if (label.contains("统计中")) "近期消耗" else label,
+                value = value,
+                source = CapabilitySource.LOCAL,
+                available = metric.value.isNotBlank()
+            )
+        )
+    }
+
+    if (data.percentage != null && !data.percentageLabel.isNullOrBlank()) {
+        result.add(
+            LiveMetric(
+                title = cleanMetricLabel(data.percentageLabel.orEmpty()),
+                value = "${data.percentage}%",
+                source = CapabilitySource.LOCAL
+            )
+        )
+    }
+
+    data.auxiliaryMetrics.forEach { metric ->
+        result.add(
+            LiveMetric(
+                title = cleanMetricLabel(metric.label),
+                value = metric.value.ifBlank { "未返回" },
+                source = auxiliarySource(service, metric.label),
+                available = metric.value.isNotBlank()
+            )
+        )
+    }
+
+    return result.distinctBy { metric ->
+        "${metric.title}|${metric.value}|${metric.source}"
+    }
+}
+
+private fun primarySource(service: SlotServiceKind): CapabilitySource {
+    return when (service) {
+        SlotServiceKind.MIMO,
+        SlotServiceKind.AIHUANGNIU -> CapabilitySource.ACCOUNT
+        SlotServiceKind.KIMI_NEW_API,
+        SlotServiceKind.DEEPSEEK,
+        SlotServiceKind.GENERIC -> CapabilitySource.API
+    }
+}
+
+private fun auxiliarySource(
+    service: SlotServiceKind,
+    rawLabel: String
+): CapabilitySource {
+    val label = cleanMetricLabel(rawLabel)
+    return when (service) {
+        SlotServiceKind.MIMO -> CapabilitySource.ACCOUNT
+        SlotServiceKind.KIMI_NEW_API,
+        SlotServiceKind.GENERIC -> CapabilitySource.API
+        SlotServiceKind.DEEPSEEK -> {
+            if (
+                label.contains("预计可用") ||
+                label.contains("本月") ||
+                label.contains("累计消耗")
+            ) {
+                CapabilitySource.ACCOUNT
+            } else {
+                CapabilitySource.API
+            }
+        }
+        SlotServiceKind.AIHUANGNIU -> {
+            if (
+                label.contains("累计 Token") ||
+                label.contains("累计调用") ||
+                label.contains("累计消耗")
+            ) {
+                CapabilitySource.API
+            } else {
+                CapabilitySource.ACCOUNT
+            }
+        }
+    }
+}
+
+private fun cleanMetricLabel(raw: String): String {
+    return raw.trim()
+        .removePrefix("云端·")
+        .removePrefix("本地·")
+        .removePrefix("缓存·")
+        .ifBlank { "未命名数据" }
+}
+
+private fun normalizeApiBase(apiBase: String): String {
+    return apiBase.trim().trimEnd('/').lowercase()
 }
 
 private fun detectService(apiBase: String, webProfile: WebAuthProfile?): SlotServiceKind {
@@ -165,7 +521,6 @@ private fun detectService(apiBase: String, webProfile: WebAuthProfile?): SlotSer
                 normalized.contains("coolyeah.net") || normalized.contains("kimi") -> {
                     SlotServiceKind.KIMI_NEW_API
                 }
-                normalized.isBlank() -> SlotServiceKind.GENERIC
                 else -> SlotServiceKind.GENERIC
             }
         }
