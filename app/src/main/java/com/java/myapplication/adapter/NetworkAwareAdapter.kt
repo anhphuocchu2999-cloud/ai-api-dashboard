@@ -9,8 +9,8 @@ import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 /**
  * 在进入具体平台请求前做一次系统网络状态快速判断。
  *
- * 断网或默认网络未通过系统验证时，立即返回可触发 Widget 最近成功数据兜底的
- * 临时网络错误，避免每个平台依次等待 HTTP 超时后才恢复缓存。
+ * 断网或默认网络未通过系统验证时，立即读取当前模型实例自己的最近成功数据，
+ * 避免同一平台的不同槽位共用缓存。
  *
  * 网络状态服务不可用或权限异常时采用 fail-open，不阻断原 Adapter 请求。
  */
@@ -30,10 +30,11 @@ internal class NetworkAwareAdapter(
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {
+        val instanceKey = request.instanceId.ifBlank { platformName }
         if (!hasUsableNetwork()) {
-            return WidgetData.error(platformName, "网络错误")
+            return WidgetData.error(platformName, "网络错误", instanceKey)
         }
-        return delegate.fetchData(request)
+        return delegate.fetchData(request).bindCacheKey(instanceKey)
     }
 
     override fun fetchData(
@@ -42,9 +43,9 @@ internal class NetworkAwareAdapter(
         modelName: String?
     ): WidgetData {
         if (!hasUsableNetwork()) {
-            return WidgetData.error(platformName, "网络错误")
+            return WidgetData.error(platformName, "网络错误", platformName)
         }
-        return delegate.fetchData(apiBase, apiKey, modelName)
+        return delegate.fetchData(apiBase, apiKey, modelName).bindCacheKey(platformName)
     }
 
     private fun hasUsableNetwork(): Boolean {
