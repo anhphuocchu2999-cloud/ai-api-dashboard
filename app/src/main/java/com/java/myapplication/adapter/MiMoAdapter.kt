@@ -1,9 +1,11 @@
 package com.java.myapplication.adapter
 
+import com.java.myapplication.DashboardApplication
 import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
+import com.java.myapplication.stats.RecentUsageTracker
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -18,6 +20,7 @@ import org.json.JSONObject
  * - GET /api/v1/usage：Token、消费、请求次数和账户限流摘要。
  *
  * Billing 是网页账户数据来源，不是第三份凭据；两个接口均复用网页登录 Cookie。
+ * 服务端累计值交给 RecentUsageTracker 在本机计算近 1/6/12/24 小时真实消耗。
  */
 class MiMoAdapter : PlatformAdapter {
 
@@ -41,7 +44,7 @@ class MiMoAdapter : PlatformAdapter {
     )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
-        return apiBase.contains("platform.xiaomimimo.com", ignoreCase = true)
+        return apiBase.contains("xiaomimimo.com", ignoreCase = true)
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {
@@ -55,14 +58,31 @@ class MiMoAdapter : PlatformAdapter {
             request.modelApiKey
         }
 
-        return fetchAccountData(cookie, request.modelName)
+        val usageIdentity = RecentUsageTracker.identity(
+            provider = platformName,
+            apiBase = request.apiBase,
+            apiKey = request.modelApiKey,
+            modelName = request.modelName
+        )
+
+        return fetchAccountData(cookie, request.modelName, usageIdentity)
     }
 
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
-        return fetchAccountData(apiKey, modelName)
+        val usageIdentity = RecentUsageTracker.identity(
+            provider = platformName,
+            apiBase = apiBase,
+            apiKey = apiKey,
+            modelName = modelName
+        )
+        return fetchAccountData(apiKey, modelName, usageIdentity)
     }
 
-    private fun fetchAccountData(cookie: String, modelName: String?): WidgetData {
+    private fun fetchAccountData(
+        cookie: String,
+        modelName: String?,
+        usageIdentity: String
+    ): WidgetData {
         val cleanCookie = cookie.trim()
         if (cleanCookie.isBlank()) {
             return WidgetData.error(platformName, "网页登录未连接")
@@ -97,7 +117,18 @@ class MiMoAdapter : PlatformAdapter {
                 if (usageSummary == null) {
                     balanceData.copy(statusText = "余额已同步")
                 } else {
-                    mergeUsageSummary(balanceData, usageSummary)
+                    val merged = mergeUsageSummary(balanceData, usageSummary)
+                    RecentUsageTracker.apply(
+                        context = DashboardApplication.appContextOrNull(),
+                        identity = usageIdentity,
+                        data = merged,
+                        cumulative = RecentUsageTracker.CumulativeUsage(
+                            requests = usageSummary.totalRequests,
+                            tokens = usageSummary.totalTokens,
+                            cost = usageSummary.totalCost,
+                            currency = usageSummary.currency
+                        )
+                    )
                 }
             }
             HttpJsonResult.AuthExpired -> balanceData.copy(statusText = "网页登录需重连")
@@ -230,27 +261,15 @@ class MiMoAdapter : PlatformAdapter {
             val rateLimit = data.optJSONObject("accountRateLimit")
             val symbol = currencySymbol.ifBlank { "¥" }
 
-            val usageMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            decimal(costUsage, "currentMonthCost")?.let {
-                usageMetrics.add(
-                    WidgetData.DisplayMetric("本月消费", "$symbol${formatMoney(it)}")
-                )
-            }
-            longValue(tokenUsage, "totalToken")?.let {
-                usageMetrics.add(
-                    WidgetData.DisplayMetric("累计 Token", formatCount(it))
-                )
-            }
+            val totalRequests = longValue(pluginUsage, "totalRequestCount")
+            val totalTokens = longValue(tokenUsage, "totalToken")
+            val totalCost = decimal(costUsage, "totalCost")
 
+            // 动态位②只放账户资源和诊断价值较高的数据，不重复近期消耗。
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            decimal(costUsage, "totalCost")?.let {
+            longValue(tokenUsage, "cacheToken")?.let {
                 auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("累计消费", "$symbol${formatMoney(it)}")
-                )
-            }
-            longValue(pluginUsage, "totalRequestCount")?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("累计请求", "${formatCount(it)}次")
+                    WidgetData.DisplayMetric("缓存 Token", formatCount(it))
                 )
             }
             longValue(pluginUsage, "webSearchRequestCount")?.let {
@@ -258,32 +277,31 @@ class MiMoAdapter : PlatformAdapter {
                     WidgetData.DisplayMetric("Web 搜索", "${formatCount(it)}次")
                 )
             }
-            longValue(tokenUsage, "inputToken")?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("输入 Token", formatCount(it))
-                )
-            }
-            longValue(tokenUsage, "outputToken")?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("输出 Token", formatCount(it))
-                )
-            }
-            longValue(tokenUsage, "cacheToken")?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("缓存 Token", formatCount(it))
-                )
-            }
             longValue(rateLimit, "rpm")?.let {
-                auxiliaryMetrics.add(WidgetData.DisplayMetric("RPM 限额", formatCount(it)))
+                auxiliaryMetrics.add(WidgetData.DisplayMetric("RPM 上限", formatCount(it)))
             }
             longValue(rateLimit, "tpm")?.let {
-                auxiliaryMetrics.add(WidgetData.DisplayMetric("TPM 限额", formatCount(it)))
+                auxiliaryMetrics.add(WidgetData.DisplayMetric("TPM 上限", formatCount(it)))
+            }
+            longValue(rateLimit, "queryTpm")?.let {
+                auxiliaryMetrics.add(WidgetData.DisplayMetric("查询 TPM", formatCount(it)))
+            }
+            longValue(rateLimit, "concurrency")?.let {
+                auxiliaryMetrics.add(WidgetData.DisplayMetric("并发上限", formatCount(it)))
             }
 
-            if (usageMetrics.isEmpty() && auxiliaryMetrics.isEmpty()) {
+            if (totalRequests == null && totalTokens == null && totalCost == null &&
+                auxiliaryMetrics.isEmpty()
+            ) {
                 null
             } else {
-                UsageSummary(usageMetrics, auxiliaryMetrics)
+                UsageSummary(
+                    auxiliaryMetrics = auxiliaryMetrics,
+                    totalRequests = totalRequests,
+                    totalTokens = totalTokens,
+                    totalCost = totalCost,
+                    currency = symbol
+                )
             }
         } catch (_: Exception) {
             null
@@ -298,7 +316,7 @@ class MiMoAdapter : PlatformAdapter {
             .distinctBy { "${it.label}|${it.value}" }
 
         return balanceData.copy(
-            usageMetrics = summary.usageMetrics,
+            usageMetrics = emptyList(),
             auxiliaryMetrics = auxiliaryMetrics,
             statusText = "网页账单已同步"
         )
@@ -349,8 +367,11 @@ class MiMoAdapter : PlatformAdapter {
     }
 
     private data class UsageSummary(
-        val usageMetrics: List<WidgetData.DisplayMetric>,
-        val auxiliaryMetrics: List<WidgetData.DisplayMetric>
+        val auxiliaryMetrics: List<WidgetData.DisplayMetric>,
+        val totalRequests: Long?,
+        val totalTokens: Long?,
+        val totalCost: BigDecimal?,
+        val currency: String
     )
 
     private sealed class HttpJsonResult {
