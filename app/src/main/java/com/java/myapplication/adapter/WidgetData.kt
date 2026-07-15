@@ -11,6 +11,8 @@ import org.json.JSONObject
  *
  * 每张卡片固定承载：模型名称、核心指标、近期消耗、百分比和辅助指标。
  * 数据来源标签由 BalanceWidgetProvider 统一渲染，避免 Adapter 重复拼接。
+ *
+ * cacheKey 是当前模型实例／槽位的稳定身份，只用于本地最近成功数据隔离。
  */
 data class WidgetData(
     val platformName: String,
@@ -42,7 +44,10 @@ data class WidgetData(
     val cumulativeUsageActualCost: String? = null,
 
     // 当前是否展示最近一次成功缓存
-    val isFallback: Boolean = false
+    val isFallback: Boolean = false,
+
+    // 当前模型实例／槽位的缓存身份；为空时不写入最近成功缓存。
+    val cacheKey: String? = null
 ) {
 
     init {
@@ -86,41 +91,20 @@ data class WidgetData(
             "获取失败"
         )
 
-        fun error(platformName: String, message: String): WidgetData {
-            if (isTransientError(message)) {
-                val cached = loadLastSuccessfulData(platformName)
-                if (cached != null) {
-                    val markedAuxiliary = if (cached.auxiliaryMetrics.isEmpty()) {
-                        listOf(DisplayMetric("", "😂"))
-                    } else {
-                        cached.auxiliaryMetrics.map { metric ->
-                            metric.copy(value = "${metric.value} 😂")
-                        }
-                    }
-
-                    return cached.copy(
-                        usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
-                        auxiliaryMetrics = markedAuxiliary,
-                        statusText = FALLBACK_MESSAGE,
-                        isSuccess = true,
-                        isAvailable = true,
-                        errorMessage = message,
-                        cumulativeUsedCalls = null,
-                        cumulativeUsageRequests = null,
-                        cumulativeUsageTokens = null,
-                        cumulativeUsageActualCost = null,
-                        isFallback = true
-                    )
-                }
-            }
-
-            return WidgetData(
+        fun error(
+            platformName: String,
+            message: String,
+            cacheKey: String? = null
+        ): WidgetData {
+            val base = WidgetData(
                 platformName = platformName,
                 isSuccess = false,
                 statusText = message,
                 isAvailable = false,
-                errorMessage = message
+                errorMessage = message,
+                cacheKey = cacheKey?.takeIf { it.isNotBlank() }
             )
+            return if (cacheKey.isNullOrBlank()) base else base.bindCacheKey(cacheKey)
         }
 
         fun empty(platformName: String): WidgetData {
@@ -145,14 +129,18 @@ data class WidgetData(
             return TRANSIENT_ERROR_KEYWORDS.any { keyword -> message.contains(keyword) }
         }
 
-        private fun loadLastSuccessfulData(platformName: String): WidgetData? {
+        private fun loadLastSuccessfulData(
+            instanceKey: String,
+            fallbackPlatformName: String
+        ): WidgetData? {
             val context = DashboardApplication.appContextOrNull() ?: return null
             val prefs = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
-            val canonicalKey = InstanceKeyResolver.canonicalInstanceId(platformName)
+            val canonicalKey = InstanceKeyResolver.canonicalInstanceId(instanceKey)
+            if (canonicalKey.isBlank()) return null
 
             var raw = prefs.getString(canonicalKey, null)?.takeIf { it.isNotBlank() }
             if (raw == null) {
-                for (legacyAlias in InstanceKeyResolver.legacyAliases(platformName)) {
+                for (legacyAlias in InstanceKeyResolver.legacyAliases(instanceKey)) {
                     val legacyRaw = prefs.getString(legacyAlias, null)?.takeIf { it.isNotBlank() }
                         ?: continue
                     raw = legacyRaw
@@ -166,7 +154,9 @@ data class WidgetData(
             return try {
                 val obj = JSONObject(raw)
                 WidgetData(
-                    platformName = platformName,
+                    platformName = obj.optString("platformName", fallbackPlatformName)
+                        .takeIf { it.isNotBlank() }
+                        ?: fallbackPlatformName,
                     modelName = obj.optString("modelName", "").takeIf { it.isNotBlank() },
                     primaryMetric = obj.optJSONObject("primaryMetric")?.let(::jsonToMetric),
                     usageMetrics = jsonToMetrics(obj.optJSONArray("usageMetrics")),
@@ -183,7 +173,8 @@ data class WidgetData(
                     usagePercent = if (obj.has("usagePercent")) obj.optInt("usagePercent") else null,
                     isAvailable = true,
                     errorMessage = null,
-                    isFallback = true
+                    isFallback = true,
+                    cacheKey = canonicalKey
                 )
             } catch (e: Exception) {
                 android.util.Log.w("WidgetData", "读取最近成功数据失败: $canonicalKey", e)
@@ -220,8 +211,51 @@ data class WidgetData(
         }
     }
 
+    /**
+     * 将 Adapter 返回值绑定到当前模型实例。
+     *
+     * 成功数据只写入该实例缓存；临时错误只读取该实例缓存，禁止按平台名跨槽位兜底。
+     */
+    fun bindCacheKey(instanceKey: String): WidgetData {
+        val canonicalKey = InstanceKeyResolver.canonicalInstanceId(instanceKey)
+        if (canonicalKey.isBlank()) return this
+
+        if (!isSuccess || !isAvailable) {
+            val message = statusText ?: errorMessage.orEmpty()
+            if (isTransientError(message)) {
+                val cached = loadLastSuccessfulData(canonicalKey, platformName)
+                if (cached != null) {
+                    val markedAuxiliary = if (cached.auxiliaryMetrics.isEmpty()) {
+                        listOf(DisplayMetric("", "😂"))
+                    } else {
+                        cached.auxiliaryMetrics.map { metric ->
+                            metric.copy(value = "${metric.value} 😂")
+                        }
+                    }
+
+                    return cached.copy(
+                        usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
+                        auxiliaryMetrics = markedAuxiliary,
+                        statusText = FALLBACK_MESSAGE,
+                        isSuccess = true,
+                        isAvailable = true,
+                        errorMessage = message,
+                        cumulativeUsedCalls = null,
+                        cumulativeUsageRequests = null,
+                        cumulativeUsageTokens = null,
+                        cumulativeUsageActualCost = null,
+                        isFallback = true,
+                        cacheKey = canonicalKey
+                    )
+                }
+            }
+        }
+
+        return if (cacheKey == canonicalKey) this else copy(cacheKey = canonicalKey)
+    }
+
     private fun shouldPersistAsSuccessfulData(): Boolean {
-        if (!isSuccess || !isAvailable || isFallback) return false
+        if (cacheKey.isNullOrBlank() || !isSuccess || !isAvailable || isFallback) return false
 
         return primaryMetric != null ||
             usageMetrics.any { it.value != "暂无可计算数据" } ||
@@ -237,11 +271,15 @@ data class WidgetData(
 
     private fun persistLastSuccessfulData() {
         val context = DashboardApplication.appContextOrNull() ?: return
-        val canonicalKey = InstanceKeyResolver.canonicalInstanceId(platformName)
+        val canonicalKey = cacheKey
+            ?.let(InstanceKeyResolver::canonicalInstanceId)
+            ?.takeIf { it.isNotBlank() }
+            ?: return
 
         try {
             val obj = JSONObject()
                 .put("platformName", platformName)
+                .put("cacheKey", canonicalKey)
                 .put("isSuccess", true)
                 .put("isAvailable", true)
 
