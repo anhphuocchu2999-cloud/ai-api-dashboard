@@ -37,7 +37,7 @@ import org.json.JSONObject
  *
  * 正式路径：
  * - MiMo：网页登录 Cookie；
- * - DeepSeek：在同一 WebView 会话内验证当前账户，并保存 Cookie + 临时访问 Token；
+ * - DeepSeek：监听页面自己发出的已登录账户请求，保存 Cookie + 临时访问 Token；
  * - 爱黄牛：读取 localStorage auth_token。
  *
  * 凭据只写入 BackgroundAuthRepository，不输出到日志或界面。
@@ -49,13 +49,156 @@ class WebAuthActivity : Activity() {
         private const val EXTRA_TARGET_INSTANCE_KEY = "web_auth_target_instance_key"
         private const val PREFS_NAME = "api_config"
         private const val AUTH_POLL_INTERVAL_MS = 1000L
-        private const val AUTH_VERIFY_TIMEOUT_MS = 5000L
+        private const val AUTH_OBSERVER_INSTALL_ATTEMPTS = 32
+        private const val AUTH_OBSERVER_INSTALL_INTERVAL_MS = 250L
         private const val PROBE_INSTALL_ATTEMPTS = 24
         private const val PROBE_INSTALL_INTERVAL_MS = 250L
-        private const val DEEPSEEK_CURRENT_USER_URL =
-            "https://platform.deepseek.com/auth-api/v0/users/current"
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+
+        /**
+         * 复用此前已经在真机成功捕获 DeepSeek 接口的方式：不再自行猜请求头，
+         * 而是监听页面自身的 fetch / XHR 成功响应。
+         */
+        private val DEEPSEEK_AUTH_OBSERVER_SCRIPT = """
+            (function() {
+                function report(kind, token) {
+                    try {
+                        if (!window.DashboardAuth) return;
+                        window.DashboardAuth.onObservedSession(JSON.stringify({
+                            kind: String(kind || ''),
+                            token: String(token || '')
+                        }));
+                    } catch (e) {}
+                }
+
+                function bearerFrom(value) {
+                    var text = String(value || '');
+                    var match = text.match(/^Bearer\s+(.+)$/i);
+                    return match ? match[1] : '';
+                }
+
+                function inspect(url, status, bodyText, authorization) {
+                    try {
+                        var target = String(url || '');
+                        if (target.indexOf('platform.deepseek.com/') < 0 &&
+                            target.indexOf('/api/v0/') < 0 &&
+                            target.indexOf('/auth-api/v0/') < 0) return;
+
+                        var body = JSON.parse(String(bodyText || ''));
+                        var data = body && body.data;
+                        var biz = data && data.biz_data;
+                        var validEnvelope = Number(status || 0) >= 200 && Number(status || 0) < 300 &&
+                            body && body.code === 0 && data && data.biz_code === 0 && biz;
+                        if (!validEnvelope) return;
+
+                        if (target.indexOf('/auth-api/v0/users/current') >= 0) {
+                            var accountToken = biz.token || '';
+                            var accountId = biz.id || '';
+                            if (accountToken || accountId) report('current-user', accountToken);
+                            return;
+                        }
+
+                        if (target.indexOf('/api/v0/users/get_user_summary') >= 0) {
+                            report('summary', bearerFrom(authorization));
+                        }
+                    } catch (e) {}
+                }
+
+                function readAuthorization(input, init) {
+                    try {
+                        if (init && init.headers) {
+                            var initHeaders = new Headers(init.headers);
+                            var fromInit = initHeaders.get('Authorization');
+                            if (fromInit) return fromInit;
+                        }
+                        if (input && input.headers && input.headers.get) {
+                            return input.headers.get('Authorization') || '';
+                        }
+                    } catch (e) {}
+                    return '';
+                }
+
+                if (!window.__dashboardDeepSeekAuthObserverInstalled) {
+                    window.__dashboardDeepSeekAuthObserverInstalled = true;
+
+                    var originalFetch = window.fetch;
+                    if (originalFetch) {
+                        window.fetch = function(input, init) {
+                            var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+                            var authorization = readAuthorization(input, init);
+                            return originalFetch.apply(this, arguments).then(function(response) {
+                                try {
+                                    var clone = response.clone();
+                                    clone.text().then(function(text) {
+                                        inspect(clone.url || url, clone.status, text, authorization);
+                                    }).catch(function() {});
+                                } catch (e) {}
+                                return response;
+                            });
+                        };
+                    }
+
+                    var originalOpen = XMLHttpRequest.prototype.open;
+                    var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+                    var originalSend = XMLHttpRequest.prototype.send;
+
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__dashboardAuthUrl = url || '';
+                        this.__dashboardAuthHeader = '';
+                        return originalOpen.apply(this, arguments);
+                    };
+
+                    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                        try {
+                            if (String(name || '').toLowerCase() === 'authorization') {
+                                this.__dashboardAuthHeader = value || '';
+                            }
+                        } catch (e) {}
+                        return originalSetRequestHeader.apply(this, arguments);
+                    };
+
+                    XMLHttpRequest.prototype.send = function() {
+                        var xhr = this;
+                        xhr.addEventListener('loadend', function() {
+                            try {
+                                var text = '';
+                                if (!xhr.responseType || xhr.responseType === 'text' || xhr.responseType === 'json') {
+                                    text = (typeof xhr.responseText === 'string')
+                                        ? xhr.responseText
+                                        : JSON.stringify(xhr.response || {});
+                                }
+                                inspect(
+                                    xhr.responseURL || xhr.__dashboardAuthUrl,
+                                    xhr.status,
+                                    text,
+                                    xhr.__dashboardAuthHeader || ''
+                                );
+                            } catch (e) {}
+                        });
+                        return originalSend.apply(this, arguments);
+                    };
+
+                    try {
+                        window.dispatchEvent(new Event('focus'));
+                        document.dispatchEvent(new Event('visibilitychange'));
+                    } catch (e) {}
+                }
+
+                // 已经登录后直接打开用量页时，请求可能早于注入发生。
+                // 同一标签页只自动刷新一次，让网页用自己的完整请求头重新请求账户数据。
+                try {
+                    if (location.hostname === 'platform.deepseek.com' &&
+                        location.pathname.indexOf('/usage') >= 0 &&
+                        sessionStorage.getItem('__dashboardDeepSeekAuthReloaded') !== '1') {
+                        sessionStorage.setItem('__dashboardDeepSeekAuthReloaded', '1');
+                        setTimeout(function() { location.reload(); }, 350);
+                    }
+                } catch (e) {}
+
+                return 'ready';
+            })();
+        """.trimIndent()
 
         private val PROBE_SCRIPT = """
             (function() {
@@ -136,11 +279,21 @@ class WebAuthActivity : Activity() {
     private lateinit var targetInstanceKey: String
 
     private var loginDetected = false
-    private var cookieVerificationInProgress = false
 
     private val authHandler = Handler(Looper.getMainLooper())
     private var cookiePollRunnable: Runnable? = null
     private var localStoragePollRunnable: Runnable? = null
+    private var authObserverInstallAttemptsRemaining = 0
+    private val authObserverInstallRunnable = object : Runnable {
+        override fun run() {
+            if (!::webView.isInitialized || loginDetected || profile.probeOnly || !isDeepSeekProfile()) return
+            webView.evaluateJavascript(DEEPSEEK_AUTH_OBSERVER_SCRIPT, null)
+            authObserverInstallAttemptsRemaining--
+            if (authObserverInstallAttemptsRemaining > 0 && !loginDetected) {
+                authHandler.postDelayed(this, AUTH_OBSERVER_INSTALL_INTERVAL_MS)
+            }
+        }
+    }
 
     private val probeHandler = Handler(Looper.getMainLooper())
     private var probeInstallAttemptsRemaining = 0
@@ -237,7 +390,10 @@ class WebAuthActivity : Activity() {
             ) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
-                if (profile.probeOnly) scheduleProbeInjection()
+                when {
+                    profile.probeOnly -> scheduleProbeInjection()
+                    isDeepSeekProfile() -> scheduleAuthObserverInjection()
+                }
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -250,10 +406,10 @@ class WebAuthActivity : Activity() {
                     return
                 }
 
-                when (profile.authType) {
-                    BackgroundAuthType.COOKIE -> startCookiePolling()
-                    BackgroundAuthType.BEARER_TOKEN -> startLocalStoragePolling()
-                    else -> Unit
+                when {
+                    isDeepSeekProfile() -> scheduleAuthObserverInjection()
+                    profile.authType == BackgroundAuthType.COOKIE -> startCookiePolling()
+                    profile.authType == BackgroundAuthType.BEARER_TOKEN -> startLocalStoragePolling()
                 }
             }
         }
@@ -264,8 +420,19 @@ class WebAuthActivity : Activity() {
     override fun onDestroy() {
         cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
         localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
+        authHandler.removeCallbacks(authObserverInstallRunnable)
         probeHandler.removeCallbacks(probeInstallRunnable)
         super.onDestroy()
+    }
+
+    private fun isDeepSeekProfile(): Boolean {
+        return profile.profileId.equals("deepseek", ignoreCase = true)
+    }
+
+    private fun scheduleAuthObserverInjection() {
+        authHandler.removeCallbacks(authObserverInstallRunnable)
+        authObserverInstallAttemptsRemaining = AUTH_OBSERVER_INSTALL_ATTEMPTS
+        authHandler.post(authObserverInstallRunnable)
     }
 
     private fun startCookiePolling() {
@@ -284,14 +451,7 @@ class WebAuthActivity : Activity() {
     }
 
     private fun checkAndSaveCookies() {
-        if (loginDetected || cookieVerificationInProgress) return
-
-        // DeepSeek 可能使用 HttpOnly Cookie，CookieManager 不一定能在验证前完整读出。
-        // 因此先在同一个 WebView 会话内验证当前账户，再由桥接结果保存可用凭据。
-        if (!profile.cookieVerificationUrl.isNullOrBlank()) {
-            verifyDeepSeekAccountInsideWebView()
-            return
-        }
+        if (loginDetected) return
 
         val cookieString = currentCookieString()
         if (cookieString.isBlank()) return
@@ -304,52 +464,6 @@ class WebAuthActivity : Activity() {
         }
 
         saveCredentialAndRefresh(buildCookieHeader(cookies))
-    }
-
-    /**
-     * 只验证 DeepSeek 当前账户接口。该接口是登录状态的直接证据，避免先请求账单接口
-     * 导致验证链卡住。访问 Token 只通过 JS bridge 交给本 App 的授权存储，不显示、
-     * 不写日志；Widget 刷新时会优先用 Cookie 获取新的临时 Token。
-     */
-    private fun verifyDeepSeekAccountInsideWebView() {
-        if (cookieVerificationInProgress || loginDetected) return
-        cookieVerificationInProgress = true
-
-        val currentUserUrl = JSONObject.quote(DEEPSEEK_CURRENT_USER_URL)
-        val script = """
-            (function() {
-                function report(ok, token) {
-                    try {
-                        window.DashboardAuth.onVerificationResult(JSON.stringify({
-                            ok: !!ok,
-                            token: ok ? String(token || '') : ''
-                        }));
-                    } catch (e) {}
-                }
-
-                fetch($currentUserUrl, {
-                    method: 'GET',
-                    credentials: 'include',
-                    cache: 'no-store',
-                    headers: { 'Accept': 'application/json' }
-                }).then(function(response) {
-                    return response.json().then(function(body) {
-                        var data = body && body.data;
-                        var biz = data && data.biz_data;
-                        var token = biz && biz.token;
-                        var accountId = biz && biz.id;
-                        var ok = response.ok && body.code === 0 &&
-                            data && data.biz_code === 0 && biz && (token || accountId);
-                        report(ok, token);
-                    }).catch(function() { report(false, ''); });
-                }).catch(function() { report(false, ''); });
-            })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(script, null)
-        authHandler.postDelayed({
-            if (!loginDetected) cookieVerificationInProgress = false
-        }, AUTH_VERIFY_TIMEOUT_MS)
     }
 
     private fun currentCookieString(): String {
@@ -416,6 +530,7 @@ class WebAuthActivity : Activity() {
         loginDetected = true
         cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
         localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
+        authHandler.removeCallbacks(authObserverInstallRunnable)
 
         if (!profile.probeOnly) {
             Toast.makeText(this, "平台账户连接成功", Toast.LENGTH_SHORT).show()
@@ -553,27 +668,18 @@ class WebAuthActivity : Activity() {
 
     private inner class AuthBridge {
         @JavascriptInterface
-        fun onVerificationResult(result: String) {
+        fun onObservedSession(result: String) {
             runOnUiThread {
-                cookieVerificationInProgress = false
                 if (loginDetected) return@runOnUiThread
 
                 val payload = try {
                     JSONObject(result)
                 } catch (_: Exception) {
-                    null
+                    return@runOnUiThread
                 }
-                val ok = payload?.optBoolean("ok", false) == true || result == "1"
-                if (!ok) return@runOnUiThread
-
-                val token = payload?.optString("token", "").orEmpty()
+                val token = payload.optString("token", "").trim()
                 val cookie = currentCookieString()
-                val credential = if (profile.profileId.equals("deepseek", ignoreCase = true)) {
-                    buildDeepSeekCredential(cookie, token)
-                } else {
-                    buildCookieHeader(parseCookieString(cookie)).takeIf { it.isNotBlank() }
-                }
-
+                val credential = buildDeepSeekCredential(cookie, token)
                 if (!credential.isNullOrBlank()) {
                     saveCredentialAndRefresh(credential)
                 }
