@@ -8,10 +8,19 @@ import org.json.JSONObject
 /**
  * 后台授权凭据的唯一持久化入口。
  *
- * Stage 8A-3：新写入统一使用稳定 instanceId；历史 `${instanceKey}_auth`
- * 键只用于兼容读取。旧 MiMo Cookie / 爱黄牛 Bearer Token 的 JSON 格式不变。
+ * Stage 8A-3：实例凭据统一使用稳定 instanceId；历史 `${instanceKey}_auth`
+ * 键只用于兼容读取。
+ *
+ * Stage 8B-R：网页登录凭据改为平台公共键。读取公共键时会兼容旧的固定槽位键，
+ * 采用“复制而不删除”迁移；用户明确断开平台账户时才同时清理公共键和兼容旧键。
  */
 object BackgroundAuthRepository {
+
+    private val platformCompatibilityAliases = mapOf(
+        "platform-auth-mimo" to listOf("MiMo", "legacy-mimo"),
+        "platform-auth-deepseek" to listOf("DeepSeek", "legacy-deepseek"),
+        "platform-auth-aihuangniu" to listOf("OpenAI", "Aihuangniu", "legacy-openai")
+    )
 
     fun load(prefs: SharedPreferences, instanceKey: String): BackgroundAuthConfig {
         val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
@@ -20,8 +29,13 @@ object BackgroundAuthRepository {
             decode(raw)?.let { return it }
         }
 
-        for (legacyAlias in InstanceKeyResolver.legacyAliases(instanceKey)) {
-            val raw = readRaw(prefs, legacyAlias) ?: continue
+        val fallbackKeys = buildList {
+            addAll(InstanceKeyResolver.legacyAliases(instanceKey))
+            addAll(platformCompatibilityAliases[canonicalId].orEmpty())
+        }.distinct().filter { it != canonicalId }
+
+        for (fallbackKey in fallbackKeys) {
+            val raw = readRaw(prefs, fallbackKey) ?: continue
             val decoded = decode(raw) ?: continue
 
             // 迁移采用“复制而不删除”：写入失败时仍返回旧凭据，下次继续重试。
@@ -49,15 +63,20 @@ object BackgroundAuthRepository {
     }
 
     /**
-     * 用户明确清除授权时，同时移除新 instanceId 键和历史别名键，
-     * 防止兼容回退把旧凭据再次恢复出来。
+     * 用户明确清除授权时，同时移除目标键、历史实例别名和平台公共键的兼容旧键，
+     * 防止兼容回退把已经断开的凭据再次恢复出来。
      */
     fun clear(prefs: SharedPreferences, instanceKey: String): Boolean {
         val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
         val editor = prefs.edit().remove(storageKey(canonicalId))
+
         InstanceKeyResolver.legacyAliases(instanceKey).forEach { alias ->
             editor.remove(storageKey(alias))
         }
+        platformCompatibilityAliases[canonicalId].orEmpty().forEach { alias ->
+            editor.remove(storageKey(alias))
+        }
+
         return editor.commit()
     }
 
