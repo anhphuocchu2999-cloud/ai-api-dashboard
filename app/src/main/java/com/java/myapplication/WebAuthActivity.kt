@@ -30,19 +30,17 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.webauth.DeepSeekWebProbeRepository
 import com.java.myapplication.webauth.WebAuthProfile
 import com.java.myapplication.webauth.WebAuthProfileRegistry
-import java.net.HttpURLConnection
-import java.net.URL
 import org.json.JSONObject
 
 /**
  * 通用网页登录授权 Activity。
  *
- * 已验证正式路径：
- * - MiMo Cookie
- * - DeepSeek Cookie，经 get_user_summary 真实接口验证
- * - 爱黄牛 localStorage auth_token
+ * 正式路径：
+ * - MiMo：网页登录 Cookie；
+ * - DeepSeek：在 WebView 已登录会话内验证 get_user_summary，再保存 Cookie；
+ * - 爱黄牛：读取 localStorage auth_token。
  *
- * probeOnly 仍保留给未来只读接口摸排；正式授权不会保存未通过账户接口验证的 Cookie。
+ * 凭据只写入 BackgroundAuthRepository，不输出到日志或界面。
  */
 class WebAuthActivity : Activity() {
 
@@ -50,6 +48,7 @@ class WebAuthActivity : Activity() {
         private const val EXTRA_PROFILE_ID = "web_auth_profile_id"
         private const val EXTRA_TARGET_INSTANCE_KEY = "web_auth_target_instance_key"
         private const val PREFS_NAME = "api_config"
+        private const val AUTH_POLL_INTERVAL_MS = 1000L
         private const val PROBE_INSTALL_ATTEMPTS = 24
         private const val PROBE_INSTALL_INTERVAL_MS = 250L
         private const val MOBILE_USER_AGENT =
@@ -132,13 +131,13 @@ class WebAuthActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var profile: WebAuthProfile
     private lateinit var targetInstanceKey: String
+
     private var loginDetected = false
-    private var showCancelToast = false
-    private var hadExistingAuthorization = false
     private var cookieVerificationInProgress = false
 
-    private val pollHandler = Handler(Looper.getMainLooper())
-    private var pollRunnable: Runnable? = null
+    private val authHandler = Handler(Looper.getMainLooper())
+    private var cookiePollRunnable: Runnable? = null
+    private var localStoragePollRunnable: Runnable? = null
 
     private val probeHandler = Handler(Looper.getMainLooper())
     private var probeInstallAttemptsRemaining = 0
@@ -175,22 +174,13 @@ class WebAuthActivity : Activity() {
         profile = resolvedProfile
         targetInstanceKey = intent.getStringExtra(EXTRA_TARGET_INSTANCE_KEY)
             ?.takeIf { it.isNotBlank() }
-            ?: profile.instanceKey
-
-        val existingAuth = BackgroundAuthRepository.load(
-            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
-            instanceKey = targetInstanceKey
-        )
-        hadExistingAuthorization = existingAuth.enabled &&
-            existingAuth.authType == profile.authType &&
-            existingAuth.authValue.isNotBlank()
-        showCancelToast = !profile.probeOnly
+            ?: profile.sharedAuthKey
 
         setContentView(R.layout.activity_web_auth)
         title = if (profile.probeOnly) {
             "${profile.displayName} 网页数据摸排"
         } else {
-            "${profile.displayName} 网页登录授权"
+            "${profile.displayName} 平台账户登录"
         }
 
         webView = findViewById(R.id.web_view)
@@ -206,6 +196,8 @@ class WebAuthActivity : Activity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             userAgentString = MOBILE_USER_AGENT
         }
+
+        webView.addJavascriptInterface(AuthBridge(), "DashboardAuth")
 
         if (profile.probeOnly) {
             DeepSeekWebProbeRepository.clear(this, targetInstanceKey)
@@ -256,7 +248,7 @@ class WebAuthActivity : Activity() {
                 }
 
                 when (profile.authType) {
-                    BackgroundAuthType.COOKIE -> checkAndSaveCookies()
+                    BackgroundAuthType.COOKIE -> startCookiePolling()
                     BackgroundAuthType.BEARER_TOKEN -> startLocalStoragePolling()
                     else -> Unit
                 }
@@ -267,102 +259,31 @@ class WebAuthActivity : Activity() {
     }
 
     override fun onDestroy() {
-        pollRunnable?.let { pollHandler.removeCallbacks(it) }
+        cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
+        localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
         probeHandler.removeCallbacks(probeInstallRunnable)
-        if (showCancelToast && !loginDetected) {
-            Toast.makeText(
-                this,
-                if (hadExistingAuthorization) {
-                    "未更新授权，原登录状态仍保留"
-                } else {
-                    "未检测到登录状态，已取消授权"
-                },
-                Toast.LENGTH_SHORT
-            ).show()
-        }
         super.onDestroy()
     }
 
-    private fun scheduleProbeInjection() {
-        probeHandler.removeCallbacks(probeInstallRunnable)
-        probeInstallAttemptsRemaining = PROBE_INSTALL_ATTEMPTS
-        probeHandler.post(probeInstallRunnable)
-    }
-
-    private fun configureProbePanel() {
-        val panel = findViewById<LinearLayout>(R.id.probe_panel)
-        panel.visibility = View.VISIBLE
-
-        findViewById<Button>(R.id.probe_results).setOnClickListener {
-            showProbeResults()
-        }
-
-        findViewById<Button>(R.id.probe_finish).setOnClickListener {
-            finishProbeSession()
-        }
-
-        updateProbeStatus()
-    }
-
-    private fun updateProbeStatus() {
-        if (!profile.probeOnly) return
-        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
-        val structured = records.count { it.fields.isNotEmpty() }
-        findViewById<TextView>(R.id.probe_status).text = when {
-            records.isEmpty() -> "请登录 DeepSeek，进入并停留在用量页面。系统只读取接口地址和字段结构。"
-            structured == 0 -> "已看到 ${records.size} 个网络请求，正在等待可读取的 JSON 数据接口…"
-            else -> "已捕获 ${records.size} 个接口，其中 $structured 个返回了可识别字段。可以查看结果后完成返回。"
-        }
-    }
-
-    private fun showProbeResults() {
-        val textView = TextView(this).apply {
-            text = DeepSeekWebProbeRepository.summary(this@WebAuthActivity, targetInstanceKey)
-            textSize = 13f
-            val padding = (16 * resources.displayMetrics.density).toInt()
-            setPadding(padding, padding, padding, padding)
-            setTextIsSelectable(true)
-        }
-        val scrollView = ScrollView(this).apply { addView(textView) }
-
-        AlertDialog.Builder(this)
-            .setTitle("DeepSeek 捕获结果")
-            .setMessage("这里只显示 endpoint、状态码和 JSON 字段类型，不显示账户数值、Cookie 或 Token。")
-            .setView(scrollView)
-            .setPositiveButton("继续摸排", null)
-            .show()
-    }
-
-    private fun finishProbeSession() {
-        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
-        val hasStructuredResponse = records.any {
-            it.fields.isNotEmpty() && (it.statusCode == null || it.statusCode in 200..299)
-        }
-
-        if (hasStructuredResponse) {
-            val cookie = CookieManager.getInstance().getCookie(profile.cookieDomain).orEmpty()
-            if (cookie.isNotBlank()) {
-                saveCredentialAndRefresh(cookie, closeAfterSave = false)
+    private fun startCookiePolling() {
+        cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
+        val runnable = object : Runnable {
+            override fun run() {
+                if (loginDetected || isFinishing || isDestroyed) return
+                checkAndSaveCookies()
+                if (!loginDetected) {
+                    authHandler.postDelayed(this, AUTH_POLL_INTERVAL_MS)
+                }
             }
         }
-
-        showCancelToast = false
-        Toast.makeText(
-            this,
-            if (hasStructuredResponse) {
-                "摸排完成，返回配置页查看下一步"
-            } else {
-                "尚未捕获到 JSON 数据；请登录后进入用量页再试"
-            },
-            Toast.LENGTH_LONG
-        ).show()
-        finish()
+        cookiePollRunnable = runnable
+        authHandler.post(runnable)
     }
 
     private fun checkAndSaveCookies() {
         if (loginDetected || cookieVerificationInProgress) return
 
-        val cookieString = CookieManager.getInstance().getCookie(profile.cookieDomain).orEmpty()
+        val cookieString = currentCookieString()
         if (cookieString.isBlank()) return
 
         val cookies = parseCookieString(cookieString)
@@ -374,58 +295,86 @@ class WebAuthActivity : Activity() {
 
         val verificationUrl = profile.cookieVerificationUrl
         if (!verificationUrl.isNullOrBlank()) {
-            verifyCookieAgainstAccountEndpoint(cookieString, verificationUrl)
+            verifyCookieInsideWebView(verificationUrl)
             return
         }
 
         saveCredentialAndRefresh(buildCookieHeader(cookies))
     }
 
-    private fun verifyCookieAgainstAccountEndpoint(cookieString: String, verificationUrl: String) {
+    /**
+     * DeepSeek 的登录会话由网页自身维护。验证必须在同一个 WebView 会话内完成，
+     * 不能把 Cookie 拿到独立 HttpURLConnection 中猜测验证。
+     *
+     * 脚本先直接读取汇总接口；若网站要求账户 Token，则只在网页内部从
+     * users/current 取得 Token 后重试。Token 不传回 Android，也不落盘。
+     */
+    private fun verifyCookieInsideWebView(verificationUrl: String) {
         if (cookieVerificationInProgress || loginDetected) return
         cookieVerificationInProgress = true
 
-        Thread {
-            val valid = try {
-                val conn = URL(verificationUrl).openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Cookie", cookieString)
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Referer", profile.loginUrl)
-                conn.setRequestProperty("Origin", "https://platform.deepseek.com")
-                conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
-
-                val responseCode = conn.responseCode
-                val body = if (responseCode in 200..299) {
-                    conn.inputStream.bufferedReader().use { it.readText() }
-                } else {
-                    conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val quotedVerificationUrl = JSONObject.quote(verificationUrl)
+        val script = """
+            (function() {
+                function report(ok) {
+                    try { window.DashboardAuth.onVerificationResult(ok ? '1' : '0'); } catch (e) {}
                 }
-                conn.disconnect()
-
-                if (responseCode !in 200..299) {
-                    false
-                } else {
-                    val root = JSONObject(body)
-                    val data = root.optJSONObject("data")
-                    root.optInt("code", -1) == 0 &&
-                        data?.optInt("biz_code", -1) == 0 &&
-                        data.optJSONObject("biz_data") != null
+                function validSummary(response, body) {
+                    try {
+                        return response.ok && body && body.code === 0 &&
+                            body.data && body.data.biz_code === 0 && body.data.biz_data;
+                    } catch (e) { return false; }
                 }
-            } catch (_: Exception) {
-                false
+                function requestSummary(headers) {
+                    return fetch($quotedVerificationUrl, {
+                        method: 'GET',
+                        credentials: 'include',
+                        headers: headers || { 'Accept': 'application/json' }
+                    }).then(function(response) {
+                        return response.json().then(function(body) {
+                            return validSummary(response, body);
+                        }).catch(function() { return false; });
+                    }).catch(function() { return false; });
+                }
+
+                requestSummary().then(function(ok) {
+                    if (ok) { report(true); return; }
+                    fetch('https://platform.deepseek.com/auth-api/v0/users/current', {
+                        method: 'GET',
+                        credentials: 'include',
+                        headers: { 'Accept': 'application/json' }
+                    }).then(function(response) {
+                        return response.json();
+                    }).then(function(body) {
+                        var token = body && body.data && body.data.biz_data && body.data.biz_data.token;
+                        if (!token) { report(false); return; }
+                        requestSummary({
+                            'Accept': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        }).then(report);
+                    }).catch(function() { report(false); });
+                });
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script, null)
+    }
+
+    private fun currentCookieString(): String {
+        val manager = CookieManager.getInstance()
+        val candidates = linkedSetOf(
+            profile.loginUrl,
+            profile.cookieDomain,
+            if (profile.cookieDomain.startsWith("http", ignoreCase = true)) {
+                profile.cookieDomain
+            } else {
+                "https://${profile.cookieDomain}"
             }
-
-            runOnUiThread {
-                cookieVerificationInProgress = false
-                if (valid && !loginDetected) {
-                    val cookies = parseCookieString(cookieString)
-                    saveCredentialAndRefresh(buildCookieHeader(cookies))
-                }
-            }
-        }.start()
+        )
+        return candidates.asSequence()
+            .mapNotNull { candidate -> manager.getCookie(candidate) }
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
     }
 
     private fun buildCookieHeader(cookies: Map<String, String>): String {
@@ -441,6 +390,8 @@ class WebAuthActivity : Activity() {
         credential: String,
         closeAfterSave: Boolean = true
     ): Boolean {
+        if (credential.isBlank()) return false
+
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val authConfig = BackgroundAuthConfig(
             authType = profile.authType,
@@ -456,18 +407,16 @@ class WebAuthActivity : Activity() {
         )
 
         if (!saved) {
-            loginDetected = false
-            Toast.makeText(this, "授权保存失败，请重试", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "账户连接保存失败，请重试", Toast.LENGTH_SHORT).show()
             return false
         }
 
         loginDetected = true
+        cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
+        localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
+
         if (!profile.probeOnly) {
-            Toast.makeText(
-                this,
-                "${profile.displayName} 网页授权成功",
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, "平台账户连接成功", Toast.LENGTH_SHORT).show()
         }
 
         refreshWidget(this)
@@ -475,31 +424,98 @@ class WebAuthActivity : Activity() {
         return true
     }
 
-    /** 每 2 秒读取一次 localStorage，直到获得非空 Token。 */
     private fun startLocalStoragePolling() {
-        if (loginDetected) return
+        localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
         val key = profile.localStorageKey ?: return
 
         val runnable = object : Runnable {
             override fun run() {
-                if (loginDetected) return
+                if (loginDetected || isFinishing || isDestroyed) return
                 webView.evaluateJavascript(
-                    "localStorage.getItem('$key')",
-                    android.webkit.ValueCallback { value ->
-                        if (loginDetected) return@ValueCallback
-                        val token = value?.trim()?.removeSurrounding("\"")?.trim()
-                        if (!token.isNullOrBlank() && token != "null") {
-                            saveCredentialAndRefresh(token)
-                        }
+                    "localStorage.getItem(${JSONObject.quote(key)})"
+                ) { value ->
+                    if (loginDetected) return@evaluateJavascript
+                    val token = value?.trim()?.removeSurrounding("\"")?.trim()
+                    if (!token.isNullOrBlank() && token != "null") {
+                        saveCredentialAndRefresh(token)
                     }
-                )
+                }
                 if (!loginDetected) {
-                    pollHandler.postDelayed(this, 2000)
+                    authHandler.postDelayed(this, AUTH_POLL_INTERVAL_MS)
                 }
             }
         }
-        pollRunnable = runnable
-        pollHandler.postDelayed(runnable, 2000)
+        localStoragePollRunnable = runnable
+        authHandler.post(runnable)
+    }
+
+    private fun scheduleProbeInjection() {
+        probeHandler.removeCallbacks(probeInstallRunnable)
+        probeInstallAttemptsRemaining = PROBE_INSTALL_ATTEMPTS
+        probeHandler.post(probeInstallRunnable)
+    }
+
+    private fun configureProbePanel() {
+        val panel = findViewById<LinearLayout>(R.id.probe_panel)
+        panel.visibility = View.VISIBLE
+
+        findViewById<Button>(R.id.probe_results).setOnClickListener {
+            showProbeResults()
+        }
+        findViewById<Button>(R.id.probe_finish).setOnClickListener {
+            finishProbeSession()
+        }
+        updateProbeStatus()
+    }
+
+    private fun updateProbeStatus() {
+        if (!profile.probeOnly) return
+        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
+        val structured = records.count { it.fields.isNotEmpty() }
+        findViewById<TextView>(R.id.probe_status).text = when {
+            records.isEmpty() -> "请登录并进入用量页面。系统只读取接口地址和字段结构。"
+            structured == 0 -> "已看到 ${records.size} 个网络请求，正在等待可读取的 JSON 数据接口…"
+            else -> "已捕获 ${records.size} 个接口，其中 $structured 个返回了可识别字段。"
+        }
+    }
+
+    private fun showProbeResults() {
+        val textView = TextView(this).apply {
+            text = DeepSeekWebProbeRepository.summary(this@WebAuthActivity, targetInstanceKey)
+            textSize = 13f
+            val padding = (16 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+            setTextIsSelectable(true)
+        }
+        val scrollView = ScrollView(this).apply { addView(textView) }
+
+        AlertDialog.Builder(this)
+            .setTitle("网页接口捕获结果")
+            .setMessage("这里只显示 endpoint、状态码和 JSON 字段类型，不显示账户数值或凭据。")
+            .setView(scrollView)
+            .setPositiveButton("继续摸排", null)
+            .show()
+    }
+
+    private fun finishProbeSession() {
+        val records = DeepSeekWebProbeRepository.load(this, targetInstanceKey)
+        val hasStructuredResponse = records.any {
+            it.fields.isNotEmpty() && (it.statusCode == null || it.statusCode in 200..299)
+        }
+
+        if (hasStructuredResponse) {
+            val cookie = currentCookieString()
+            if (cookie.isNotBlank()) {
+                saveCredentialAndRefresh(cookie, closeAfterSave = false)
+            }
+        }
+
+        Toast.makeText(
+            this,
+            if (hasStructuredResponse) "摸排完成" else "尚未捕获到可识别的 JSON 数据",
+            Toast.LENGTH_LONG
+        ).show()
+        finish()
     }
 
     private fun refreshWidget(context: Context) {
@@ -533,6 +549,21 @@ class WebAuthActivity : Activity() {
         return result
     }
 
+    private inner class AuthBridge {
+        @JavascriptInterface
+        fun onVerificationResult(result: String) {
+            runOnUiThread {
+                cookieVerificationInProgress = false
+                if (result == "1" && !loginDetected) {
+                    val cookies = parseCookieString(currentCookieString())
+                    if (cookies.isNotEmpty()) {
+                        saveCredentialAndRefresh(buildCookieHeader(cookies))
+                    }
+                }
+            }
+        }
+    }
+
     private inner class ProbeBridge {
         @JavascriptInterface
         fun onResponse(payload: String) {
@@ -548,7 +579,7 @@ class WebAuthActivity : Activity() {
                 )
                 runOnUiThread { updateProbeStatus() }
             } catch (_: Exception) {
-                // 诊断桥只忽略无法解析的事件，不影响网页登录。
+                // 摸排桥只忽略无法解析的事件，不影响网页登录。
             }
         }
     }
