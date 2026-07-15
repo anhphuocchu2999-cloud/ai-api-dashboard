@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -102,6 +101,7 @@ sealed class TestResult {
 
 sealed class ConnectionStatus {
     data class Success(val model: String) : ConnectionStatus()
+
     data class Error(
         val title: String,
         val reason: String,
@@ -221,11 +221,9 @@ fun ConfigScreen(
     }
     var testingIndex by remember { mutableIntStateOf(-1) }
     var editingIndex by remember { mutableIntStateOf(-1) }
-
     var showModelDialog by remember { mutableStateOf(false) }
     var modelList by remember { mutableStateOf(emptyList<String>()) }
     var selectedPlatformIndex by remember { mutableIntStateOf(-1) }
-
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorTitle by remember { mutableStateOf("") }
     var errorReason by remember { mutableStateOf("") }
@@ -279,7 +277,7 @@ fun ConfigScreen(
             authConnected = authConnected,
             status = connectionStatuses[index],
             isTesting = testingIndex == index,
-            onBack = { closeEditor() },
+            onBack = ::closeEditor,
             onConfigChange = { updated -> updateConfig(index, updated) },
             onTest = {
                 val testConfig = configs[index]
