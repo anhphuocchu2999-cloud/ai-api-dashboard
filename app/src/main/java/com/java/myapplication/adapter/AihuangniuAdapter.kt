@@ -81,7 +81,6 @@ class AihuangniuAdapter : PlatformAdapter {
             return WidgetData.error(platformName, "Key未配置")
         }
 
-        // API 用量与网页登录完全独立，先读取 API 用量。
         val usageResult = fetchUsageCumulative(rootBase, modelApiKey, modelName)
 
         val profileData = if (backgroundToken.isNotBlank()) {
@@ -165,9 +164,8 @@ class AihuangniuAdapter : PlatformAdapter {
         modelName: String?,
         usage: UsageCumulative?
     ): WidgetData {
-        val primaryMetric = when {
-            usage != null -> WidgetData.DisplayMetric("累计消耗", formatCost(usage.cost))
-            else -> null
+        val primaryMetric = usage?.let {
+            WidgetData.DisplayMetric("累计消耗", formatCost(it.cost))
         }
 
         return WidgetData(
@@ -254,7 +252,7 @@ class AihuangniuAdapter : PlatformAdapter {
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
             parseUsageCumulative(body, modelName)
-                ?.let(UsageFetchResult::Success)
+                ?.let { UsageFetchResult.Success(it) }
                 ?: UsageFetchResult.ModelNotFound
         } catch (_: Exception) {
             UsageFetchResult.Unavailable
@@ -324,9 +322,7 @@ class AihuangniuAdapter : PlatformAdapter {
                 auxiliary.add(WidgetData.DisplayMetric("账户状态", it))
             }
             lastActiveAt.takeIf { it.isNotBlank() }?.let {
-                auxiliary.add(
-                    WidgetData.DisplayMetric("最近活跃", it.take(10))
-                )
+                auxiliary.add(WidgetData.DisplayMetric("最近活跃", it.take(10)))
             }
 
             WidgetData(
