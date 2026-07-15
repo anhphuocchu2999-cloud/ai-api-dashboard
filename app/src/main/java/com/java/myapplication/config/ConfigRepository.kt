@@ -9,14 +9,17 @@ import org.json.JSONObject
  * 唯一配置入口，负责新旧配置兼容。
  *
  * Stage 8A-4：当 ModelInstance 结构有效时，读取结果以 ModelInstanceRepository
- * 为真实来源；旧 Kimi / MiMo / DeepSeek / OpenAI 键仅作为配置页兼容写入来源，
- * 在读取时同步到对应的稳定 instanceId。
+ * 为兼容底座；旧 Kimi / MiMo / DeepSeek / OpenAI 键继续作为固定槽位的直接保存来源。
  *
  * Stage 8B：固定四个视觉窗口允许切换服务。serviceType 优先根据当前 API Base
  * 推断，只有无法识别时才使用历史槽位默认值，因此窗口名称不再强制决定 Adapter。
+ *
+ * 保存规则：
+ * 1. api_configs 与四个固定槽位 JSON 使用同一个 SharedPreferences.Editor 同步 commit；
+ * 2. 配置提交成功后再同步 ModelInstance；
+ * 3. 读取时，刚保存的配置覆盖兼容 ModelInstance，避免旧实例反向覆盖新输入。
  */
 object ConfigRepository {
-
     private const val NEW_CONFIG_KEY = "api_configs"
 
     private val FIXED_SLOT_BINDINGS = linkedMapOf(
@@ -27,21 +30,27 @@ object ConfigRepository {
     )
 
     fun loadAllConfigs(prefs: SharedPreferences): List<ApiAccountConfig> {
+        val savedConfigs = loadLegacySourceConfigs(prefs)
+
         if (ModelInstanceRepository.hasValidInstances(prefs)) {
             val storedInstances = ModelInstanceRepository.loadAllInstances(prefs)
             val synchronizedInstances = synchronizeFixedInstances(
                 instances = storedInstances,
-                sourceConfigs = loadLegacySourceConfigs(prefs)
+                sourceConfigs = savedConfigs
             )
 
             if (synchronizedInstances != storedInstances) {
                 ModelInstanceRepository.saveInstances(prefs, synchronizedInstances)
             }
 
-            return instancesToCompatibilityConfigs(synchronizedInstances)
+            val compatibilityConfigs = instancesToCompatibilityConfigs(synchronizedInstances)
+            return mergeConfigs(
+                fallback = compatibilityConfigs,
+                preferred = savedConfigs
+            )
         }
 
-        return loadLegacySourceConfigs(prefs)
+        return savedConfigs
     }
 
     fun getEnabledConfigs(prefs: SharedPreferences): List<ApiAccountConfig> {
@@ -49,15 +58,23 @@ object ConfigRepository {
     }
 
     fun saveConfigs(prefs: SharedPreferences, configs: List<ApiAccountConfig>) {
+        val normalizedConfigs = normalizeFixedSlotIds(configs)
         val jsonArray = JSONArray()
-        for (config in configs) {
-            jsonArray.put(configToJson(config))
+        normalizedConfigs.forEach { config -> jsonArray.put(configToJson(config)) }
+
+        // 关键配置必须同步提交，避免用户点击返回后进程或生命周期切换导致数据丢失。
+        val editor = prefs.edit().putString(NEW_CONFIG_KEY, jsonArray.toString())
+        normalizedConfigs.forEach { config ->
+            canonicalFixedSlotName(config.id)?.let { slotName ->
+                editor.putString(slotName, legacyConfigToJson(config.copy(id = slotName)))
+            }
         }
-        prefs.edit().putString(NEW_CONFIG_KEY, jsonArray.toString()).apply()
+        val committed = editor.commit()
+        if (!committed) return
 
         if (ModelInstanceRepository.hasValidInstances(prefs)) {
             val storedInstances = ModelInstanceRepository.loadAllInstances(prefs)
-            val synchronizedInstances = synchronizeFixedInstances(storedInstances, configs)
+            val synchronizedInstances = synchronizeFixedInstances(storedInstances, normalizedConfigs)
             if (synchronizedInstances != storedInstances) {
                 ModelInstanceRepository.saveInstances(prefs, synchronizedInstances)
             }
@@ -65,12 +82,15 @@ object ConfigRepository {
     }
 
     fun saveConfig(prefs: SharedPreferences, config: ApiAccountConfig) {
+        val canonicalSlot = canonicalFixedSlotName(config.id)
+        val normalizedConfig = if (canonicalSlot != null) config.copy(id = canonicalSlot) else config
+
         val configs = loadAllConfigs(prefs).toMutableList()
-        val index = configs.indexOfFirst { it.id.equals(config.id, ignoreCase = true) }
+        val index = configs.indexOfFirst { it.id.equals(normalizedConfig.id, ignoreCase = true) }
         if (index >= 0) {
-            configs[index] = config
+            configs[index] = normalizedConfig
         } else {
-            configs.add(config)
+            configs.add(normalizedConfig)
         }
         saveConfigs(prefs, configs)
     }
@@ -90,6 +110,7 @@ object ConfigRepository {
             }
         }
 
+        // 固定槽位直接键最后读取并覆盖同 ID 项，保证返回页面后读取到刚保存的草稿。
         for (slotName in FIXED_SLOT_BINDINGS.keys) {
             val raw = prefs.getString(slotName, null) ?: continue
             val directConfig = parseLegacyConfig(slotName, raw) ?: continue
@@ -101,7 +122,7 @@ object ConfigRepository {
             }
         }
 
-        return configs
+        return normalizeFixedSlotIds(configs)
     }
 
     private fun synchronizeFixedInstances(
@@ -159,9 +180,7 @@ object ConfigRepository {
         )
     }
 
-    /**
-     * API Base 是服务选择的真实来源；历史槽位名只做无法识别时的兼容回退。
-     */
+    /** API Base 是服务选择的真实来源；历史槽位名只做无法识别时的兼容回退。 */
     private fun inferServiceType(slotName: String, apiBase: String): ServiceType {
         return when {
             apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
@@ -191,13 +210,12 @@ object ConfigRepository {
         return try {
             val obj = JSONObject(json)
             val name = obj.optString("name", legacyKey)
-            val model = obj.optString("model", "")
             ApiAccountConfig(
                 id = legacyKey,
                 name = name.ifBlank { legacyKey },
                 apiBase = obj.optString("apiBase", ""),
                 apiKey = obj.optString("apiKey", ""),
-                model = model,
+                model = obj.optString("model", ""),
                 enabled = obj.optBoolean("enabled", true)
             )
         } catch (_: Exception) {
@@ -214,5 +232,35 @@ object ConfigRepository {
             put("model", config.model)
             put("enabled", config.enabled)
         }
+    }
+
+    private fun legacyConfigToJson(config: ApiAccountConfig): String {
+        return JSONObject()
+            .put("name", config.name)
+            .put("apiBase", config.apiBase)
+            .put("apiKey", config.apiKey)
+            .put("model", config.model)
+            .put("enabled", config.enabled)
+            .toString()
+    }
+
+    private fun normalizeFixedSlotIds(configs: List<ApiAccountConfig>): List<ApiAccountConfig> {
+        return configs.map { config ->
+            canonicalFixedSlotName(config.id)?.let { canonical -> config.copy(id = canonical) } ?: config
+        }
+    }
+
+    private fun canonicalFixedSlotName(id: String): String? {
+        return FIXED_SLOT_BINDINGS.keys.firstOrNull { it.equals(id, ignoreCase = true) }
+    }
+
+    private fun mergeConfigs(
+        fallback: List<ApiAccountConfig>,
+        preferred: List<ApiAccountConfig>
+    ): List<ApiAccountConfig> {
+        val merged = linkedMapOf<String, ApiAccountConfig>()
+        fallback.forEach { config -> merged[config.id.lowercase()] = config }
+        preferred.forEach { config -> merged[config.id.lowercase()] = config }
+        return merged.values.toList()
     }
 }
