@@ -182,10 +182,11 @@ fun ConfigScreen(
     val prefs = remember { context.getSharedPreferences("api_config", Context.MODE_PRIVATE) }
     val slots = remember { listOf("Kimi", "MiMo", "DeepSeek", "OpenAI") }
     val scope = rememberCoroutineScope()
+    val initialConfigs = remember { loadPlatformConfigs(prefs, slots) }
 
-    var configs by remember { mutableStateOf(loadPlatformConfigs(prefs, slots)) }
+    var configs by remember { mutableStateOf(initialConfigs) }
     var backgroundAuths by remember {
-        mutableStateOf(slots.map { BackgroundAuthRepository.load(prefs, it) })
+        mutableStateOf(synchronizePlatformAuthorizations(prefs, initialConfigs, slots))
     }
     var connectionStatuses by remember {
         mutableStateOf(List<ConnectionStatus?>(slots.size) { null })
@@ -205,17 +206,14 @@ fun ConfigScreen(
     var showDetail by remember { mutableStateOf(false) }
 
     LaunchedEffect(authRefreshToken) {
-        backgroundAuths = slots.map { BackgroundAuthRepository.load(prefs, it) }
-        configs = loadPlatformConfigs(prefs, slots)
+        val refreshedConfigs = loadPlatformConfigs(prefs, slots)
+        configs = refreshedConfigs
+        backgroundAuths = synchronizePlatformAuthorizations(prefs, refreshedConfigs, slots)
     }
 
     fun updateConfig(index: Int, newConfig: PlatformConfig) {
         configs = configs.toMutableList().apply { this[index] = newConfig }
         savePlatformConfig(prefs, slots[index], newConfig)
-    }
-
-    fun updateAuth(index: Int, newAuth: BackgroundAuthConfig) {
-        backgroundAuths = backgroundAuths.toMutableList().apply { this[index] = newAuth }
     }
 
     fun closeEditor() {
@@ -232,7 +230,6 @@ fun ConfigScreen(
             configs = configs,
             slots = slots,
             backgroundAuths = backgroundAuths,
-            prefs = prefs,
             onToggle = { index, enabled ->
                 updateConfig(index, configs[index].copy(enabled = enabled))
                 refreshWidget(context)
@@ -244,8 +241,7 @@ fun ConfigScreen(
         val slotName = slots[index]
         val config = configs[index]
         val webProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
-        val auth = backgroundAuths[index]
-        val authConnected = isMatchingAuthorization(prefs, slotName, webProfile, auth)
+        val authConnected = isMatchingAuthorization(webProfile, backgroundAuths[index])
 
         SlotEditorScreen(
             modifier = modifier,
@@ -283,6 +279,7 @@ fun ConfigScreen(
                                     connectionStatuses = connectionStatuses.toMutableList().apply {
                                         this[index] = ConnectionStatus.Success(selectedModel)
                                     }
+                                    backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
                                     refreshWidget(context)
                                 } else {
                                     modelList = result.models
@@ -316,15 +313,15 @@ fun ConfigScreen(
                         WebAuthActivity.createIntent(
                             context = context,
                             profileId = profile.profileId,
-                            targetInstanceKey = slotName
+                            targetInstanceKey = profile.instanceKey
                         )
                     )
                 }
             },
             onDisconnect = {
-                if (BackgroundAuthRepository.clear(prefs, slotName)) {
-                    prefs.edit().remove(webAuthProfileKey(slotName)).apply()
-                    updateAuth(index, BackgroundAuthConfig())
+                webProfile?.let { profile ->
+                    clearPlatformAuthorization(prefs, profile, configs, slots)
+                    backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
                     Toast.makeText(context, "平台账户已断开", Toast.LENGTH_SHORT).show()
                     refreshWidget(context)
                 }
@@ -347,6 +344,7 @@ fun ConfigScreen(
                                     this[index] = ConnectionStatus.Success(modelId)
                                 }
                                 showModelDialog = false
+                                backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
                                 refreshWidget(context)
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -400,7 +398,6 @@ private fun SlotListScreen(
     configs: List<PlatformConfig>,
     slots: List<String>,
     backgroundAuths: List<BackgroundAuthConfig>,
-    prefs: android.content.SharedPreferences,
     onToggle: (Int, Boolean) -> Unit,
     onEdit: (Int) -> Unit
 ) {
@@ -420,14 +417,8 @@ private fun SlotListScreen(
         )
 
         configs.forEachIndexed { index, config ->
-            val slotName = slots[index]
-            val webProfile = WebAuthProfileRegistry.findFor(slotName, config.apiBase)
-            val authConnected = isMatchingAuthorization(
-                prefs = prefs,
-                slotName = slotName,
-                profile = webProfile,
-                auth = backgroundAuths[index]
-            )
+            val profile = WebAuthProfileRegistry.findFor(slots[index], config.apiBase)
+            val authConnected = isMatchingAuthorization(profile, backgroundAuths[index])
 
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -581,16 +572,16 @@ private fun SlotEditorScreen(
                 if (webProfile == null) {
                     Text(
                         text = if (config.apiBase.isBlank()) {
-                            "填写 API 地址后，系统会自动判断是否支持平台登录。"
+                            "填写 API 地址后，系统会自动匹配登录入口。"
                         } else {
-                            "当前 API 地址暂未匹配到可登录的平台，API 连接仍可正常使用。"
+                            "当前服务暂不支持平台账户登录，API 连接仍可正常使用。"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 14.dp)
                     )
                 } else {
                     SimpleStatusCard(
-                        title = if (authConnected) "${webProfile.displayName} 账户已连接" else "${webProfile.displayName} 账户未连接",
+                        title = if (authConnected) "平台账户已连接" else "平台账户未连接",
                         body = if (authConnected) {
                             "正在自动补充：${webDataSummary(webProfile.profileId)}"
                         } else {
@@ -598,21 +589,28 @@ private fun SlotEditorScreen(
                         },
                         isError = false
                     )
+                }
 
-                    Button(
-                        onClick = onConnect,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-                    ) {
-                        Text(if (authConnected) "重新登录平台账户" else "登录平台账户")
-                    }
-
-                    if (authConnected) {
-                        TextButton(
-                            onClick = onDisconnect,
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                        ) {
-                            Text("断开平台账户")
+                Button(
+                    onClick = onConnect,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    enabled = webProfile != null
+                ) {
+                    Text(
+                        when {
+                            webProfile == null -> "暂不支持平台账户登录"
+                            authConnected -> "重新登录平台账户"
+                            else -> "登录平台账户"
                         }
+                    )
+                }
+
+                if (authConnected) {
+                    TextButton(
+                        onClick = onDisconnect,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        Text("断开平台账户")
                     }
                 }
             }
@@ -659,9 +657,10 @@ private fun SimpleStatusCard(title: String, body: String, isError: Boolean) {
 
 private fun slotTitle(config: PlatformConfig): String {
     return config.model.ifBlank {
-        config.name.takeUnless { it.equals("Kimi", true) || it.equals("MiMo", true) || it.equals("DeepSeek", true) || it.equals("OpenAI", true) }
-            .orEmpty()
-            .ifBlank { "未配置" }
+        config.name.takeUnless {
+            it.equals("Kimi", true) || it.equals("MiMo", true) ||
+                it.equals("DeepSeek", true) || it.equals("OpenAI", true)
+        }.orEmpty().ifBlank { "未配置" }
     }
 }
 
@@ -690,17 +689,77 @@ private fun webDataSummary(profileId: String): String {
 }
 
 private fun isMatchingAuthorization(
-    prefs: android.content.SharedPreferences,
-    slotName: String,
     profile: WebAuthProfile?,
     auth: BackgroundAuthConfig
 ): Boolean {
-    if (profile == null || !auth.enabled || auth.authType != profile.authType || auth.authValue.isBlank()) {
-        return false
+    return profile != null &&
+        auth.enabled &&
+        auth.authType == profile.authType &&
+        auth.authValue.isNotBlank()
+}
+
+/**
+ * 平台账户凭据属于平台，而不是某个历史槽位。
+ * 读取时先查平台公共 Key；若旧凭据只存在于某个槽位，则复制到平台公共 Key，
+ * 再同步到所有当前绑定该平台的槽位，兼容 Widget 仍按固定槽位读取的逻辑。
+ */
+private fun synchronizePlatformAuthorizations(
+    prefs: android.content.SharedPreferences,
+    configs: List<PlatformConfig>,
+    slots: List<String>
+): List<BackgroundAuthConfig> {
+    val profiles = slots.indices.map { index ->
+        WebAuthProfileRegistry.findFor(slots[index], configs[index].apiBase)
+    }
+    val sharedByProfile = mutableMapOf<String, BackgroundAuthConfig>()
+
+    profiles.filterNotNull().distinctBy { it.profileId }.forEach { profile ->
+        val shared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+        if (isMatchingAuthorization(profile, shared)) {
+            sharedByProfile[profile.profileId] = shared
+        }
     }
 
-    val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
-    return savedProfileId == null || savedProfileId == profile.profileId
+    profiles.forEachIndexed { index, profile ->
+        if (profile == null || sharedByProfile.containsKey(profile.profileId)) return@forEachIndexed
+        val slotName = slots[index]
+        val local = BackgroundAuthRepository.load(prefs, slotName)
+        val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
+        val belongsToProfile = savedProfileId == profile.profileId ||
+            (savedProfileId == null && slotName.equals(profile.instanceKey, ignoreCase = true))
+
+        if (belongsToProfile && isMatchingAuthorization(profile, local)) {
+            BackgroundAuthRepository.save(prefs, profile.instanceKey, local)
+            sharedByProfile[profile.profileId] = local
+        }
+    }
+
+    return profiles.mapIndexed { index, profile ->
+        if (profile == null) return@mapIndexed BackgroundAuthConfig()
+        val shared = sharedByProfile[profile.profileId] ?: return@mapIndexed BackgroundAuthConfig()
+        val slotName = slots[index]
+        BackgroundAuthRepository.save(prefs, slotName, shared)
+        prefs.edit().putString(webAuthProfileKey(slotName), profile.profileId).commit()
+        shared
+    }
+}
+
+private fun clearPlatformAuthorization(
+    prefs: android.content.SharedPreferences,
+    profile: WebAuthProfile,
+    configs: List<PlatformConfig>,
+    slots: List<String>
+) {
+    BackgroundAuthRepository.clear(prefs, profile.instanceKey)
+
+    slots.forEachIndexed { index, slotName ->
+        val boundProfile = WebAuthProfileRegistry.findFor(slotName, configs[index].apiBase)
+        val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
+        if (boundProfile?.profileId == profile.profileId || savedProfileId == profile.profileId) {
+            BackgroundAuthRepository.clear(prefs, slotName)
+            prefs.edit().remove(webAuthProfileKey(slotName)).commit()
+        }
+    }
 }
 
 private fun webAuthProfileKey(slotName: String): String {
