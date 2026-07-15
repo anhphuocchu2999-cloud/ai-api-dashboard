@@ -235,14 +235,32 @@ fun ConfigScreen(
         val refreshedConfigs = loadPlatformConfigs(prefs, slots)
         configs = refreshedConfigs
         backgroundAuths = synchronizePlatformAuthorizations(prefs, refreshedConfigs, slots)
+        // Activity 恢复时不保留旧的“检测成功”卡片，避免配置为空仍显示成功。
+        connectionStatuses = List(slots.size) { null }
     }
 
-    fun updateConfig(index: Int, newConfig: PlatformConfig) {
-        configs = configs.toMutableList().apply { this[index] = newConfig }
-        savePlatformConfig(prefs, slots[index], newConfig)
+    fun replaceConfig(
+        index: Int,
+        newConfig: PlatformConfig,
+        persist: Boolean,
+        clearStatus: Boolean = true
+    ): List<PlatformConfig> {
+        val updated = configs.toMutableList().apply { this[index] = newConfig }
+        configs = updated
+        if (clearStatus) {
+            connectionStatuses = connectionStatuses.toMutableList().apply { this[index] = null }
+        }
+        if (persist) {
+            savePlatformConfig(prefs, slots[index], newConfig)
+        }
+        return updated
     }
 
     fun closeEditor() {
+        val index = editingIndex
+        if (index in slots.indices) {
+            savePlatformConfig(prefs, slots[index], configs[index])
+        }
         editingIndex = -1
     }
 
@@ -257,7 +275,7 @@ fun ConfigScreen(
             slots = slots,
             backgroundAuths = backgroundAuths,
             onToggle = { index, enabled ->
-                updateConfig(index, configs[index].copy(enabled = enabled))
+                replaceConfig(index, configs[index].copy(enabled = enabled), persist = true)
                 refreshWidget(context)
             },
             onEdit = { index -> editingIndex = index }
@@ -271,6 +289,7 @@ fun ConfigScreen(
 
         SlotEditorScreen(
             modifier = modifier,
+            slotId = slotName,
             slotNumber = index + 1,
             config = config,
             webProfile = webProfile,
@@ -278,7 +297,10 @@ fun ConfigScreen(
             status = connectionStatuses[index],
             isTesting = testingIndex == index,
             onBack = ::closeEditor,
-            onConfigChange = { updated -> updateConfig(index, updated) },
+            onConfigChange = { updated ->
+                // 输入期间只更新内存，不在每个字符上同步写磁盘和实例仓库。
+                replaceConfig(index, updated, persist = false)
+            },
             onTest = {
                 val testConfig = configs[index]
                 if (testConfig.apiBase.isBlank() || testConfig.apiKey.isBlank()) {
@@ -292,22 +314,26 @@ fun ConfigScreen(
                 } else {
                     savePlatformConfig(prefs, slotName, testConfig)
                     testingIndex = index
-                    connectionStatuses = connectionStatuses.toMutableList().apply {
-                        this[index] = null
-                    }
+                    connectionStatuses = connectionStatuses.toMutableList().apply { this[index] = null }
                     scope.launch {
                         when (val result = fetchModels(testConfig.apiBase, testConfig.apiKey)) {
                             is TestResult.Success -> {
                                 testingIndex = -1
                                 if (result.models.size == 1) {
                                     val selectedModel = result.models.first()
-                                    updateConfig(index, testConfig.copy(model = selectedModel))
+                                    val selectedConfig = testConfig.copy(model = selectedModel)
+                                    val updatedConfigs = replaceConfig(
+                                        index,
+                                        selectedConfig,
+                                        persist = true,
+                                        clearStatus = false
+                                    )
                                     connectionStatuses = connectionStatuses.toMutableList().apply {
                                         this[index] = ConnectionStatus.Success(selectedModel)
                                     }
                                     backgroundAuths = synchronizePlatformAuthorizations(
                                         prefs,
-                                        configs,
+                                        updatedConfigs,
                                         slots
                                     )
                                     refreshWidget(context)
@@ -340,6 +366,8 @@ fun ConfigScreen(
             },
             onConnect = {
                 webProfile?.let { profile ->
+                    // 先保存当前输入，避免网页登录返回 onResume 时被旧配置覆盖。
+                    savePlatformConfig(prefs, slotName, configs[index])
                     context.startActivity(
                         WebAuthActivity.createIntent(
                             context = context,
@@ -370,14 +398,20 @@ fun ConfigScreen(
                         TextButton(
                             onClick = {
                                 val index = selectedPlatformIndex
-                                updateConfig(index, configs[index].copy(model = modelId))
+                                val selectedConfig = configs[index].copy(model = modelId)
+                                val updatedConfigs = replaceConfig(
+                                    index,
+                                    selectedConfig,
+                                    persist = true,
+                                    clearStatus = false
+                                )
                                 connectionStatuses = connectionStatuses.toMutableList().apply {
                                     this[index] = ConnectionStatus.Success(modelId)
                                 }
                                 showModelDialog = false
                                 backgroundAuths = synchronizePlatformAuthorizations(
                                     prefs,
-                                    configs,
+                                    updatedConfigs,
                                     slots
                                 )
                                 refreshWidget(context)
@@ -514,6 +548,7 @@ private fun SlotListScreen(
 @Composable
 private fun SlotEditorScreen(
     modifier: Modifier,
+    slotId: String,
     slotNumber: Int,
     config: PlatformConfig,
     webProfile: WebAuthProfile?,
@@ -551,7 +586,7 @@ private fun SlotEditorScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("API 连接", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "填写 API 地址和 API Key，系统会自动查找模型。",
+                    text = "填写 API 地址和 API Key，系统会自动查找模型。输入完成前不会反复写入配置。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -588,11 +623,15 @@ private fun SlotEditorScreen(
 
                 status?.let {
                     when (it) {
-                        is ConnectionStatus.Success -> SimpleStatusCard(
-                            title = "连接成功",
-                            body = "已选择 ${it.model}",
-                            isError = false
-                        )
+                        is ConnectionStatus.Success -> {
+                            if (apiConnected && it.model == config.model) {
+                                SimpleStatusCard(
+                                    title = "连接成功",
+                                    body = "已选择 ${it.model}",
+                                    isError = false
+                                )
+                            }
+                        }
 
                         is ConnectionStatus.Error -> SimpleStatusCard(
                             title = it.title,
@@ -615,7 +654,10 @@ private fun SlotEditorScreen(
         }
 
         SlotDataCapabilityCard(
+            slotId = slotId,
             apiBase = config.apiBase,
+            apiKey = config.apiKey,
+            modelName = config.model,
             apiConnected = apiConnected,
             authConnected = authConnected,
             webProfile = webProfile
@@ -630,7 +672,7 @@ private fun SlotEditorScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("平台账户（可选）", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "登录后会解锁上方标注为“云端账户”的余额、消耗和用量数据，API 连接不会受到影响。",
+                    text = "MiMo 的余额、金额和用量来自平台账户，不是模型 API；登录后会在上方直接读取。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -766,7 +808,7 @@ private fun isConfigured(config: PlatformConfig, authConnected: Boolean): Boolea
 
 private fun webDataSummary(profileId: String): String {
     return when (profileId) {
-        "mimo" -> "余额构成、累计金额、请求、Token、限流信息"
+        "mimo" -> "余额构成、本月与累计金额、请求、Token、限流信息"
         "deepseek" -> "本月与累计消耗、本月 Token、预计可用 Token"
         "aihuangniu" -> "余额、累计充值、并发、账户状态和最近活跃"
         else -> "平台实际提供的账户数据"
