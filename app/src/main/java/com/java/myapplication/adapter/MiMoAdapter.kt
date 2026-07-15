@@ -15,12 +15,8 @@ import org.json.JSONObject
 /**
  * MiMo 开放平台适配器。
  *
- * 已验证网页 Cookie 接口：
- * - GET /api/v1/balance：余额、赠送余额、现金余额等；
- * - GET /api/v1/usage：Token、消费、请求次数和账户限流摘要。
- *
- * Billing 是网页账户数据来源，不是第三份凭据；两个接口均复用网页登录 Cookie。
- * 服务端累计值交给 RecentUsageTracker 在本机计算近 1/6/12/24 小时真实消耗。
+ * 账户余额与用量均来自网页登录 Cookie；模型 API Key 只用于模型连接，绝不冒充 Cookie。
+ * 服务端累计请求、Token、金额交给 RecentUsageTracker 计算近期真实消耗。
  */
 class MiMoAdapter : PlatformAdapter {
 
@@ -48,34 +44,30 @@ class MiMoAdapter : PlatformAdapter {
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {
-        val cookie = if (
-            request.backgroundAuthType == BackgroundAuthType.COOKIE &&
-            request.backgroundCredential.isNotBlank()
+        if (
+            request.backgroundAuthType != BackgroundAuthType.COOKIE ||
+            request.backgroundCredential.isBlank()
         ) {
-            request.backgroundCredential
-        } else {
-            // 兼容历史版本：旧配置曾把 Cookie 放在 apiKey 字段。
-            request.modelApiKey
+            return WidgetData.error(platformName, "请先登录 MiMo 平台账户")
         }
 
+        val cookie = request.backgroundCredential.trim()
+        val accountIdentity = extractCookieValue(cookie, "userId") ?: cookie
         val usageIdentity = RecentUsageTracker.identity(
             provider = platformName,
-            apiBase = request.apiBase,
-            apiKey = request.modelApiKey,
-            modelName = request.modelName
+            apiBase = PLATFORM_BASE,
+            apiKey = accountIdentity,
+            modelName = null
         )
 
         return fetchAccountData(cookie, request.modelName, usageIdentity)
     }
 
+    /**
+     * 旧入口不再把 apiKey 当 Cookie，避免把模型密钥发往账户接口。
+     */
     override fun fetchData(apiBase: String, apiKey: String, modelName: String?): WidgetData {
-        val usageIdentity = RecentUsageTracker.identity(
-            provider = platformName,
-            apiBase = apiBase,
-            apiKey = apiKey,
-            modelName = modelName
-        )
-        return fetchAccountData(apiKey, modelName, usageIdentity)
+        return WidgetData.error(platformName, "请先登录 MiMo 平台账户")
     }
 
     private fun fetchAccountData(
@@ -83,15 +75,10 @@ class MiMoAdapter : PlatformAdapter {
         modelName: String?,
         usageIdentity: String
     ): WidgetData {
-        val cleanCookie = cookie.trim()
-        if (cleanCookie.isBlank()) {
-            return WidgetData.error(platformName, "网页登录未连接")
-        }
-
-        val balanceResult = fetchJson(BALANCE_URL, cleanCookie)
+        val balanceResult = fetchJson(BALANCE_URL, cookie)
         val balanceData = when (balanceResult) {
             is HttpJsonResult.Success -> parseBalanceResponse(balanceResult.body, modelName)
-            HttpJsonResult.AuthExpired -> return WidgetData.error(platformName, "网页登录需重连")
+            HttpJsonResult.AuthExpired -> return WidgetData.error(platformName, "MiMo 登录已失效，请重新登录")
             HttpJsonResult.RateLimited -> return WidgetData.error(platformName, "请求过于频繁")
             HttpJsonResult.ServerError -> return WidgetData.error(platformName, "服务器错误")
             HttpJsonResult.NetworkError -> return WidgetData.error(platformName, "网络错误")
@@ -100,22 +87,21 @@ class MiMoAdapter : PlatformAdapter {
 
         if (!balanceData.isSuccess) return balanceData
 
-        // 同一 Host 串行请求并保持最小间隔，避免对平台造成突发请求。
         try {
             Thread.sleep(HOST_REQUEST_INTERVAL_MS)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            return balanceData
+            return balanceData.copy(statusText = "余额已同步，用量读取被中断")
         }
 
-        return when (val usageResult = fetchJson(USAGE_URL, cleanCookie)) {
+        return when (val usageResult = fetchJson(USAGE_URL, cookie)) {
             is HttpJsonResult.Success -> {
                 val usageSummary = parseUsageResponse(
                     response = usageResult.body,
-                    currencySymbol = balanceData.displayLabel.orEmpty()
+                    fallbackCurrency = balanceData.displayLabel.orEmpty()
                 )
                 if (usageSummary == null) {
-                    balanceData.copy(statusText = "余额已同步")
+                    balanceData.copy(statusText = "余额已同步，用量接口本次未返回可识别字段")
                 } else {
                     val merged = mergeUsageSummary(balanceData, usageSummary)
                     RecentUsageTracker.apply(
@@ -131,11 +117,11 @@ class MiMoAdapter : PlatformAdapter {
                     )
                 }
             }
-            HttpJsonResult.AuthExpired -> balanceData.copy(statusText = "网页登录需重连")
-            HttpJsonResult.RateLimited -> balanceData.copy(statusText = "用量请求过于频繁")
-            HttpJsonResult.ServerError,
-            HttpJsonResult.NetworkError,
-            HttpJsonResult.Unavailable -> balanceData.copy(statusText = "余额已同步")
+            HttpJsonResult.AuthExpired -> balanceData.copy(statusText = "余额已同步，MiMo 登录已失效")
+            HttpJsonResult.RateLimited -> balanceData.copy(statusText = "余额已同步，用量请求过于频繁")
+            HttpJsonResult.ServerError -> balanceData.copy(statusText = "余额已同步，用量服务器错误")
+            HttpJsonResult.NetworkError -> balanceData.copy(statusText = "余额已同步，用量网络错误")
+            HttpJsonResult.Unavailable -> balanceData.copy(statusText = "余额已同步，用量接口本次未返回")
         }
     }
 
@@ -145,10 +131,11 @@ class MiMoAdapter : PlatformAdapter {
             conn.requestMethod = "GET"
             conn.setRequestProperty("Cookie", cookie)
             conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Referer", "https://platform.xiaomimimo.com/")
+            conn.setRequestProperty("Referer", "$PLATFORM_BASE/")
+            conn.setRequestProperty("Origin", PLATFORM_BASE)
             conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
             val responseCode = conn.responseCode
             val responseBody = if (responseCode in 200..299) {
@@ -184,16 +171,21 @@ class MiMoAdapter : PlatformAdapter {
             val data = root.optJSONObject("data")
                 ?: return WidgetData.error(platformName, "余额解析失败")
 
-            val balance = decimal(data, "balance")
+            val balance = decimalAny(data, "balance")
                 ?: return WidgetData.error(platformName, "余额解析失败")
-            val frozenBalance = decimal(data, "frozenBalance")
-            val remainingOverdraftLimit = decimal(data, "remainingOverdraftLimit")
-            val giftBalance = decimal(data, "giftBalance") ?: BigDecimal.ZERO
-            val cashBalance = decimal(data, "cashBalance")
-            val currency = data.optString("currency", "CNY")
+            val frozenBalance = decimalAny(data, "frozenBalance", "frozen_balance")
+            val overdraftLimit = decimalAny(data, "overdraftLimit", "overdraft_limit")
+            val remainingOverdraftLimit = decimalAny(
+                data,
+                "remainingOverdraftLimit",
+                "remaining_overdraft_limit"
+            )
+            val giftBalance = decimalAny(data, "giftBalance", "gift_balance")
+            val cashBalance = decimalAny(data, "cashBalance", "cash_balance")
+            val currency = stringAny(data, "currency").ifBlank { "CNY" }
             val symbol = currencySymbol(currency)
 
-            val percentage = if (balance > BigDecimal.ZERO) {
+            val percentage = if (giftBalance != null && balance > BigDecimal.ZERO) {
                 giftBalance
                     .multiply(BigDecimal("100"))
                     .divide(balance, 0, RoundingMode.HALF_UP)
@@ -204,22 +196,29 @@ class MiMoAdapter : PlatformAdapter {
             }
 
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            auxiliaryMetrics.add(
-                WidgetData.DisplayMetric("赠送余额", "$symbol${formatMoney(giftBalance)}")
-            )
-            cashBalance?.takeIf { it > BigDecimal.ZERO }?.let {
+            giftBalance?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("赠送余额", "$symbol${formatMoney(it)}")
+                )
+            }
+            cashBalance?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("现金余额", "$symbol${formatMoney(it)}")
                 )
             }
-            frozenBalance?.takeIf { it > BigDecimal.ZERO }?.let {
+            frozenBalance?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("冻结余额", "$symbol${formatMoney(it)}")
                 )
             }
-            remainingOverdraftLimit?.takeIf { it > BigDecimal.ZERO }?.let {
+            remainingOverdraftLimit?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("可用透支", "$symbol${formatMoney(it)}")
+                )
+            }
+            overdraftLimit?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("透支额度", "$symbol${formatMoney(it)}")
                 )
             }
 
@@ -232,9 +231,9 @@ class MiMoAdapter : PlatformAdapter {
                 ),
                 usageMetrics = emptyList(),
                 percentage = percentage,
-                percentageLabel = "赠送占比",
+                percentageLabel = percentage?.let { "赠送占比" },
                 auxiliaryMetrics = auxiliaryMetrics,
-                statusText = "正常",
+                statusText = "余额已同步",
                 isSuccess = true,
                 displayLabel = symbol,
                 total = balance.toDouble(),
@@ -250,57 +249,121 @@ class MiMoAdapter : PlatformAdapter {
 
     private fun parseUsageResponse(
         response: String,
-        currencySymbol: String
+        fallbackCurrency: String
     ): UsageSummary? {
         return try {
             val root = JSONObject(response)
             val data = root.optJSONObject("data") ?: return null
             val tokenUsage = data.optJSONObject("tokenUsage")
+                ?: data.optJSONObject("token_usage")
             val costUsage = data.optJSONObject("costUsage")
+                ?: data.optJSONObject("cost_usage")
             val pluginUsage = data.optJSONObject("pluginUsage")
+                ?: data.optJSONObject("plugin_usage")
             val rateLimit = data.optJSONObject("accountRateLimit")
-            val symbol = currencySymbol.ifBlank { "¥" }
+                ?: data.optJSONObject("account_rate_limit")
 
-            val totalRequests = longValue(pluginUsage, "totalRequestCount")
-            val totalTokens = longValue(tokenUsage, "totalToken")
-            val totalCost = decimal(costUsage, "totalCost")
+            val currencyRaw = stringAny(costUsage, "currency")
+                .ifBlank { stringAny(data, "currency") }
+                .ifBlank { fallbackCurrency }
+                .ifBlank { "CNY" }
+            val symbol = currencySymbol(currencyRaw)
 
-            // 动态位②只放账户资源和诊断价值较高的数据，不重复近期消耗。
+            val currentMonthCost = decimalAny(
+                costUsage,
+                "currentMonthCost",
+                "monthlyCost",
+                "monthCost",
+                "current_month_cost"
+            )
+            val totalCost = decimalAny(costUsage, "totalCost", "total_cost")
+
+            val inputTokens = longAny(tokenUsage, "inputToken", "inputTokens", "input_token")
+            val outputTokens = longAny(tokenUsage, "outputToken", "outputTokens", "output_token")
+            val cacheTokens = longAny(tokenUsage, "cacheToken", "cacheTokens", "cache_token")
+            val totalTokens = longAny(tokenUsage, "totalToken", "totalTokens", "total_token")
+            val totalRequests = longAny(
+                pluginUsage,
+                "totalRequestCount",
+                "requestCount",
+                "total_requests"
+            )
+            val webSearchRequests = longAny(
+                pluginUsage,
+                "webSearchRequestCount",
+                "webSearchCount",
+                "web_search_request_count"
+            )
+
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            longValue(tokenUsage, "cacheToken")?.let {
+            currentMonthCost?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("本月消耗", "$symbol${formatMoney(it)}")
+                )
+            }
+            totalCost?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("累计消耗", "$symbol${formatMoney(it)}")
+                )
+            }
+            totalRequests?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("累计请求", "${formatCount(it)}次")
+                )
+            }
+            totalTokens?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("累计 Token", formatCount(it))
+                )
+            }
+            inputTokens?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("输入 Token", formatCount(it))
+                )
+            }
+            outputTokens?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("输出 Token", formatCount(it))
+                )
+            }
+            cacheTokens?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("缓存 Token", formatCount(it))
                 )
             }
-            longValue(pluginUsage, "webSearchRequestCount")?.let {
+            webSearchRequests?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("Web 搜索", "${formatCount(it)}次")
                 )
             }
-            longValue(rateLimit, "rpm")?.let {
+            longAny(rateLimit, "rpm")?.let {
                 auxiliaryMetrics.add(WidgetData.DisplayMetric("RPM 上限", formatCount(it)))
             }
-            longValue(rateLimit, "tpm")?.let {
+            longAny(rateLimit, "tpm")?.let {
                 auxiliaryMetrics.add(WidgetData.DisplayMetric("TPM 上限", formatCount(it)))
             }
-            longValue(rateLimit, "queryTpm")?.let {
+            longAny(rateLimit, "queryTpm", "query_tpm")?.let {
                 auxiliaryMetrics.add(WidgetData.DisplayMetric("查询 TPM", formatCount(it)))
             }
-            longValue(rateLimit, "concurrency")?.let {
+            longAny(rateLimit, "concurrency")?.let {
                 auxiliaryMetrics.add(WidgetData.DisplayMetric("并发上限", formatCount(it)))
             }
 
-            if (totalRequests == null && totalTokens == null && totalCost == null &&
+            if (
+                totalRequests == null &&
+                totalTokens == null &&
+                totalCost == null &&
+                currentMonthCost == null &&
                 auxiliaryMetrics.isEmpty()
             ) {
                 null
             } else {
                 UsageSummary(
-                    auxiliaryMetrics = auxiliaryMetrics,
+                    auxiliaryMetrics = auxiliaryMetrics.distinctBy { "${it.label}|${it.value}" },
                     totalRequests = totalRequests,
                     totalTokens = totalTokens,
                     totalCost = totalCost,
-                    currency = symbol
+                    currency = currencyRaw
                 )
             }
         } catch (_: Exception) {
@@ -312,31 +375,55 @@ class MiMoAdapter : PlatformAdapter {
         balanceData: WidgetData,
         summary: UsageSummary
     ): WidgetData {
-        val auxiliaryMetrics = (balanceData.auxiliaryMetrics + summary.auxiliaryMetrics)
-            .distinctBy { "${it.label}|${it.value}" }
-
         return balanceData.copy(
             usageMetrics = emptyList(),
-            auxiliaryMetrics = auxiliaryMetrics,
-            statusText = "网页账单已同步"
+            auxiliaryMetrics = (balanceData.auxiliaryMetrics + summary.auxiliaryMetrics)
+                .distinctBy { "${it.label}|${it.value}" },
+            statusText = "MiMo 余额和用量已同步"
         )
     }
 
-    private fun decimal(obj: JSONObject?, key: String): BigDecimal? {
-        if (obj == null || !obj.has(key) || obj.isNull(key)) return null
-        return obj.opt(key)?.toString()?.toBigDecimalOrNull()
+    private fun extractCookieValue(cookie: String, name: String): String? {
+        return cookie.split(';')
+            .asSequence()
+            .map { it.trim() }
+            .mapNotNull { part ->
+                val separator = part.indexOf('=')
+                if (separator <= 0) null
+                else part.substring(0, separator).trim() to part.substring(separator + 1).trim()
+            }
+            .firstOrNull { (key, value) -> key == name && value.isNotBlank() }
+            ?.second
     }
 
-    private fun longValue(obj: JSONObject?, key: String): Long? {
-        if (obj == null || !obj.has(key) || obj.isNull(key)) return null
-        return obj.opt(key)?.toString()?.toBigDecimalOrNull()?.toLong()
+    private fun decimalAny(obj: JSONObject?, vararg keys: String): BigDecimal? {
+        if (obj == null) return null
+        for (key in keys) {
+            if (!obj.has(key) || obj.isNull(key)) continue
+            obj.opt(key)?.toString()?.toBigDecimalOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun longAny(obj: JSONObject?, vararg keys: String): Long? {
+        return decimalAny(obj, *keys)?.toLong()
+    }
+
+    private fun stringAny(obj: JSONObject?, vararg keys: String): String {
+        if (obj == null) return ""
+        for (key in keys) {
+            if (!obj.has(key) || obj.isNull(key)) continue
+            val value = obj.optString(key, "").trim()
+            if (value.isNotBlank()) return value
+        }
+        return ""
     }
 
     private fun currencySymbol(currency: String): String {
-        return when (currency.uppercase()) {
-            "CNY" -> "¥"
-            "USD" -> "$"
-            else -> currency.uppercase().takeIf { it.isNotBlank() }?.plus(" ") ?: ""
+        return when (currency.trim().uppercase()) {
+            "CNY", "RMB", "¥" -> "¥"
+            "USD", "$" -> "$"
+            else -> currency.trim().takeIf { it.isNotBlank() }?.plus(" ") ?: ""
         }
     }
 
@@ -352,14 +439,14 @@ class MiMoAdapter : PlatformAdapter {
     private fun formatCount(value: Long): String {
         val absolute = kotlin.math.abs(value.toDouble())
         return when {
-            absolute >= 1_000_000_000 -> formatCompact(value, 1_000_000_000.0, "B")
-            absolute >= 1_000_000 -> formatCompact(value, 1_000_000.0, "M")
-            absolute >= 1_000 -> formatCompact(value, 1_000.0, "K")
+            absolute >= 1_000_000_000 -> compact(value, 1_000_000_000.0, "B")
+            absolute >= 1_000_000 -> compact(value, 1_000_000.0, "M")
+            absolute >= 1_000 -> compact(value, 1_000.0, "K")
             else -> value.toString()
         }
     }
 
-    private fun formatCompact(value: Long, divisor: Double, suffix: String): String {
+    private fun compact(value: Long, divisor: Double, suffix: String): String {
         val compact = BigDecimal.valueOf(value / divisor)
             .setScale(2, RoundingMode.HALF_UP)
             .stripTrailingZeros()
@@ -384,10 +471,9 @@ class MiMoAdapter : PlatformAdapter {
     }
 
     companion object {
-        private const val BALANCE_URL =
-            "https://platform.xiaomimimo.com/api/v1/balance"
-        private const val USAGE_URL =
-            "https://platform.xiaomimimo.com/api/v1/usage"
+        private const val PLATFORM_BASE = "https://platform.xiaomimimo.com"
+        private const val BALANCE_URL = "$PLATFORM_BASE/api/v1/balance"
+        private const val USAGE_URL = "$PLATFORM_BASE/api/v1/usage"
         private const val HOST_REQUEST_INTERVAL_MS = 500L
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36"
