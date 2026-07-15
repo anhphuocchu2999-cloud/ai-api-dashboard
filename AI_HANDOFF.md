@@ -7,7 +7,7 @@
 `Stage 8B-R：DeepSeek 平台账户登录闭环修复`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
-- 登录检测提交：`c5722dca470575f04f70e7e5e79fc1e4092cdbd9`
+- 当前业务提交：`a932d71bbcfb7d882f949f59a4e8236a038196ac`
 - DeepSeek 数据适配提交：`c11f880f4a952bd6a5888e641303831e56f89bbf`
 - 当前状态：云端代码已推送，尚未声称编译、安装或真机验收成功
 - 下一步：OperitAI 只拉取、编译一次、覆盖安装一次并启动
@@ -23,39 +23,41 @@
 
 用户不选择服务商或技术协议。系统只根据 API 地址自动匹配网页登录入口。
 
-## 本轮根因
+## 本轮确认的根因
 
-上一版先请求 `get_user_summary` 再判断登录，而且在读取到 Cookie 前就阻断验证。DeepSeek 的登录会话可能依赖 HttpOnly Cookie 与网页返回的临时访问 Token，导致用户已经登录，App 仍无法保存授权。
+连续两版由 App 主动构造 `users/current` 或 `get_user_summary` 请求，真机均未识别已经登录的 DeepSeek。原因是网页自己的请求可能携带额外状态或请求头，App 主动请求无法完整复制。
+
+此前“网页数据摸排”已经在同一台真机成功捕获 DeepSeek 页面自己发出的 `users/current`、`get_user_summary` 等请求，因此本轮不再猜请求格式，直接复用这条已经验证过的监听页面网络请求方案。
 
 ## 本轮修复
 
-- DeepSeek 登录检测改为直接调用当前账户接口 `users/current`；
-- 验证在同一个已登录 WebView 会话内执行；
-- 不再要求 Android 先读到 Cookie 才开始验证；
-- 每秒自动重试，并设置验证超时后继续下一轮；
-- 登录有效时保存内部凭据包：Cookie（能读取时）和临时访问 Token；
-- 凭据只写入授权存储，不显示、不写日志；
-- DeepSeek Adapter 兼容旧纯 Cookie 凭据和新的内部凭据包；
-- Widget 刷新时优先用 Cookie 获取新的临时 Token，再读取账户汇总；
-- 登录成功后自动关闭登录页，配置页由平台公共授权键同步为“已连接”；
-- 不再显示“未检测到登录状态，已取消授权”的假提示。
+- 在 DeepSeek 登录页早期、重复注入 fetch/XHR 观察器；
+- 只观察 DeepSeek 页面自己发出的账户接口响应，不再由 App 猜测并主动拼请求；
+- 捕获 `users/current` 成功响应后确认账户已登录，并取得页面实际使用的临时访问 Token；
+- 捕获 `get_user_summary` 成功响应时也可完成登录确认；
+- 已经登录后直接进入用量页时，同一 WebView 标签页只自动刷新一次，让网页在观察器安装后重新请求账户数据；
+- 成功后保存 Cookie（能读取时）和临时访问 Token 的内部凭据包；
+- 凭据不显示、不写日志；
+- 自动关闭登录页并返回配置页；
+- DeepSeek Adapter 兼容旧纯 Cookie 和新内部凭据包，继续读取真实账户汇总。
 
 ## 本轮修改文件
 
 - `WebAuthActivity.kt`
-- `DeepSeekOfficialAdapter.kt`
+- 上一轮已经修改：`DeepSeekOfficialAdapter.kt`
 
-未修改 Widget 布局、模型配置、其他平台 Adapter 或缓存结构。
+未修改 Widget 布局、模型配置、MiMo／爱黄牛 Adapter 或缓存结构。
 
 ## 真机验收
 
-1. 已登录 DeepSeek 后应自动关闭登录页；
-2. 返回配置页后应显示“平台账户已连接”；
-3. 再次进入时应直接识别现有登录状态；
-4. 同一 DeepSeek 登录状态应在所有使用 DeepSeek API 地址的槽位中一致；
-5. Widget 刷新后应能出现本月消费、本月 Token 或其他网页账户数据；
-6. MiMo、爱黄牛原有授权不得丢失；
-7. 四个平台 Widget 数据和断网兜底不得回归。
+1. 已登录 DeepSeek 后，打开“登录平台账户”；
+2. 页面最多自动刷新一次；
+3. 捕获到网页自身账户请求后应自动关闭登录页；
+4. 返回配置页后应显示“平台账户已连接”；
+5. 再次进入时应再次自动识别；
+6. 同一 DeepSeek 登录状态应在所有 DeepSeek 槽位中一致；
+7. Widget 刷新后应能出现本月消费、本月 Token 或其他网页账户数据；
+8. MiMo、爱黄牛和断网兜底不得回归。
 
 ## OperitAI 权限边界
 
