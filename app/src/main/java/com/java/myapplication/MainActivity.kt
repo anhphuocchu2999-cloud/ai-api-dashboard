@@ -10,11 +10,34 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -26,12 +49,12 @@ import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.ui.theme.MyApplicationTheme
 import com.java.myapplication.webauth.WebAuthProfile
 import com.java.myapplication.webauth.WebAuthProfileRegistry
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private var authRefreshToken by mutableIntStateOf(0)
@@ -68,6 +91,7 @@ data class PlatformConfig(
 
 sealed class TestResult {
     data class Success(val models: List<String>) : TestResult()
+
     data class Error(
         val title: String,
         val reason: String,
@@ -78,7 +102,11 @@ sealed class TestResult {
 
 sealed class ConnectionStatus {
     data class Success(val model: String) : ConnectionStatus()
-    data class Error(val title: String, val reason: String, val suggestion: String) : ConnectionStatus()
+    data class Error(
+        val title: String,
+        val reason: String,
+        val suggestion: String
+    ) : ConnectionStatus()
 }
 
 suspend fun fetchModels(apiBase: String, apiKey: String): TestResult {
@@ -95,8 +123,8 @@ suspend fun fetchModels(apiBase: String, apiKey: String): TestResult {
             conn.requestMethod = "GET"
             conn.setRequestProperty("Authorization", "Bearer $apiKey")
             conn.setRequestProperty("Accept", "application/json")
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
             conn.doInput = true
 
             try {
@@ -279,7 +307,11 @@ fun ConfigScreen(
                                     connectionStatuses = connectionStatuses.toMutableList().apply {
                                         this[index] = ConnectionStatus.Success(selectedModel)
                                     }
-                                    backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
+                                    backgroundAuths = synchronizePlatformAuthorizations(
+                                        prefs,
+                                        configs,
+                                        slots
+                                    )
                                     refreshWidget(context)
                                 } else {
                                     modelList = result.models
@@ -287,6 +319,7 @@ fun ConfigScreen(
                                     showModelDialog = true
                                 }
                             }
+
                             is TestResult.Error -> {
                                 testingIndex = -1
                                 connectionStatuses = connectionStatuses.toMutableList().apply {
@@ -344,7 +377,11 @@ fun ConfigScreen(
                                     this[index] = ConnectionStatus.Success(modelId)
                                 }
                                 showModelDialog = false
-                                backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
+                                backgroundAuths = synchronizePlatformAuthorizations(
+                                    prefs,
+                                    configs,
+                                    slots
+                                )
                                 refreshWidget(context)
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -355,7 +392,9 @@ fun ConfigScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showModelDialog = false }) { Text("取消") }
+                TextButton(onClick = { showModelDialog = false }) {
+                    Text("取消")
+                }
             }
         )
     }
@@ -386,7 +425,9 @@ fun ConfigScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showErrorDialog = false }) { Text("知道了") }
+                TextButton(onClick = { showErrorDialog = false }) {
+                    Text("知道了")
+                }
             }
         )
     }
@@ -421,7 +462,9 @@ private fun SlotListScreen(
             val authConnected = isMatchingAuthorization(profile, backgroundAuths[index])
 
             Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -456,7 +499,9 @@ private fun SlotListScreen(
                     if (config.enabled) {
                         Button(
                             onClick = { onEdit(index) },
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp)
                         ) {
                             Text(if (isConfigured(config, authConnected)) "编辑" else "设置")
                         }
@@ -483,6 +528,10 @@ private fun SlotEditorScreen(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit
 ) {
+    val apiConnected = config.apiBase.isNotBlank() &&
+        config.apiKey.isNotBlank() &&
+        config.model.isNotBlank()
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -490,11 +539,15 @@ private fun SlotEditorScreen(
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(modifier = Modifier.height(12.dp))
-        TextButton(onClick = onBack) { Text("‹ 返回") }
+        TextButton(onClick = onBack) {
+            Text("‹ 返回")
+        }
         Text("设置槽位 $slotNumber", style = MaterialTheme.typography.headlineMedium)
 
         Card(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -510,14 +563,18 @@ private fun SlotEditorScreen(
                     value = config.apiBase,
                     onValueChange = { onConfigChange(config.copy(apiBase = it, model = "")) },
                     label = { Text("API 地址") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = config.apiKey,
                     onValueChange = { onConfigChange(config.copy(apiKey = it, model = "")) },
                     label = { Text("API Key") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation()
                 )
@@ -538,6 +595,7 @@ private fun SlotEditorScreen(
                             body = "已选择 ${it.model}",
                             isError = false
                         )
+
                         is ConnectionStatus.Error -> SimpleStatusCard(
                             title = it.title,
                             body = "${it.reason}\n${it.suggestion}",
@@ -548,7 +606,9 @@ private fun SlotEditorScreen(
 
                 Button(
                     onClick = onTest,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
                     enabled = !isTesting
                 ) {
                     Text(if (isTesting) "正在查找模型…" else "检测并选择模型")
@@ -556,14 +616,23 @@ private fun SlotEditorScreen(
             }
         }
 
+        SlotDataCapabilityCard(
+            apiBase = config.apiBase,
+            apiConnected = apiConnected,
+            authConnected = authConnected,
+            webProfile = webProfile
+        )
+
         Card(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("平台账户（可选）", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "想获得更完整的余额、消费和用量信息，可以再登录平台账户。API 连接不会受到影响。",
+                    text = "登录后会解锁上方标注为“云端账户”的余额、消耗和用量数据，API 连接不会受到影响。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -583,9 +652,9 @@ private fun SlotEditorScreen(
                     SimpleStatusCard(
                         title = if (authConnected) "平台账户已连接" else "平台账户未连接",
                         body = if (authConnected) {
-                            "正在自动补充：${webDataSummary(webProfile.profileId)}"
+                            "已解锁并自动更新：${webDataSummary(webProfile.profileId)}"
                         } else {
-                            "登录后可补充：${webDataSummary(webProfile.profileId)}"
+                            "登录后可解锁：${webDataSummary(webProfile.profileId)}"
                         },
                         isError = false
                     )
@@ -593,7 +662,9 @@ private fun SlotEditorScreen(
 
                 Button(
                     onClick = onConnect,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
                     enabled = webProfile != null
                 ) {
                     Text(
@@ -608,7 +679,9 @@ private fun SlotEditorScreen(
                 if (authConnected) {
                     TextButton(
                         onClick = onDisconnect,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
                     ) {
                         Text("断开平台账户")
                     }
@@ -619,9 +692,15 @@ private fun SlotEditorScreen(
 }
 
 @Composable
-private fun SimpleStatusCard(title: String, body: String, isError: Boolean) {
+private fun SimpleStatusCard(
+    title: String,
+    body: String,
+    isError: Boolean
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isError) {
                 MaterialTheme.colorScheme.errorContainer
@@ -658,15 +737,19 @@ private fun SimpleStatusCard(title: String, body: String, isError: Boolean) {
 private fun slotTitle(config: PlatformConfig): String {
     return config.model.ifBlank {
         config.name.takeUnless {
-            it.equals("Kimi", true) || it.equals("MiMo", true) ||
-                it.equals("DeepSeek", true) || it.equals("OpenAI", true)
+            it.equals("Kimi", true) ||
+                it.equals("MiMo", true) ||
+                it.equals("DeepSeek", true) ||
+                it.equals("OpenAI", true)
         }.orEmpty().ifBlank { "未配置" }
     }
 }
 
 private fun simpleSlotStatus(config: PlatformConfig, authConnected: Boolean): String {
     if (!config.enabled) return "已隐藏"
-    val apiConnected = config.apiBase.isNotBlank() && config.apiKey.isNotBlank() && config.model.isNotBlank()
+    val apiConnected = config.apiBase.isNotBlank() &&
+        config.apiKey.isNotBlank() &&
+        config.model.isNotBlank()
     return when {
         apiConnected && authConnected -> "API 已连接 · 平台账户已连接"
         apiConnected -> "API 已连接"
@@ -676,14 +759,18 @@ private fun simpleSlotStatus(config: PlatformConfig, authConnected: Boolean): St
 }
 
 private fun isConfigured(config: PlatformConfig, authConnected: Boolean): Boolean {
-    return (config.apiBase.isNotBlank() && config.apiKey.isNotBlank() && config.model.isNotBlank()) || authConnected
+    return (
+        config.apiBase.isNotBlank() &&
+            config.apiKey.isNotBlank() &&
+            config.model.isNotBlank()
+        ) || authConnected
 }
 
 private fun webDataSummary(profileId: String): String {
     return when (profileId) {
-        "mimo" -> "余额、本月消费、Token、请求次数"
-        "deepseek" -> "余额、本月消费、累计消费、Token"
-        "aihuangniu" -> "余额、用量、请求次数、Token"
+        "mimo" -> "余额构成、累计金额、请求、Token、限流信息"
+        "deepseek" -> "本月与累计消耗、本月 Token、预计可用 Token"
+        "aihuangniu" -> "余额、累计充值、并发、账户状态和最近活跃"
         else -> "平台实际提供的账户数据"
     }
 }
@@ -698,11 +785,6 @@ private fun isMatchingAuthorization(
         auth.authValue.isNotBlank()
 }
 
-/**
- * 平台账户凭据属于平台，而不是某个历史槽位。
- * 读取时先查平台公共 Key；若旧凭据只存在于某个槽位，则复制到平台公共 Key，
- * 再同步到所有当前绑定该平台的槽位，兼容 Widget 仍按固定槽位读取的逻辑。
- */
 private fun synchronizePlatformAuthorizations(
     prefs: android.content.SharedPreferences,
     configs: List<PlatformConfig>,
@@ -721,7 +803,9 @@ private fun synchronizePlatformAuthorizations(
     }
 
     profiles.forEachIndexed { index, profile ->
-        if (profile == null || sharedByProfile.containsKey(profile.profileId)) return@forEachIndexed
+        if (profile == null || sharedByProfile.containsKey(profile.profileId)) {
+            return@forEachIndexed
+        }
         val slotName = slots[index]
         val local = BackgroundAuthRepository.load(prefs, slotName)
         val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
@@ -736,7 +820,8 @@ private fun synchronizePlatformAuthorizations(
 
     return profiles.mapIndexed { index, profile ->
         if (profile == null) return@mapIndexed BackgroundAuthConfig()
-        val shared = sharedByProfile[profile.profileId] ?: return@mapIndexed BackgroundAuthConfig()
+        val shared = sharedByProfile[profile.profileId]
+            ?: return@mapIndexed BackgroundAuthConfig()
         val slotName = slots[index]
         BackgroundAuthRepository.save(prefs, slotName, shared)
         prefs.edit().putString(webAuthProfileKey(slotName), profile.profileId).commit()
