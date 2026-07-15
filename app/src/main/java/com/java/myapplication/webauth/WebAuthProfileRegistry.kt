@@ -6,7 +6,8 @@ object WebAuthProfileRegistry {
     private val profiles = listOf(
         WebAuthProfile(
             profileId = "mimo",
-            instanceKey = "MiMo",
+            sharedAuthKey = "platform-auth-mimo",
+            legacyInstanceKeys = setOf("MiMo", "legacy-mimo"),
             displayName = "MiMo",
             loginUrl = "https://platform.xiaomimimo.com/#/console/balance",
             cookieDomain = "platform.xiaomimimo.com",
@@ -15,54 +16,62 @@ object WebAuthProfileRegistry {
                 "api-platform_serviceToken",
                 "userId"
             ),
-            apiBaseHostContains = "platform.xiaomimimo.com"
+            apiBaseHostPatterns = setOf(
+                "api.xiaomimimo.com",
+                "platform.xiaomimimo.com"
+            )
         ),
         WebAuthProfile(
             profileId = "deepseek",
-            instanceKey = "DeepSeek",
+            sharedAuthKey = "platform-auth-deepseek",
+            legacyInstanceKeys = setOf("DeepSeek", "legacy-deepseek"),
             displayName = "DeepSeek",
             loginUrl = "https://platform.deepseek.com/usage",
             cookieDomain = "https://platform.deepseek.com",
             authType = BackgroundAuthType.COOKIE,
             requiredCookieNames = emptySet(),
-            apiBaseHostContains = "api.deepseek.com",
+            apiBaseHostPatterns = setOf(
+                "api.deepseek.com",
+                "platform.deepseek.com"
+            ),
             cookieVerificationUrl =
                 "https://platform.deepseek.com/api/v0/users/get_user_summary"
         ),
         WebAuthProfile(
             profileId = "aihuangniu",
-            instanceKey = "OpenAI",
+            sharedAuthKey = "platform-auth-aihuangniu",
+            legacyInstanceKeys = setOf("OpenAI", "Aihuangniu", "legacy-openai"),
             displayName = "爱黄牛",
             loginUrl = "https://sub2.aihuangniu.com",
             cookieDomain = "sub2.aihuangniu.com",
             authType = BackgroundAuthType.BEARER_TOKEN,
             requiredCookieNames = emptySet(),
-            apiBaseHostContains = "aihuangniu.com",
+            apiBaseHostPatterns = setOf("aihuangniu.com"),
             localStorageKey = "auth_token"
         )
     )
 
     fun findByProfileId(profileId: String): WebAuthProfile? {
-        return profiles.firstOrNull { it.profileId == profileId }
+        return profiles.firstOrNull { it.profileId.equals(profileId, ignoreCase = true) }
     }
 
     fun findByInstanceKey(instanceKey: String): WebAuthProfile? {
-        return profiles.firstOrNull { it.instanceKey.equals(instanceKey, ignoreCase = true) }
+        return profiles.firstOrNull { profile ->
+            profile.sharedAuthKey.equals(instanceKey, ignoreCase = true) ||
+                profile.legacyInstanceKeys.any { it.equals(instanceKey, ignoreCase = true) }
+        }
     }
 
     /**
-     * 根据当前卡片和 API Base 查找网页登录方案。
-     * 配置 host 约束的 Profile 以 API Base 为准，使任意窗口切换服务后都能获得
-     * 对应入口；没有 host 约束的旧 Profile 继续按 instanceKey 兼容匹配。
+     * 只根据当前 API 地址自动匹配网页登录方案。
+     * 四个槽位执行完全相同的规则，历史槽位名称不参与服务识别。
      */
     fun findFor(instanceKey: String, apiBase: String): WebAuthProfile? {
+        val normalizedBase = apiBase.trim().lowercase()
+        if (normalizedBase.isBlank()) return null
+
         return profiles.firstOrNull { profile ->
-            val hostConstraint = profile.apiBaseHostContains
-            if (!hostConstraint.isNullOrBlank()) {
-                apiBase.contains(hostConstraint, ignoreCase = true)
-            } else {
-                profile.instanceKey.equals(instanceKey, ignoreCase = true)
-            }
+            profile.apiBaseHostPatterns.any { host -> normalizedBase.contains(host.lowercase()) }
         }
     }
 }
