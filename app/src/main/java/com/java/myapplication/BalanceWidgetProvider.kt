@@ -193,6 +193,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 apiBase = config.apiBase,
                 modelApiKey = config.apiKey,
                 modelName = config.model,
+                instanceId = slot,
                 backgroundAuthType = auth.authType,
                 backgroundCredential = auth.authValue
             )
