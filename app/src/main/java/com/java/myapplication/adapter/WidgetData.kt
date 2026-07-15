@@ -9,14 +9,8 @@ import org.json.JSONObject
 /**
  * 统一 Widget 数据模型。
  *
- * 每张卡片固定承载：
- * 1. 模型名称；
- * 2. 云端真实核心指标；
- * 3. 近期消耗；
- * 4. 百分比；
- * 5. 云端真实辅助指标。
- *
- * DisplayMetric 会在桌面上明确标记“云端”或“本地”。
+ * 每张卡片固定承载：模型名称、核心指标、近期消耗、百分比和辅助指标。
+ * 数据来源标签由 BalanceWidgetProvider 统一渲染，避免 Adapter 重复拼接。
  */
 data class WidgetData(
     val platformName: String,
@@ -24,7 +18,7 @@ data class WidgetData(
     val primaryMetric: DisplayMetric? = null,
     var usageMetrics: List<DisplayMetric> = emptyList(),
     val percentage: Int? = null,
-    var percentageLabel: String? = null,
+    val percentageLabel: String? = null,
     val auxiliaryMetrics: List<DisplayMetric> = emptyList(),
     val statusText: String? = null,
     val isSuccess: Boolean = true,
@@ -52,11 +46,8 @@ data class WidgetData(
 ) {
 
     init {
-        // 百分比均由本机基于云端真实数字计算，避免误认为平台直接返回。
-        percentageLabel = percentageLabel?.let { decorateLocalLabel(it) }
-
-        // 不再由渲染层随机生成“正在排队”等假动态内容。
-        // 有真实核心数据但暂时没有可计算的近期消耗时，只展示明确状态。
+        // 禁止渲染层用随机俏皮文案冒充动态数据。
+        // 有真实核心数据但暂时无法计算近期消耗时，只显示明确状态。
         if (
             isSuccess &&
             isAvailable &&
@@ -65,11 +56,7 @@ data class WidgetData(
             usageMetrics.isEmpty()
         ) {
             usageMetrics = listOf(
-                DisplayMetric(
-                    label = "近期消耗",
-                    value = "暂无可计算数据",
-                    source = MetricSource.STATUS
-                )
+                DisplayMetric("近期消耗", "暂无可计算数据")
             )
         }
 
@@ -78,60 +65,10 @@ data class WidgetData(
         }
     }
 
-    enum class MetricSource {
-        AUTO,
-        CLOUD,
-        LOCAL,
-        STATUS
-    }
-
-    /** 单个桌面展示指标。 */
     data class DisplayMetric(
-        var label: String,
-        val value: String,
-        val source: MetricSource = MetricSource.AUTO
-    ) {
-        init {
-            label = decorateMetricLabel(label, source)
-        }
-
-        companion object {
-            private const val CLOUD_PREFIX = "云端·"
-            private const val LOCAL_PREFIX = "本地·"
-
-            private fun decorateMetricLabel(raw: String, source: MetricSource): String {
-                val clean = raw.trim()
-                if (clean.isBlank()) return clean
-                if (clean.startsWith(CLOUD_PREFIX) || clean.startsWith(LOCAL_PREFIX)) return clean
-
-                return when (resolveSource(clean, source)) {
-                    MetricSource.CLOUD -> "$CLOUD_PREFIX$clean"
-                    MetricSource.LOCAL -> "$LOCAL_PREFIX$clean"
-                    MetricSource.STATUS,
-                    MetricSource.AUTO -> clean
-                }
-            }
-
-            private fun resolveSource(label: String, source: MetricSource): MetricSource {
-                if (source != MetricSource.AUTO) return source
-
-                return if (
-                    label.startsWith("近") ||
-                    label.startsWith("过去") ||
-                    label.contains("统计中") ||
-                    label.contains("统计基准") ||
-                    label.contains("余额变化") ||
-                    label.contains("余额净减少") ||
-                    label.contains("余额增加") ||
-                    label.contains("余额无变化")
-                ) {
-                    MetricSource.LOCAL
-                } else {
-                    MetricSource.CLOUD
-                }
-            }
-        }
-    }
+        val label: String,
+        val value: String
+    )
 
     companion object {
         private const val CACHE_PREFS_NAME = "widget_last_success"
@@ -154,7 +91,7 @@ data class WidgetData(
                 val cached = loadLastSuccessfulData(platformName)
                 if (cached != null) {
                     val markedAuxiliary = if (cached.auxiliaryMetrics.isEmpty()) {
-                        listOf(DisplayMetric("", "😂", MetricSource.STATUS))
+                        listOf(DisplayMetric("", "😂"))
                     } else {
                         cached.auxiliaryMetrics.map { metric ->
                             metric.copy(value = "${metric.value} 😂")
@@ -162,9 +99,7 @@ data class WidgetData(
                     }
 
                     return cached.copy(
-                        usageMetrics = listOf(
-                            DisplayMetric(FALLBACK_MESSAGE, "", MetricSource.STATUS)
-                        ),
+                        usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
                         auxiliaryMetrics = markedAuxiliary,
                         statusText = FALLBACK_MESSAGE,
                         isSuccess = true,
@@ -204,13 +139,6 @@ data class WidgetData(
                 value == value.toLong().toDouble() -> "%,d".format(value.toLong())
                 else -> "%.2f".format(value)
             }
-        }
-
-        private fun decorateLocalLabel(raw: String): String {
-            val clean = raw.trim()
-            if (clean.isBlank()) return clean
-            if (clean.startsWith("本地·") || clean.startsWith("云端·")) return clean
-            return "本地·$clean"
         }
 
         private fun isTransientError(message: String): Boolean {
@@ -267,7 +195,6 @@ data class WidgetData(
             return JSONObject()
                 .put("label", metric.label)
                 .put("value", metric.value)
-                .put("source", metric.source.name)
         }
 
         private fun metricsToJson(metrics: List<DisplayMetric>): JSONArray {
@@ -277,15 +204,9 @@ data class WidgetData(
         }
 
         private fun jsonToMetric(obj: JSONObject): DisplayMetric {
-            val source = try {
-                MetricSource.valueOf(obj.optString("source", MetricSource.AUTO.name))
-            } catch (_: Exception) {
-                MetricSource.AUTO
-            }
             return DisplayMetric(
                 label = obj.optString("label", ""),
-                value = obj.optString("value", ""),
-                source = source
+                value = obj.optString("value", "")
             )
         }
 
@@ -303,7 +224,7 @@ data class WidgetData(
         if (!isSuccess || !isAvailable || isFallback) return false
 
         return primaryMetric != null ||
-            usageMetrics.any { it.source != MetricSource.STATUS } ||
+            usageMetrics.any { it.value != "暂无可计算数据" } ||
             percentage != null ||
             auxiliaryMetrics.isNotEmpty() ||
             !modelName.isNullOrBlank() ||
