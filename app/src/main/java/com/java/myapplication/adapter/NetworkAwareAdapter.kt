@@ -10,8 +10,8 @@ import java.security.MessageDigest
 /**
  * 在进入具体平台请求前做一次系统网络状态快速判断。
  *
- * 断网或默认网络未通过系统验证时，立即读取当前模型实例自己的最近成功数据，
- * 避免同一平台的不同配置共用缓存。
+ * 断网或默认网络未通过系统验证时，立即读取当前模型实例与当前账户自己的最近成功数据，
+ * 避免同一平台的不同配置或不同网页登录账户共用缓存。
  *
  * 网络状态服务不可用或权限异常时采用 fail-open，不阻断原 Adapter 请求。
  */
@@ -57,18 +57,19 @@ internal class NetworkAwareAdapter(
     }
 
     /**
-     * 优先使用调用方传入的稳定实例ID。
+     * 使用实例、API配置和网页登录账户的 SHA-256 指纹生成本地缓存键。
      *
-     * 兼容尚未迁移的调用方时，用 API Base、模型和 API Key 的 SHA-256 指纹生成本地键；
-     * 原始 API Key 不会写入缓存键、日志或界面。
+     * API Key、Cookie和Bearer Token只参与内存中的摘要计算，不会写入缓存键、日志或界面。
+     * 任一凭据发生变化都会建立新的缓存空间，避免展示上一个账户的数据。
      */
     private fun cacheIdentity(request: AdapterRequest): String {
-        request.instanceId.trim().takeIf { it.isNotBlank() }?.let { return it }
-
         val material = listOf(
+            request.instanceId.trim().ifBlank { "unbound-instance" },
             request.apiBase.trim().trimEnd('/').lowercase(),
             request.modelName.orEmpty().trim(),
-            request.modelApiKey.trim()
+            request.backgroundAuthType.name,
+            request.modelApiKey.trim(),
+            request.backgroundCredential.trim()
         ).joinToString("\u001F")
 
         val digest = MessageDigest.getInstance("SHA-256")
