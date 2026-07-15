@@ -37,7 +37,7 @@ import org.json.JSONObject
  *
  * 正式路径：
  * - MiMo：网页登录 Cookie；
- * - DeepSeek：在 WebView 已登录会话内验证 get_user_summary，再保存 Cookie；
+ * - DeepSeek：在同一 WebView 会话内验证当前账户，并保存 Cookie + 临时访问 Token；
  * - 爱黄牛：读取 localStorage auth_token。
  *
  * 凭据只写入 BackgroundAuthRepository，不输出到日志或界面。
@@ -49,8 +49,11 @@ class WebAuthActivity : Activity() {
         private const val EXTRA_TARGET_INSTANCE_KEY = "web_auth_target_instance_key"
         private const val PREFS_NAME = "api_config"
         private const val AUTH_POLL_INTERVAL_MS = 1000L
+        private const val AUTH_VERIFY_TIMEOUT_MS = 5000L
         private const val PROBE_INSTALL_ATTEMPTS = 24
         private const val PROBE_INSTALL_INTERVAL_MS = 250L
+        private const val DEEPSEEK_CURRENT_USER_URL =
+            "https://platform.deepseek.com/auth-api/v0/users/current"
         private const val MOBILE_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
 
@@ -283,6 +286,13 @@ class WebAuthActivity : Activity() {
     private fun checkAndSaveCookies() {
         if (loginDetected || cookieVerificationInProgress) return
 
+        // DeepSeek 可能使用 HttpOnly Cookie，CookieManager 不一定能在验证前完整读出。
+        // 因此先在同一个 WebView 会话内验证当前账户，再由桥接结果保存可用凭据。
+        if (!profile.cookieVerificationUrl.isNullOrBlank()) {
+            verifyDeepSeekAccountInsideWebView()
+            return
+        }
+
         val cookieString = currentCookieString()
         if (cookieString.isBlank()) return
 
@@ -293,75 +303,58 @@ class WebAuthActivity : Activity() {
             return
         }
 
-        val verificationUrl = profile.cookieVerificationUrl
-        if (!verificationUrl.isNullOrBlank()) {
-            verifyCookieInsideWebView(verificationUrl)
-            return
-        }
-
         saveCredentialAndRefresh(buildCookieHeader(cookies))
     }
 
     /**
-     * DeepSeek 的登录会话由网页自身维护。验证必须在同一个 WebView 会话内完成，
-     * 不能把 Cookie 拿到独立 HttpURLConnection 中猜测验证。
-     *
-     * 脚本先直接读取汇总接口；若网站要求账户 Token，则只在网页内部从
-     * users/current 取得 Token 后重试。Token 不传回 Android，也不落盘。
+     * 只验证 DeepSeek 当前账户接口。该接口是登录状态的直接证据，避免先请求账单接口
+     * 导致验证链卡住。访问 Token 只通过 JS bridge 交给本 App 的授权存储，不显示、
+     * 不写日志；Widget 刷新时会优先用 Cookie 获取新的临时 Token。
      */
-    private fun verifyCookieInsideWebView(verificationUrl: String) {
+    private fun verifyDeepSeekAccountInsideWebView() {
         if (cookieVerificationInProgress || loginDetected) return
         cookieVerificationInProgress = true
 
-        val quotedVerificationUrl = JSONObject.quote(verificationUrl)
+        val currentUserUrl = JSONObject.quote(DEEPSEEK_CURRENT_USER_URL)
         val script = """
             (function() {
-                function report(ok) {
-                    try { window.DashboardAuth.onVerificationResult(ok ? '1' : '0'); } catch (e) {}
-                }
-                function validSummary(response, body) {
+                function report(ok, token) {
                     try {
-                        return response.ok && body && body.code === 0 &&
-                            body.data && body.data.biz_code === 0 && body.data.biz_data;
-                    } catch (e) { return false; }
-                }
-                function requestSummary(headers) {
-                    return fetch($quotedVerificationUrl, {
-                        method: 'GET',
-                        credentials: 'include',
-                        headers: headers || { 'Accept': 'application/json' }
-                    }).then(function(response) {
-                        return response.json().then(function(body) {
-                            return validSummary(response, body);
-                        }).catch(function() { return false; });
-                    }).catch(function() { return false; });
+                        window.DashboardAuth.onVerificationResult(JSON.stringify({
+                            ok: !!ok,
+                            token: ok ? String(token || '') : ''
+                        }));
+                    } catch (e) {}
                 }
 
-                requestSummary().then(function(ok) {
-                    if (ok) { report(true); return; }
-                    fetch('https://platform.deepseek.com/auth-api/v0/users/current', {
-                        method: 'GET',
-                        credentials: 'include',
-                        headers: { 'Accept': 'application/json' }
-                    }).then(function(response) {
-                        return response.json();
-                    }).then(function(body) {
-                        var token = body && body.data && body.data.biz_data && body.data.biz_data.token;
-                        if (!token) { report(false); return; }
-                        requestSummary({
-                            'Accept': 'application/json',
-                            'Authorization': 'Bearer ' + token
-                        }).then(report);
-                    }).catch(function() { report(false); });
-                });
+                fetch($currentUserUrl, {
+                    method: 'GET',
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/json' }
+                }).then(function(response) {
+                    return response.json().then(function(body) {
+                        var data = body && body.data;
+                        var biz = data && data.biz_data;
+                        var token = biz && biz.token;
+                        var accountId = biz && biz.id;
+                        var ok = response.ok && body.code === 0 &&
+                            data && data.biz_code === 0 && biz && (token || accountId);
+                        report(ok, token);
+                    }).catch(function() { report(false, ''); });
+                }).catch(function() { report(false, ''); });
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(script, null)
+        authHandler.postDelayed({
+            if (!loginDetected) cookieVerificationInProgress = false
+        }, AUTH_VERIFY_TIMEOUT_MS)
     }
 
     private fun currentCookieString(): String {
         val manager = CookieManager.getInstance()
+        manager.flush()
         val candidates = linkedSetOf(
             profile.loginUrl,
             profile.cookieDomain,
@@ -384,6 +377,15 @@ class WebAuthActivity : Activity() {
                 append("$name=$value")
             }
         }
+    }
+
+    private fun buildDeepSeekCredential(cookie: String, accessToken: String): String? {
+        if (cookie.isBlank() && accessToken.isBlank()) return null
+        return JSONObject()
+            .put("format", "deepseek-web-v1")
+            .put("cookie", cookie)
+            .put("accessToken", accessToken)
+            .toString()
     }
 
     private fun saveCredentialAndRefresh(
@@ -554,11 +556,26 @@ class WebAuthActivity : Activity() {
         fun onVerificationResult(result: String) {
             runOnUiThread {
                 cookieVerificationInProgress = false
-                if (result == "1" && !loginDetected) {
-                    val cookies = parseCookieString(currentCookieString())
-                    if (cookies.isNotEmpty()) {
-                        saveCredentialAndRefresh(buildCookieHeader(cookies))
-                    }
+                if (loginDetected) return@runOnUiThread
+
+                val payload = try {
+                    JSONObject(result)
+                } catch (_: Exception) {
+                    null
+                }
+                val ok = payload?.optBoolean("ok", false) == true || result == "1"
+                if (!ok) return@runOnUiThread
+
+                val token = payload?.optString("token", "").orEmpty()
+                val cookie = currentCookieString()
+                val credential = if (profile.profileId.equals("deepseek", ignoreCase = true)) {
+                    buildDeepSeekCredential(cookie, token)
+                } else {
+                    buildCookieHeader(parseCookieString(cookie)).takeIf { it.isNotBlank() }
+                }
+
+                if (!credential.isNullOrBlank()) {
+                    saveCredentialAndRefresh(credential)
                 }
             }
         }
