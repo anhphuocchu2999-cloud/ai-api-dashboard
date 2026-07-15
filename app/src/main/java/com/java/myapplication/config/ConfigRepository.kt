@@ -167,7 +167,7 @@ object ConfigRepository {
             apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
             apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
             apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
-            apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
+            apiBase.contains("xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
             slotName.equals("Kimi", ignoreCase = true) -> ServiceType.NEW_API
             slotName.equals("MiMo", ignoreCase = true) -> ServiceType.MIMO
             slotName.equals("DeepSeek", ignoreCase = true) -> ServiceType.OPENAI_COMPATIBLE
