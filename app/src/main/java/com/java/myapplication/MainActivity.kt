@@ -30,17 +30,21 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.config.ApiAccountConfig
@@ -231,6 +235,28 @@ fun ConfigScreen(
     var errorDetail by remember { mutableStateOf<String?>(null) }
     var showDetail by remember { mutableStateOf(false) }
 
+    val latestConfigs by rememberUpdatedState(configs)
+    val latestEditingIndex by rememberUpdatedState(editingIndex)
+    val activity = context as? ComponentActivity
+
+    DisposableEffect(activity, prefs, slots) {
+        if (activity == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE) {
+                    val index = latestEditingIndex
+                    if (index in slots.indices) {
+                        savePlatformConfig(prefs, slots[index], latestConfigs[index])
+                        refreshWidget(context)
+                    }
+                }
+            }
+            activity.lifecycle.addObserver(observer)
+            onDispose { activity.lifecycle.removeObserver(observer) }
+        }
+    }
+
     LaunchedEffect(authRefreshToken) {
         val refreshedConfigs = loadPlatformConfigs(prefs, slots)
         configs = refreshedConfigs
@@ -260,6 +286,7 @@ fun ConfigScreen(
         val index = editingIndex
         if (index in slots.indices) {
             savePlatformConfig(prefs, slots[index], configs[index])
+            refreshWidget(context)
         }
         editingIndex = -1
     }
