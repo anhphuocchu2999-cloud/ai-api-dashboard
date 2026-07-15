@@ -32,9 +32,7 @@ import com.java.myapplication.adapter.AdapterRequest
 import com.java.myapplication.adapter.WidgetData
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
-import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.webauth.WebAuthProfile
-import com.java.myapplication.webauth.WebAuthProfileRegistry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,16 +82,17 @@ private sealed class LiveDataState {
 }
 
 /**
- * 设置页直接读取真实数据，同时说明当前平台还能提供哪些指标。
+ * 当前槽位的数据预览。
  *
- * 安全规则：
- * - 同一 API 地址绑定多个槽位时，不再擅自取第一个槽位的数据；
- * - 网页授权优先按平台公共授权键读取；
- * - 网络失败回退缓存时明确标记“本地缓存”，不冒充刚刚读取成功。
+ * 直接使用当前编辑槽位的 slotId、API 地址、API Key 和模型，禁止再按 URL 搜索第一个配置。
+ * MiMo 的账户数据不依赖模型 API 返回金额：只要地址已识别且网页登录有效，就可以单独预览。
  */
 @Composable
 fun SlotDataCapabilityCard(
+    slotId: String,
     apiBase: String,
+    apiKey: String,
+    modelName: String,
     apiConnected: Boolean,
     authConnected: Boolean,
     webProfile: WebAuthProfile?
@@ -101,16 +100,39 @@ fun SlotDataCapabilityCard(
     val context = LocalContext.current
     val service = detectService(apiBase, webProfile)
     val items = capabilityItems(service, apiConnected, authConnected)
-    var refreshVersion by remember { mutableIntStateOf(0) }
-    var liveState by remember(apiBase) { mutableStateOf<LiveDataState>(LiveDataState.Waiting) }
+    val accountPreviewReady = service == SlotServiceKind.MIMO &&
+        authConnected &&
+        apiBase.isNotBlank()
+    val canRead = apiConnected || accountPreviewReady
 
-    LaunchedEffect(apiBase, apiConnected, authConnected, refreshVersion) {
-        if (!apiConnected) {
+    var refreshVersion by remember { mutableIntStateOf(0) }
+    var liveState by remember(slotId, apiBase, apiKey, modelName) {
+        mutableStateOf<LiveDataState>(LiveDataState.Waiting)
+    }
+
+    LaunchedEffect(
+        slotId,
+        apiBase,
+        apiKey,
+        modelName,
+        canRead,
+        authConnected,
+        refreshVersion
+    ) {
+        if (!canRead) {
             liveState = LiveDataState.Waiting
         } else {
             liveState = LiveDataState.Loading
             liveState = withContext(Dispatchers.IO) {
-                loadCurrentSlotData(context, apiBase, service)
+                loadCurrentSlotData(
+                    context = context,
+                    slotId = slotId,
+                    apiBase = apiBase,
+                    apiKey = apiKey,
+                    modelName = modelName,
+                    service = service,
+                    webProfile = webProfile
+                )
             }
         }
     }
@@ -124,7 +146,12 @@ fun SlotDataCapabilityCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Text("当前真实数据", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "平台本次返回多少就显示多少；字段没返回不会补 0。",
+                text = when (service) {
+                    SlotServiceKind.MIMO ->
+                        "MiMo 模型 API 只负责连接模型；余额、金额、Token 和请求统计来自平台账户。"
+                    else ->
+                        "平台本次返回多少就显示多少；字段没返回不会补 0。"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
@@ -132,7 +159,9 @@ fun SlotDataCapabilityCard(
 
             LiveDataContent(
                 state = liveState,
-                apiConnected = apiConnected,
+                canRead = canRead,
+                service = service,
+                authConnected = authConnected,
                 onRefresh = { refreshVersion++ }
             )
 
@@ -157,15 +186,18 @@ fun SlotDataCapabilityCard(
 @Composable
 private fun LiveDataContent(
     state: LiveDataState,
-    apiConnected: Boolean,
+    canRead: Boolean,
+    service: SlotServiceKind,
+    authConnected: Boolean,
     onRefresh: () -> Unit
 ) {
     when (state) {
         LiveDataState.Waiting -> Text(
-            text = if (apiConnected) {
-                "等待读取当前真实数据。"
-            } else {
-                "完成 API 检测并选择模型后，这里会显示当前真实数值。"
+            text = when {
+                service == SlotServiceKind.MIMO && !authConnected ->
+                    "MiMo 金额和用量需要先登录平台账户；模型 API 本身不会返回这些数据。"
+                canRead -> "等待读取当前真实数据。"
+                else -> "完成 API 检测并选择模型后，这里会显示当前真实数值。"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -206,7 +238,7 @@ private fun LiveDataContent(
                 LiveMetricRow(metric)
             }
 
-            state.note?.let { note ->
+            state.note?.takeIf { it.isNotBlank() }?.let { note ->
                 Text(
                     text = note,
                     style = MaterialTheme.typography.bodySmall,
@@ -322,39 +354,24 @@ private fun SourceBadge(source: CapabilitySource, modifier: Modifier = Modifier)
 
 private fun loadCurrentSlotData(
     context: Context,
+    slotId: String,
     apiBase: String,
-    service: SlotServiceKind
+    apiKey: String,
+    modelName: String,
+    service: SlotServiceKind,
+    webProfile: WebAuthProfile?
 ): LiveDataState {
     val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
-    val normalizedBase = normalizeApiBase(apiBase)
-    val matching = ConfigRepository.loadAllConfigs(prefs)
-        .filter { config ->
-            config.enabled &&
-                config.apiKey.isNotBlank() &&
-                config.model.isNotBlank() &&
-                normalizeApiBase(config.apiBase) == normalizedBase
-        }
-
-    if (matching.isEmpty()) {
-        return LiveDataState.Error("没有找到这个槽位的完整 API 配置")
-    }
-    if (matching.size > 1) {
-        return LiveDataState.Error("多个槽位使用同一 API 地址，无法安全判断当前槽位；暂不展示，避免串号")
-    }
-
-    val config = matching.single()
-    val adapter = AdapterFactory.getAdapter(config.id, config.apiBase)
+    val adapter = AdapterFactory.getAdapter(slotId, apiBase)
         ?: return LiveDataState.Error("当前服务还没有可读取余额或用量的适配器")
 
-    val profile = WebAuthProfileRegistry.findFor(config.id, config.apiBase)
-    val auth = loadPlatformAuthorization(prefs, config.id, profile)
-
+    val auth = loadPlatformAuthorization(prefs, slotId, webProfile)
     val data = try {
         adapter.fetchData(
             AdapterRequest(
-                apiBase = config.apiBase,
-                modelApiKey = config.apiKey,
-                modelName = config.model,
+                apiBase = apiBase,
+                modelApiKey = apiKey,
+                modelName = modelName.takeIf { it.isNotBlank() },
                 backgroundAuthType = auth.authType,
                 backgroundCredential = auth.authValue
             )
@@ -489,10 +506,6 @@ private fun cleanMetricLabel(raw: String): String {
         .ifBlank { "未命名数据" }
 }
 
-private fun normalizeApiBase(apiBase: String): String {
-    return apiBase.trim().trimEnd('/').lowercase()
-}
-
 private fun detectService(apiBase: String, webProfile: WebAuthProfile?): SlotServiceKind {
     return when (webProfile?.profileId) {
         "mimo" -> SlotServiceKind.MIMO
@@ -546,14 +559,14 @@ private fun capabilityItems(
         SlotServiceKind.MIMO -> listOf(
             CapabilityItem(
                 "余额、赠送余额、现金余额、冻结余额、透支",
-                "登录 MiMo 平台账户后由余额接口直接返回。",
+                "登录 MiMo 平台账户后由余额接口直接返回；模型 API 不提供金额。",
                 CapabilitySource.ACCOUNT,
                 accountState(authConnected),
                 authConnected
             ),
             CapabilityItem(
                 "本月与累计消耗、累计请求、累计 Token",
-                "登录后由用量接口直接返回。",
+                "登录后由平台账户用量接口直接返回。",
                 CapabilitySource.ACCOUNT,
                 accountState(authConnected),
                 authConnected
