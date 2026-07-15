@@ -4,11 +4,11 @@
 
 ## 当前阶段
 
-`Stage 8B-R：统一槽位交互与平台账户登录闭环修复`
+`Stage 8B-R：DeepSeek 平台账户登录闭环修复`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
-- 上一版 HEAD：`e351a040d7ec8425a7d7705371eafc67c2328f30`
-- 本轮业务提交：`1e028b4b15d65664990baaa4a9b3ba7d5b8df70b`
+- 登录检测提交：`c5722dca470575f04f70e7e5e79fc1e4092cdbd9`
+- DeepSeek 数据适配提交：`c11f880f4a952bd6a5888e641303831e56f89bbf`
 - 当前状态：云端代码已推送，尚未声称编译、安装或真机验收成功
 - 下一步：OperitAI 只拉取、编译一次、覆盖安装一次并启动
 
@@ -23,41 +23,37 @@
 
 用户不选择服务商或技术协议。系统只根据 API 地址自动匹配网页登录入口。
 
+## 本轮根因
+
+上一版先请求 `get_user_summary` 再判断登录，而且在读取到 Cookie 前就阻断验证。DeepSeek 的登录会话可能依赖 HttpOnly Cookie 与网页返回的临时访问 Token，导致用户已经登录，App 仍无法保存授权。
+
 ## 本轮修复
 
-### MiMo 识别
-
-MiMo API 地址 `api.xiaomimimo.com` 已映射到 MiMo 官网账户页面，不再要求 API 域名与官网登录域名完全一致。
-
-### DeepSeek 登录检测
-
-上一版仍在 Android 的独立 `HttpURLConnection` 中验证 DeepSeek Cookie。DeepSeek 网页会话中的账户 Token 和 Cookie 由网页共同维护，独立请求可能无法复现网页真实登录状态，因此会错误提示“未检测到登录状态”。
-
-新逻辑：
-
-- 在已经登录的同一个 WebView 会话内验证 `get_user_summary`；
-- 先使用网页 Cookie 直接请求；
-- 如网站需要账户 Token，只在网页内部读取 `users/current` 返回的 Token 后重试；
-- Token 不传回 Android、不保存、不显示、不写日志；
-- 验证成功后只保存用于后续账户数据请求的 Cookie；
-- 登录检测每秒重试，支持网页通过 AJAX 完成登录而不发生整页跳转；
-- 已删除 Activity 销毁时的“未检测到登录状态，已取消授权”假提示；
-- 登录成功后保存到平台公共授权键，返回配置页由现有同步逻辑更新所有同平台槽位。
+- DeepSeek 登录检测改为直接调用当前账户接口 `users/current`；
+- 验证在同一个已登录 WebView 会话内执行；
+- 不再要求 Android 先读到 Cookie 才开始验证；
+- 每秒自动重试，并设置验证超时后继续下一轮；
+- 登录有效时保存内部凭据包：Cookie（能读取时）和临时访问 Token；
+- 凭据只写入授权存储，不显示、不写日志；
+- DeepSeek Adapter 兼容旧纯 Cookie 凭据和新的内部凭据包；
+- Widget 刷新时优先用 Cookie 获取新的临时 Token，再读取账户汇总；
+- 登录成功后自动关闭登录页，配置页由平台公共授权键同步为“已连接”；
+- 不再显示“未检测到登录状态，已取消授权”的假提示。
 
 ## 本轮修改文件
 
 - `WebAuthActivity.kt`
-- 上一轮已修改：`WebAuthProfile.kt`、`WebAuthProfileRegistry.kt`、`BackgroundAuthRepository.kt`
+- `DeepSeekOfficialAdapter.kt`
 
-未修改 Widget 布局、Adapter 路由、模型配置或缓存结构。
+未修改 Widget 布局、模型配置、其他平台 Adapter 或缓存结构。
 
 ## 真机验收
 
-1. MiMo API 地址应出现可用的“登录平台账户”按钮；
-2. DeepSeek 登录后应自动返回配置页并显示“平台账户已连接”；
-3. 已登录 DeepSeek 再次进入时，应能直接识别现有网页会话；
-4. 退出登录页时不得再出现“已取消授权”假提示；
-5. 同一 DeepSeek 登录状态应在所有使用 DeepSeek API 地址的槽位中一致；
+1. 已登录 DeepSeek 后应自动关闭登录页；
+2. 返回配置页后应显示“平台账户已连接”；
+3. 再次进入时应直接识别现有登录状态；
+4. 同一 DeepSeek 登录状态应在所有使用 DeepSeek API 地址的槽位中一致；
+5. Widget 刷新后应能出现本月消费、本月 Token 或其他网页账户数据；
 6. MiMo、爱黄牛原有授权不得丢失；
 7. 四个平台 Widget 数据和断网兜底不得回归。
 
