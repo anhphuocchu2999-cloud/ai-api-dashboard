@@ -6,6 +6,7 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
 import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
+import com.java.myapplication.stats.RecentUsageTracker
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -20,7 +21,8 @@ import org.json.JSONObject
  * 数据来源：
  * 1. API Key：GET /user/balance，读取官方余额；
  * 2. 平台账户：先用网页登录 Cookie 获取临时访问 Token，再读取
- *    /api/v0/users/get_user_summary 的月度消费、Token、累计消费和钱包余额。
+ *    /api/v0/users/get_user_summary 的 Token、累计消耗和钱包余额；
+ * 3. 服务端累计值由 RecentUsageTracker 在本机计算近 1/6/12/24 小时消耗。
  *
  * 网页汇总接口失效时仍保留 API Key 余额，不用网页失败覆盖真实余额。
  * 访问 Token 只作为内部凭据使用，不输出到日志或界面。
@@ -64,7 +66,25 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
 
         return when (val webResult = fetchWebSummary(request.backgroundCredential)) {
-            is WebSummaryResult.Success -> mergeWebSummary(apiData, webResult.summary)
+            is WebSummaryResult.Success -> {
+                val merged = mergeWebSummary(apiData, webResult.summary)
+                RecentUsageTracker.apply(
+                    context = DashboardApplication.appContextOrNull(),
+                    identity = RecentUsageTracker.identity(
+                        provider = platformName,
+                        apiBase = request.apiBase,
+                        apiKey = request.modelApiKey,
+                        modelName = request.modelName
+                    ),
+                    data = merged,
+                    cumulative = RecentUsageTracker.CumulativeUsage(
+                        requests = null,
+                        tokens = webResult.summary.cumulativeTokens,
+                        cost = webResult.summary.cumulativeCost,
+                        currency = webResult.summary.currency
+                    )
+                )
+            }
             WebSummaryResult.AuthExpired -> apiData.copy(statusText = "网页登录需重连")
             WebSummaryResult.Unavailable -> apiData
         }
@@ -155,17 +175,18 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             val currencySymbol = currencySymbol(currency)
 
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            grantedBalance?.let {
-                auxiliaryMetrics.add(
-                    WidgetData.DisplayMetric("赠送余额", "$currencySymbol${formatAmount(it)}")
-                )
-            }
             toppedUpBalance?.let {
                 auxiliaryMetrics.add(
                     WidgetData.DisplayMetric("充值余额", "$currencySymbol${formatAmount(it)}")
                 )
             }
+            grantedBalance?.let {
+                auxiliaryMetrics.add(
+                    WidgetData.DisplayMetric("赠送余额", "$currencySymbol${formatAmount(it)}")
+                )
+            }
 
+            // API-only 时保留明确标注的余额变化；平台账户成功后会被近期消耗替换。
             val balanceChangeMetrics = buildBalanceChangeMetrics(
                 normalizedBase = normalizedBase,
                 apiKey = apiKey,
@@ -323,24 +344,18 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             }
             val bizData = data.optJSONObject("biz_data") ?: return null
 
-            val usageMetrics = mutableListOf<WidgetData.DisplayMetric>()
-            parseMoneyArray(bizData.optJSONArray("monthly_costs"), "本月消费")
-                .forEach(usageMetrics::add)
-
-            bizData.optString("monthly_token_usage", "")
+            val monthlyTokens = bizData.optString("monthly_token_usage", "")
                 .toBigDecimalOrNull()
-                ?.let { monthlyTokens ->
-                    usageMetrics.add(
-                        WidgetData.DisplayMetric("本月 Token", formatTokenAmount(monthlyTokens))
-                    )
-                }
+                ?.toLong()
 
+            val totalCost = firstMoney(bizData.optJSONArray("total_costs"))
+                ?: firstMoney(bizData.optJSONArray("monthly_costs"))
+
+            // 动态位②只放账户资源，不重复动态位①的近期消耗。
             val auxiliaryMetrics = mutableListOf<WidgetData.DisplayMetric>()
             parseWalletArray(bizData.optJSONArray("normal_wallets"), "充值余额")
                 .forEach(auxiliaryMetrics::add)
             parseWalletArray(bizData.optJSONArray("bonus_wallets"), "赠送余额")
-                .forEach(auxiliaryMetrics::add)
-            parseMoneyArray(bizData.optJSONArray("total_costs"), "累计消费")
                 .forEach(auxiliaryMetrics::add)
 
             bizData.optString("total_available_token_estimation", "")
@@ -348,18 +363,20 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 ?.let { tokenEstimate ->
                     auxiliaryMetrics.add(
                         WidgetData.DisplayMetric(
-                            "余额预计可用 Token",
+                            "预计可用 Token",
                             formatTokenAmount(tokenEstimate)
                         )
                     )
                 }
 
-            if (usageMetrics.isEmpty() && auxiliaryMetrics.isEmpty()) {
+            if (monthlyTokens == null && totalCost == null && auxiliaryMetrics.isEmpty()) {
                 null
             } else {
                 WebSummary(
-                    usageMetrics = usageMetrics,
-                    auxiliaryMetrics = auxiliaryMetrics
+                    auxiliaryMetrics = auxiliaryMetrics,
+                    cumulativeTokens = monthlyTokens,
+                    cumulativeCost = totalCost?.first,
+                    currency = totalCost?.second ?: "CNY"
                 )
             }
         } catch (_: Exception) {
@@ -367,16 +384,15 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         }
     }
 
-    private fun parseMoneyArray(array: JSONArray?, label: String): List<WidgetData.DisplayMetric> {
-        if (array == null) return emptyList()
-        val result = mutableListOf<WidgetData.DisplayMetric>()
+    private fun firstMoney(array: JSONArray?): Pair<BigDecimal, String>? {
+        if (array == null) return null
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val amount = item.optString("amount", "").toBigDecimalOrNull() ?: continue
-            val symbol = currencySymbol(item.optString("currency", ""))
-            result.add(WidgetData.DisplayMetric(label, "$symbol${formatAmount(amount)}"))
+            val currency = item.optString("currency", "CNY")
+            return amount to currency
         }
-        return result
+        return null
     }
 
     private fun parseWalletArray(array: JSONArray?, label: String): List<WidgetData.DisplayMetric> {
@@ -396,14 +412,14 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             .distinctBy { "${it.label}|${it.value}" }
 
         return apiData.copy(
-            usageMetrics = summary.usageMetrics.ifEmpty { apiData.usageMetrics },
+            usageMetrics = emptyList(),
             auxiliaryMetrics = mergedAuxiliary,
             statusText = "网页账单已同步"
         )
     }
 
     /**
-     * 用真实余额快照计算两次成功刷新之间的余额变化。
+     * API-only 时用真实余额快照计算两次成功刷新之间的余额变化。
      * API Key 只参与 SHA-256 指纹计算，不保存原文，也不写日志。
      */
     private fun buildBalanceChangeMetrics(
@@ -515,8 +531,10 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
     )
 
     private data class WebSummary(
-        val usageMetrics: List<WidgetData.DisplayMetric>,
-        val auxiliaryMetrics: List<WidgetData.DisplayMetric>
+        val auxiliaryMetrics: List<WidgetData.DisplayMetric>,
+        val cumulativeTokens: Long?,
+        val cumulativeCost: BigDecimal?,
+        val currency: String
     )
 
     private sealed class WebSummaryResult {
