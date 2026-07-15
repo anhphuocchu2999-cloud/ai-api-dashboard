@@ -25,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 class BalanceWidgetProvider : AppWidgetProvider() {
-
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         ids.forEach { updateAppWidget(context, manager, it) }
     }
@@ -59,9 +58,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         private const val CAROUSEL_PREFS = "widget_carousel"
         private const val COMPACT_HEIGHT_DP = 160
         private const val SAME_HOST_INTERVAL_MS = 1_000L
-
-        private val generationCounter = AtomicLong(0L)
-        private val latestGeneration = ConcurrentHashMap<Int, Long>()
+        private val generations = ConcurrentHashMap<Int, Long>()
+        private val counter = AtomicLong(0L)
 
         private data class CardIds(
             val title: Int,
@@ -72,7 +70,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             val auxiliary: Int
         )
 
-        private fun cardIds(prefix: String): CardIds = when (prefix) {
+        private fun ids(prefix: String) = when (prefix) {
             "mimo" -> CardIds(R.id.mimo_title, R.id.mimo_tokens, R.id.mimo_balance,
                 R.id.mimo_percent, R.id.mimo_progress, R.id.mimo_auxiliary)
             "ds" -> CardIds(R.id.ds_title, R.id.ds_tokens, R.id.ds_balance,
@@ -83,7 +81,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 R.id.kimi_percent, R.id.kimi_progress, R.id.kimi_auxiliary)
         }
 
-        private fun prefix(slot: String): String = when (slot) {
+        private fun prefix(slot: String) = when (slot) {
             "MiMo" -> "mimo"
             "DeepSeek" -> "ds"
             "OpenAI" -> "oai"
@@ -92,9 +90,9 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
         private fun saveCompact(context: Context, id: Int, options: Bundle): Boolean {
             val prefs = context.getSharedPreferences(LAYOUT_PREFS, Context.MODE_PRIVATE)
-            val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-            if (minHeight <= 0) return prefs.getBoolean("compact_$id", false)
-            val compact = minHeight < COMPACT_HEIGHT_DP
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            if (height <= 0) return prefs.getBoolean("compact_$id", false)
+            val compact = height < COMPACT_HEIGHT_DP
             prefs.edit().putBoolean("compact_$id", compact).apply()
             return compact
         }
@@ -111,22 +109,22 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
 
         internal fun updateAppWidget(context: Context, manager: AppWidgetManager, id: Int) {
-            val generation = generationCounter.incrementAndGet()
-            latestGeneration[id] = generation
-            val isCompact = compact(context, manager, id)
+            val generation = counter.incrementAndGet()
+            generations[id] = generation
+            val compact = compact(context, manager, id)
             val views = RemoteViews(context.packageName, R.layout.widget_balance)
-            applyLayout(views, isCompact)
+            applyLayout(views, compact)
 
             val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
             val loaded = ConfigRepository.loadAllConfigs(prefs)
-            val slotIds = listOf("Kimi", "MiMo", "DeepSeek", "OpenAI")
-            val configs = slotIds.map { slot ->
+            val slots = listOf("Kimi", "MiMo", "DeepSeek", "OpenAI")
+            val configs = slots.map { slot ->
                 loaded.find { it.id == slot } ?: ApiAccountConfig(
                     id = slot, name = "", apiBase = "", apiKey = "", model = "", enabled = true
                 )
             }
-            val visibleSlots = if (isCompact) slotIds.take(2) else slotIds
-            val visibleConfigs = if (isCompact) configs.take(2) else configs
+            val visibleSlots = if (compact) slots.take(2) else slots
+            val visibleConfigs = if (compact) configs.take(2) else configs
 
             visibleSlots.forEach { showLoading(views, prefix(it)) }
             views.setTextViewText(R.id.update_time, "正在同步…")
@@ -140,9 +138,9 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 visibleSlots.forEachIndexed { index, slot ->
                     val config = visibleConfigs[index]
                     val host = try { URL(config.apiBase.trim().trimEnd('/')).host } catch (_: Exception) { "" }
-                    val previous = hostTimes[host] ?: 0L
-                    val wait = if (host.isNotBlank() && previous > 0L) {
-                        (SAME_HOST_INTERVAL_MS - (System.currentTimeMillis() - previous)).coerceAtLeast(0L)
+                    val last = hostTimes[host] ?: 0L
+                    val wait = if (host.isNotBlank() && last > 0L) {
+                        (SAME_HOST_INTERVAL_MS - (System.currentTimeMillis() - last)).coerceAtLeast(0L)
                     } else 0L
                     if (wait > 0L) try { Thread.sleep(wait) } catch (_: InterruptedException) {
                         Thread.currentThread().interrupt()
@@ -152,7 +150,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 }
 
                 Handler(Looper.getMainLooper()).post {
-                    if (latestGeneration[id] != generation) return@post
+                    if (generations[id] != generation) return@post
                     applyLayout(views, compact(context, manager, id))
                     results.forEachIndexed { index, data ->
                         val p = prefix(visibleSlots[index])
@@ -169,7 +167,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
 
         private fun showLoading(views: RemoteViews, prefix: String) {
-            val ids = cardIds(prefix)
+            val ids = ids(prefix)
             views.setTextViewText(ids.primary, "正在同步…")
             views.setTextViewText(ids.usage, "")
             views.setTextViewText(ids.percent, "")
@@ -214,21 +212,16 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 data.cumulativeUsedCalls != null -> RecentUsageTracker.CumulativeUsage(
                     requests = data.cumulativeUsedCalls
                 )
-                data.cumulativeUsageRequests != null || data.cumulativeUsageTokens != null ||
+                data.cumulativeUsageRequests != null ||
+                    data.cumulativeUsageTokens != null ||
                     data.cumulativeUsageActualCost != null -> RecentUsageTracker.CumulativeUsage(
-                    requests = data.cumulativeUsageRequests,
-                    tokens = data.cumulativeUsageTokens,
-                    cost = data.cumulativeUsageActualCost?.toBigDecimalOrNull(),
-                    currency = "CNY"
-                )
+                        requests = data.cumulativeUsageRequests,
+                        tokens = data.cumulativeUsageTokens,
+                        cost = data.cumulativeUsageActualCost?.toBigDecimalOrNull(),
+                        currency = "CNY"
+                    )
                 else -> return data
             }
-            val normalized = data.copy(
-                cumulativeUsedCalls = null,
-                cumulativeUsageRequests = null,
-                cumulativeUsageTokens = null,
-                cumulativeUsageActualCost = null
-            )
             return RecentUsageTracker.apply(
                 context = context.applicationContext,
                 identity = RecentUsageTracker.identity(
@@ -237,13 +230,18 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                     apiKey = config.apiKey,
                     modelName = config.model
                 ),
-                data = normalized,
+                data = data.copy(
+                    cumulativeUsedCalls = null,
+                    cumulativeUsageRequests = null,
+                    cumulativeUsageTokens = null,
+                    cumulativeUsageActualCost = null
+                ),
                 cumulative = cumulative
             )
         }
 
         private fun render(context: Context, views: RemoteViews, data: WidgetData, prefix: String) {
-            val ids = cardIds(prefix)
+            val ids = ids(prefix)
             if (!data.isSuccess || !data.isAvailable) {
                 views.setTextViewText(ids.primary, data.statusText ?: data.errorMessage ?: "未配置")
                 views.setTextViewText(ids.usage, "")
@@ -255,40 +253,43 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 return
             }
 
-            val remote = if (data.isFallback) "云端缓存" else "云端"
-            views.setTextViewText(ids.primary, data.primaryMetric?.let { metric(remote, it) } ?: "待刷新·暂无数据")
+            views.setTextViewText(
+                ids.primary,
+                data.primaryMetric?.let { if (data.isFallback) cached(it) else metric(it) }
+                    ?: "暂无可展示数据"
+            )
 
             val carousel = context.getSharedPreferences(CAROUSEL_PREFS, Context.MODE_PRIVATE)
             val usageIndex = carousel.getInt("${prefix}_carousel_index", 0)
-            val usageText = when {
-                data.isFallback -> data.usageMetrics.firstOrNull()?.let { metric("缓存", it) }
-                    ?: "缓存·上次成功数据"
-                data.usageMetrics.isNotEmpty() -> metric(
-                    "本地",
-                    data.usageMetrics[usageIndex % data.usageMetrics.size]
-                )
-                else -> "本地·近期消耗统计中…"
-            }
-            views.setTextViewText(ids.usage, usageText)
+            val usage = data.usageMetrics.takeIf { it.isNotEmpty() }
+                ?.get(usageIndex % data.usageMetrics.size)
+            views.setTextViewText(
+                ids.usage,
+                usage?.let { if (data.isFallback) cached(it) else metric(it) }
+                    ?: "近期消耗 暂无可计算数据"
+            )
             views.setViewVisibility(ids.usage, View.VISIBLE)
-            carousel.edit().putInt("${prefix}_carousel_index", (usageIndex + 1) % 1000).apply()
+            if (usage != null) {
+                carousel.edit().putInt("${prefix}_carousel_index", (usageIndex + 1) % 1000).apply()
+            }
 
             if (data.percentage != null && data.percentageLabel != null) {
                 views.setViewVisibility(ids.progress, View.VISIBLE)
                 views.setViewVisibility(ids.percent, View.VISIBLE)
                 views.setProgressBar(ids.progress, 100, data.percentage.coerceIn(0, 100), false)
-                views.setTextViewText(ids.percent, "本地·${data.percentageLabel} ${data.percentage}%")
+                val label = if (data.isFallback) "缓存·${strip(data.percentageLabel)}"
+                else data.percentageLabel
+                views.setTextViewText(ids.percent, "$label ${data.percentage}%")
             } else {
                 views.setViewVisibility(ids.progress, View.GONE)
                 views.setViewVisibility(ids.percent, View.GONE)
+                views.setTextViewText(ids.percent, "")
             }
 
             val auxIndex = carousel.getInt("${prefix}_aux_carousel_index", 0)
             if (data.auxiliaryMetrics.isNotEmpty()) {
-                views.setTextViewText(
-                    ids.auxiliary,
-                    metric(remote, data.auxiliaryMetrics[auxIndex % data.auxiliaryMetrics.size])
-                )
+                val aux = data.auxiliaryMetrics[auxIndex % data.auxiliaryMetrics.size]
+                views.setTextViewText(ids.auxiliary, if (data.isFallback) cached(aux) else metric(aux))
                 views.setViewVisibility(ids.auxiliary, View.VISIBLE)
                 carousel.edit().putInt("${prefix}_aux_carousel_index", (auxIndex + 1) % 1000).apply()
             } else {
@@ -297,10 +298,30 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun metric(source: String, item: WidgetData.DisplayMetric): String {
+        private fun metric(item: WidgetData.DisplayMetric): String {
+            val label = item.label.trim()
             val value = item.value.trim()
-            return if (value.isBlank()) "$source·${item.label}" else "$source·${item.label} $value"
+            return when {
+                label.isBlank() -> value
+                value.isBlank() -> label
+                else -> "$label $value"
+            }
         }
+
+        private fun cached(item: WidgetData.DisplayMetric): String {
+            val label = strip(item.label)
+            val value = item.value.trim()
+            return when {
+                label.isBlank() -> "缓存·$value"
+                value.isBlank() -> "缓存·$label"
+                else -> "缓存·$label $value"
+            }
+        }
+
+        private fun strip(label: String): String = label.trim()
+            .removePrefix("云端·")
+            .removePrefix("本地·")
+            .removePrefix("缓存·")
 
         private fun setTitle(views: RemoteViews, prefix: String, config: ApiAccountConfig) {
             val title = when {
@@ -308,7 +329,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 config.name.isNotBlank() -> config.name
                 else -> "暂无模型"
             }
-            views.setTextViewText(cardIds(prefix).title, title)
+            views.setTextViewText(ids(prefix).title, title)
         }
 
         private fun bindRefresh(context: Context, views: RemoteViews, id: Int) {
