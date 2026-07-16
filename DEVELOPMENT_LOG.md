@@ -1288,3 +1288,15 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - `actionlint` 明确报告 Job 级 `env` 不允许使用 `runner` 上下文；错误位置为 `ANDROID_SIGNING_STORE_FILE: ${{ runner.temp }}/...`。
 - 聚焦修复：在 Secrets 重建步骤中使用 Runner 自带的 `$RUNNER_TEMP`，并通过 `$GITHUB_ENV` 传给后续构建与清理步骤；签名材料、指纹和 Android 业务代码不变。
 - 修复后必须先通过 `actionlint` 和 `git diff --check`，再推送触发唯一一次真实 `assembleDebug`。
+
+**唯一一次真实构建结果**
+
+- 聚焦修复提交：`1a37af039448368b54b55ed56776ad9caeb492e2`。
+- GitHub Actions 运行：`29514548823`。
+- `Require stable beta signing secrets`：成功。
+- `Build installable debug APK`：成功；`BUILD SUCCESSFUL in 2m 52s`，37 个任务已执行。
+- `Verify stable signing certificate`：失败；工作流只执行了最终字符串比较，没有输出 `actual_digest`，因此现有日志无法确认实际摘要是不同还是为空。
+- `Prepare release asset`、Artifact 上传与 Prerelease 发布：均按安全门禁跳过。
+- 临时 PKCS12 清理：成功。
+- 本地再次从 PKCS12 读取公开证书 SHA-256，仍为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 按“一次编译”规则，本轮不修改后立即重试；下一轮只处理指纹校验可观测性与格式兼容，不修改 Android 业务代码。

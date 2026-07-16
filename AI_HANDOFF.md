@@ -13,7 +13,7 @@
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
 - 当前云端业务基线：`8f4609b8dbabe802f9bd24705c896e07954a6b81`
 - Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
-- 当前状态：已确认 `beta.1` / `beta.2` 因 GitHub 临时 Runner 的默认 Debug Keystore 不同而无法覆盖；固定 Beta PKCS12 已在本地私密目录生成，四项 GitHub Actions Secrets 已安全写入，Gradle 与 CI 修改待提交并只触发一次云端构建
+- 当前状态：固定 Beta PKCS12 与四项 GitHub Actions Secrets 已就绪；Stage 8D-S 提交 `1a37af039448368b54b55ed56776ad9caeb492e2` 的 `assembleDebug` 已成功，但证书指纹校验步骤失败且未输出实际摘要，因此 `v0.1.0-beta.3` 尚未发布
 
 ## 云端状态
 
@@ -55,7 +55,7 @@
 
 ## 当前唯一任务
 
-提交 Stage 8D-S，由 GitHub Actions 只构建一次并发布 `v0.1.0-beta.3`，随后核对 APK 证书指纹与公开基准一致。
+聚焦修复证书指纹校验步骤：先让校验安全输出公开的实际证书摘要并兼容格式差异，再在下一轮只构建一次；不得在无法确认实际 APK 指纹时发布 `v0.1.0-beta.3`。
 
 ## 本地执行边界
 
@@ -64,8 +64,8 @@
 ## 阶段验收
 
 1. 固定 Beta 私钥和密码只存在本地私密目录与 GitHub Actions Secrets，不进入仓库。四项 Secrets 已写入并按名称核对。
-2. Gradle 仅在四项签名环境变量完整时启用固定 Beta 签名。已实现，待编译。
-3. Prerelease 工作流在构建后核对 APK 证书指纹。已实现，待云端执行。
-4. GitHub Actions 对 Stage 8D-S 精确提交只执行一次 `assembleDebug`。待执行。
+2. Gradle 仅在四项签名环境变量完整时启用固定 Beta 签名。已实现；运行 `29514548823` 的 `assembleDebug` 成功。
+3. Prerelease 工作流在构建后核对 APK 证书指纹。首次执行失败，实际摘要未被日志记录，待下一轮聚焦修复。
+4. GitHub Actions 对 Stage 8D-S 提交 `1a37af039448368b54b55ed56776ad9caeb492e2` 执行了一次 `assembleDebug`，已成功；本轮不重复编译。
 5. `v0.1.0-beta.3` 发布并完成一次性数据迁移。待执行与用户确认。
 6. 用户明确确认前，不合并到 `main`，不开始下一项产品功能。
