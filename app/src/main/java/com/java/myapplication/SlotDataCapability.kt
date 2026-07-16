@@ -657,11 +657,11 @@ private fun capabilityItems(
 }
 
 private fun apiState(connected: Boolean): String {
-    return if (connected) "已接入 · 自动更新" else "连接 API 后可用"
+    return if (connected) "已配置 · 自动更新" else "配置 API 后可用"
 }
 
 private fun accountState(connected: Boolean): String {
-    return if (connected) "已连接 · 自动更新" else "登录后可用"
+    return if (connected) "授权已保存 · 自动更新" else "登录后可用"
 }
 
 private fun localState(sourceConnected: Boolean): String {
