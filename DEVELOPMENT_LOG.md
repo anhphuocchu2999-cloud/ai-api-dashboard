@@ -1042,13 +1042,20 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 - `Build debug APK`：成功。
 - `Upload debug APK`：成功。
 - APK 构建产物：GitHub Actions 已确认上传。
-- GitHub Prerelease：待构建基线成功后创建版本标签。
-- 手机覆盖安装：待发布链接生成后由用户验证。
+- GitHub Prerelease：`v0.1.0-beta.1`，成功。
+- 发布工作流：`29507477102`，`Build installable debug APK`、Artifact 上传和 Prerelease 发布全部成功。
+- Release 目标提交：`042a7bd411cc0c90c8faefeb484c7324f0233263`。
+- APK：`ai-api-dashboard-v0.1.0-beta.1-debug.apk`，大小 `11999506` 字节。
+- APK SHA-256：`3F4236038302CDB27F2B76CA6D19D9BDB6E6AF3837B05F339D0574793E4AB347`。
+- 公开下载已实际执行并核对文件大小与 SHA-256。
+- 手机覆盖安装：待用户执行发布链接安装命令后验证。
 - 真机核心流程：待用户确认。
 
-**提交 SHA**
+**阶段提交 SHA**
 
-待提交。
+- 云端交付工作流：`25620bce72bf4502d45d45bafe2405ca62edefd0`
+- CI Gradle 路径修复：`5f8dee4e2fc3c990f36acb489dc0e5fd73b00866`
+- 首个 Beta 发布触发：`042a7bd411cc0c90c8faefeb484c7324f0233263`
 
 **回滚位置**
 
@@ -1056,4 +1063,4 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 
 **下一项唯一任务**
 
-创建 `v0.1.0-beta.1` GitHub Prerelease，核对 APK 附件和公开下载链接，然后交给用户在 Operit AI 中执行一次覆盖安装。
+用户在 Operit AI 中执行一次公开 APK 下载与覆盖安装命令，并真机验收配置保存、模型映射、八连点刷新、授权绑定和缓存隔离。

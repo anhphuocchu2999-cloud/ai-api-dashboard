@@ -11,8 +11,8 @@
 - 请求实例身份：`91849aef667457656d8656bdf26120c860185e5a`
 - 实例缓存隔离：`33ad0b3a9fbb79ddd8e524df2c8cf08b930fc89e`
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
-- 当前云端基线：`5f8dee4e2fc3c990f36acb489dc0e5fd73b00866`
-- 当前状态：GitHub Actions `assembleDebug` 和 APK Artifact 已成功；正在创建首个公开 Prerelease 安装包
+- 当前云端业务基线：`042a7bd411cc0c90c8faefeb484c7324f0233263`
+- 当前状态：GitHub Actions 构建、APK Artifact 和公开 Prerelease 均成功；等待用户手机覆盖安装和真机验收
 
 ## 云端状态
 
@@ -27,6 +27,10 @@
 - 当前修复只在 GitHub Runner 内把 Wrapper 地址临时替换为 Gradle 官方 HTTPS 地址，不修改 Operit 本地 Wrapper 配置。
 - GitHub Actions 运行 `29506968616` 已完成，`Build debug APK` 与 `Upload debug APK` 均成功。
 - 首个远程安装版本固定为 `v0.1.0-beta.1`，由 GitHub Runner 自动创建标签、Prerelease 和 APK 附件。
+- GitHub Actions 发布运行 `29507477102` 已完成，构建、Artifact 上传和 `Publish GitHub prerelease` 均成功。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.1`
+- APK：`ai-api-dashboard-v0.1.0-beta.1-debug.apk`，大小 `11999506` 字节。
+- APK SHA-256：`3F4236038302CDB27F2B76CA6D19D9BDB6E6AF3837B05F339D0574793E4AB347`。
 
 ## 已进入云端的主要修复
 
@@ -46,7 +50,7 @@
 
 ## 当前唯一任务
 
-让 GitHub Actions 对云端最新提交完成一次真实 `assembleDebug`，生成可下载 APK，并通过 GitHub Prerelease 向用户提供远程安装链接。当前阶段通过前不继续修改业务功能。
+用户在手机 Operit AI 中执行发布页提供的单条命令，下载并覆盖安装 `v0.1.0-beta.1`，随后完成真机核心流程验收。当前阶段通过前不继续修改业务功能。
 
 ## 本地执行边界
 
@@ -54,8 +58,8 @@
 
 ## 阶段验收
 
-1. GitHub Actions 对远端精确提交执行 `assembleDebug` 成功。
-2. GitHub Release 附带与标签和提交对应的 Debug APK。
+1. GitHub Actions 对远端精确提交执行 `assembleDebug` 成功。已完成。
+2. GitHub Release 附带与标签和提交对应的 Debug APK。已完成。
 3. 手机覆盖安装后核对应用名称、阶段和版本。
 4. 真机回归配置保存、模型映射、八连点刷新、授权绑定和缓存隔离。
 5. 用户明确确认前，不合并到 `main`，不开始下一项业务 Bug。
