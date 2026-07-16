@@ -152,10 +152,37 @@ suspend fun fetchModels(apiBase: String, apiKey: String): TestResult {
                     ""
                 }
                 conn.disconnect()
+                val error = when (responseCode) {
+                    401, 403 -> Triple(
+                        "API Key 无法通过验证",
+                        "当前 API Key 无效、已失效，或者没有读取模型列表的权限。",
+                        "请检查 API Key 和对应账户权限后再试。"
+                    )
+                    404 -> Triple(
+                        "没有找到模型接口",
+                        "当前地址没有提供兼容的 /v1/models 接口。",
+                        "请检查 API 地址，或向服务提供方确认模型列表路径。"
+                    )
+                    429 -> Triple(
+                        "请求过于频繁",
+                        "服务暂时限制了模型检测请求。",
+                        "请稍等一会再试，不需要更换 API Key。"
+                    )
+                    in 500..599 -> Triple(
+                        "服务器暂时异常",
+                        "服务端当前无法完成模型检测。",
+                        "请稍后重试；如果持续失败，再联系服务提供方。"
+                    )
+                    else -> Triple(
+                        "模型检测失败",
+                        "服务返回了 HTTP $responseCode，当前没有取得模型列表。",
+                        "请检查 API 地址后重试。"
+                    )
+                }
                 return@withContext TestResult.Error(
-                    title = "API Key 好像不对",
-                    reason = "当前 API Key 无效、已失效，或者这个地址不支持模型列表。",
-                    suggestion = "重新检查 API 地址和 API Key，再点击检测。",
+                    title = error.first,
+                    reason = error.second,
+                    suggestion = error.third,
                     detail = "请求 URL: $requestUrl\nHTTP 状态码: $responseCode\n返回内容: ${errorText.take(500)}"
                 )
             }
@@ -710,7 +737,12 @@ private fun SlotEditorScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("平台账户（可选）", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "MiMo 的余额、金额和用量来自平台账户，不是模型 API；登录后会在上方直接读取。",
+                    text = when (webProfile?.profileId) {
+                        "mimo" -> "MiMo 的余额、金额和用量来自平台账户，不是模型 API；登录后会在上方直接读取。"
+                        "deepseek" -> "DeepSeek 的网页账单与 Token 汇总来自平台账户；API Key 余额仍独立读取。"
+                        "aihuangniu" -> "爱黄牛的账户余额和资料来自平台账户；模型用量仍使用 API Key 读取。"
+                        else -> "平台账户用于补充模型 API 无法提供的余额、用量或账户资料。"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -825,13 +857,13 @@ private fun slotTitle(config: PlatformConfig): String {
 
 private fun simpleSlotStatus(config: PlatformConfig, authConnected: Boolean): String {
     if (!config.enabled) return "已隐藏"
-    val apiConnected = config.apiBase.isNotBlank() &&
+    val apiConfigured = config.apiBase.isNotBlank() &&
         config.apiKey.isNotBlank() &&
         config.model.isNotBlank()
     return when {
-        apiConnected && authConnected -> "API 已连接 · 平台账户已连接"
-        apiConnected -> "API 已连接"
-        authConnected -> "平台账户已连接 · 等待选择模型"
+        apiConfigured && authConnected -> "API 已配置 · 平台账户授权已保存"
+        apiConfigured -> "API 已配置"
+        authConnected -> "平台账户授权已保存 · 等待选择模型"
         else -> "未配置"
     }
 }
