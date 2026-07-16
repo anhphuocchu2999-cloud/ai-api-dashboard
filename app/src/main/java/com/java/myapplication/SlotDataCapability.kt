@@ -365,7 +365,7 @@ private fun loadCurrentSlotData(
     val adapter = AdapterFactory.getAdapter(slotId, apiBase)
         ?: return LiveDataState.Error("当前服务还没有可读取余额或用量的适配器")
 
-    val auth = loadPlatformAuthorization(prefs, slotId, webProfile)
+    val auth = loadPlatformAuthorization(prefs, webProfile)
     val data = try {
         adapter.fetchData(
             AdapterRequest(
@@ -402,14 +402,15 @@ private fun loadCurrentSlotData(
 
 private fun loadPlatformAuthorization(
     prefs: android.content.SharedPreferences,
-    slotId: String,
     profile: WebAuthProfile?
 ): BackgroundAuthConfig {
-    if (profile != null) {
-        val shared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
-        if (shared.enabled && shared.authValue.isNotBlank()) return shared
-    }
-    return BackgroundAuthRepository.load(prefs, slotId)
+    if (profile == null) return BackgroundAuthConfig()
+    val shared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+    return shared.takeIf {
+        it.enabled &&
+            it.authType == profile.authType &&
+            it.authValue.isNotBlank()
+    } ?: BackgroundAuthConfig()
 }
 
 private fun buildLiveMetrics(
