@@ -1038,8 +1038,10 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 - 失败步骤：`Build debug APK`。
 - 真实错误：Gradle Wrapper 尝试读取 Operit 专用本地路径 `file:///root/gradle/gradle-9.1.0-bin.zip`，GitHub Runner 返回 `Permission denied`，尚未进入 Android 编译。
 - 修复：只在两个 GitHub 工作流中把 Wrapper 地址临时替换为 `https://services.gradle.org/distributions/gradle-9.1.0-bin.zip`；仓库内 Operit 本地配置保持不变。
-- 修复后 GitHub Actions `assembleDebug`：待执行一次。
-- APK 构建产物：待 GitHub Actions 成功后核对。
+- 修复后 GitHub Actions：`29506968616`，成功。
+- `Build debug APK`：成功。
+- `Upload debug APK`：成功。
+- APK 构建产物：GitHub Actions 已确认上传。
 - GitHub Prerelease：待构建基线成功后创建版本标签。
 - 手机覆盖安装：待发布链接生成后由用户验证。
 - 真机核心流程：待用户确认。
@@ -1054,4 +1056,4 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 
 **下一项唯一任务**
 
-推送本阶段工作流并取得一次真实 GitHub Actions 构建结果；构建失败时只修复该构建错误，构建成功后再创建首个远程安装 Prerelease。
+创建 `v0.1.0-beta.1` GitHub Prerelease，核对 APK 附件和公开下载链接，然后交给用户在 Operit AI 中执行一次覆盖安装。

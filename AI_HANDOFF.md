@@ -11,8 +11,8 @@
 - 请求实例身份：`91849aef667457656d8656bdf26120c860185e5a`
 - 实例缓存隔离：`33ad0b3a9fbb79ddd8e524df2c8cf08b930fc89e`
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
-- 当前云端基线：`25620bce72bf4502d45d45bafe2405ca62edefd0`
-- 当前状态：首次 GitHub Actions 已真实执行，但 Gradle Wrapper 指向 Operit 本地文件路径而失败；工作流专用修复待重新构建验证
+- 当前云端基线：`5f8dee4e2fc3c990f36acb489dc0e5fd73b00866`
+- 当前状态：GitHub Actions `assembleDebug` 和 APK Artifact 已成功；正在创建首个公开 Prerelease 安装包
 
 ## 云端状态
 
@@ -25,6 +25,8 @@
 - `25620bce72bf4502d45d45bafe2405ca62edefd0` 已加入云端 APK 构建与 Prerelease 工作流。
 - GitHub Actions 运行 `29506642960` 失败于 `file:///root/gradle/gradle-9.1.0-bin.zip` 权限错误，尚未进入 Android 编译。
 - 当前修复只在 GitHub Runner 内把 Wrapper 地址临时替换为 Gradle 官方 HTTPS 地址，不修改 Operit 本地 Wrapper 配置。
+- GitHub Actions 运行 `29506968616` 已完成，`Build debug APK` 与 `Upload debug APK` 均成功。
+- 首个远程安装版本固定为 `v0.1.0-beta.1`，由 GitHub Runner 自动创建标签、Prerelease 和 APK 附件。
 
 ## 已进入云端的主要修复
 
