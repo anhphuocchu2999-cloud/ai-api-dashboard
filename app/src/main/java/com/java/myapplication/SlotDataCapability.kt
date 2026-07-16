@@ -372,6 +372,7 @@ private fun loadCurrentSlotData(
                 apiBase = apiBase,
                 modelApiKey = apiKey,
                 modelName = modelName.takeIf { it.isNotBlank() },
+                instanceId = slotId,
                 backgroundAuthType = auth.authType,
                 backgroundCredential = auth.authValue
             )
@@ -665,3 +666,4 @@ private fun accountState(connected: Boolean): String {
 private fun localState(sourceConnected: Boolean): String {
     return if (sourceConnected) "积累后自动生成" else "连接来源后生成"
 }
+
