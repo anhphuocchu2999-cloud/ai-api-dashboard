@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -77,6 +78,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         )
 
         private data class CardIds(
+            val root: Int,
+            val logo: Int,
             val title: Int,
             val primary: Int,
             val usage: Int,
@@ -86,22 +89,21 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         )
 
         private fun ids(prefix: String) = when (prefix) {
-            "mimo" -> CardIds(R.id.mimo_title, R.id.mimo_tokens, R.id.mimo_balance,
+            "mimo" -> CardIds(R.id.mimo_card, R.id.mimo_logo,
+                R.id.mimo_title, R.id.mimo_tokens, R.id.mimo_balance,
                 R.id.mimo_percent, R.id.mimo_progress, R.id.mimo_auxiliary)
-            "ds" -> CardIds(R.id.ds_title, R.id.ds_tokens, R.id.ds_balance,
+            "ds" -> CardIds(R.id.ds_card, R.id.ds_logo,
+                R.id.ds_title, R.id.ds_tokens, R.id.ds_balance,
                 R.id.ds_percent, R.id.ds_progress, R.id.ds_auxiliary)
-            "oai" -> CardIds(R.id.oai_title, R.id.oai_tokens, R.id.oai_balance,
+            "oai" -> CardIds(R.id.oai_card, R.id.oai_logo,
+                R.id.oai_title, R.id.oai_tokens, R.id.oai_balance,
                 R.id.oai_percent, R.id.oai_progress, R.id.oai_auxiliary)
-            else -> CardIds(R.id.kimi_title, R.id.kimi_tokens, R.id.kimi_balance,
+            else -> CardIds(R.id.kimi_card, R.id.kimi_logo,
+                R.id.kimi_title, R.id.kimi_tokens, R.id.kimi_balance,
                 R.id.kimi_percent, R.id.kimi_progress, R.id.kimi_auxiliary)
         }
 
-        private fun prefix(slot: String) = when (slot) {
-            "MiMo" -> "mimo"
-            "DeepSeek" -> "ds"
-            "OpenAI" -> "oai"
-            else -> "kimi"
-        }
+        private val renderPrefixes = listOf("kimi", "mimo", "ds", "oai")
 
         private fun tapCountKey(id: Int) = "count_$id"
 
@@ -157,8 +159,12 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             else saveCompact(context, id, manager.getAppWidgetOptions(id))
         }
 
-        private fun applyLayout(views: RemoteViews, compact: Boolean) {
-            views.setViewVisibility(R.id.row_secondary, if (compact) View.GONE else View.VISIBLE)
+        private fun applyLayout(views: RemoteViews, compact: Boolean, visibleCount: Int) {
+            views.setViewVisibility(R.id.row_primary, if (visibleCount == 0) View.GONE else View.VISIBLE)
+            views.setViewVisibility(
+                R.id.row_secondary,
+                if (compact || visibleCount <= 2) View.GONE else View.VISIBLE
+            )
         }
 
         internal fun updateAppWidget(context: Context, manager: AppWidgetManager, id: Int) {
@@ -167,7 +173,6 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             generations[id] = generation
             val compact = compact(context, manager, id)
             val views = RemoteViews(context.packageName, R.layout.widget_balance)
-            applyLayout(views, compact)
 
             val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
             val loaded = ConfigRepository.loadAllConfigs(prefs)
@@ -177,10 +182,19 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                     id = slot, name = "", apiBase = "", apiKey = "", model = "", enabled = true
                 )
             }
-            val visibleSlots = if (compact) slots.take(2) else slots
-            val visibleConfigs = if (compact) configs.take(2) else configs
-
-            visibleSlots.forEach { showLoading(views, prefix(it)) }
+            val enabledEntries = slots.zip(configs).filter { (_, config) -> config.enabled }
+            val visibleEntries = enabledEntries.take(if (compact) 2 else 4)
+            val targets = renderPrefixes.take(if (compact) 2 else 4)
+            applyLayout(views, compact, visibleEntries.size)
+            targets.forEachIndexed { index, target ->
+                val entry = visibleEntries.getOrNull(index)
+                views.setViewVisibility(ids(target).root, if (entry == null) View.GONE else View.VISIBLE)
+                if (entry != null) {
+                    showLoading(views, target)
+                    setTitle(views, target, entry.second)
+                    applyBrand(views, target, entry.first, entry.second)
+                }
+            }
             views.setTextViewText(R.id.update_time, "正在同步…")
             views.setTextViewText(R.id.click_count, "")
             bindRefresh(context, views, id)
@@ -189,8 +203,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             Thread {
                 val results = mutableListOf<WidgetData>()
                 val hostTimes = mutableMapOf<String, Long>()
-                visibleSlots.forEachIndexed { index, slot ->
-                    val config = visibleConfigs[index]
+                visibleEntries.forEach { (slot, config) ->
                     val host = try { URL(config.apiBase.trim().trimEnd('/')).host } catch (_: Exception) { "" }
                     val last = hostTimes[host] ?: 0L
                     val wait = if (host.isNotBlank() && last > 0L) {
@@ -205,10 +218,11 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
                 Handler(Looper.getMainLooper()).post {
                     if (generations[id] != generation) return@post
-                    applyLayout(views, compact(context, manager, id))
+                    applyLayout(views, compact(context, manager, id), visibleEntries.size)
                     results.forEachIndexed { index, data ->
-                        val p = prefix(visibleSlots[index])
-                        setTitle(views, p, visibleConfigs[index])
+                        val p = targets[index]
+                        setTitle(views, p, visibleEntries[index].second)
+                        applyBrand(views, p, visibleEntries[index].first, visibleEntries[index].second)
                         render(context, views, data, p)
                     }
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -407,6 +421,36 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(ids(prefix).title, title)
         }
 
+        private fun applyBrand(
+            views: RemoteViews,
+            prefix: String,
+            slot: String,
+            config: ApiAccountConfig
+        ) {
+            val cardIds = ids(prefix)
+            val profileId = WebAuthProfileRegistry.findFor(slot, config.apiBase)?.profileId
+            val normalizedBase = config.apiBase.lowercase(Locale.ROOT)
+            val logo = when {
+                profileId == "mimo" || normalizedBase.contains("xiaomimimo.com") -> R.drawable.logo_mimo
+                profileId == "deepseek" || normalizedBase.contains("deepseek.com") -> R.drawable.logo_deepseek
+                normalizedBase.contains("coolyeah.net") || normalizedBase.contains("kimi") -> R.drawable.logo_kimi
+                normalizedBase.contains("openai.com") -> R.drawable.logo_openai
+                else -> null
+            }
+            views.setViewVisibility(cardIds.logo, if (logo == null) View.GONE else View.VISIBLE)
+            logo?.let { views.setImageViewResource(cardIds.logo, it) }
+
+            val accent = when (logo) {
+                R.drawable.logo_kimi -> Color.rgb(52, 199, 89)
+                R.drawable.logo_mimo -> Color.rgb(0, 122, 255)
+                R.drawable.logo_deepseek -> Color.rgb(255, 149, 0)
+                R.drawable.logo_openai -> Color.rgb(175, 82, 222)
+                else -> Color.rgb(142, 142, 147)
+            }
+            views.setTextColor(cardIds.primary, accent)
+            views.setTextColor(cardIds.percent, accent)
+        }
+
         private fun bindRefresh(context: Context, views: RemoteViews, id: Int) {
             val intent = Intent(context, BalanceWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH
@@ -422,3 +466,4 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
     }
 }
+
