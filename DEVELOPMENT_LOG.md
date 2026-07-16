@@ -1321,4 +1321,10 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - 四张卡片把辅助指标与同步角标放入同一个底部横向行。
 - 辅助指标使用 `0dp + weight=1`，角标使用独立 `wrap_content` 宽度和 `4dp` 间距，固定占据最右侧。
 - 未修改 `BalanceWidgetProvider`、刷新触发、八连点、缓存、Adapter、配置或认证逻辑。
-- 待静态检查、云端一次构建并发布 `v0.1.0-beta.4`。
+- XML 解析、`actionlint` 与 `git diff --check`：通过。
+- 阶段提交：`67dce82d116284b7d80655b1f3cd01ef5486e3a5`。
+- GitHub Actions：`29516222227`，构建、固定证书校验、Artifact 和 Prerelease 发布全部成功。
+- Release：`v0.1.0-beta.4`。
+- APK：`ai-api-dashboard-v0.1.0-beta.4-debug.apk`，大小 `11999794` 字节。
+- APK SHA-256：`A075EC3425FAEC1D81429292F92A0B140DC26D5B57BAE0328715E4B2827A7145`。
+- 覆盖安装与角标真机验收：待用户执行并确认。
