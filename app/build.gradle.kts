@@ -24,6 +24,7 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            resValue("string", "app_name", "AI API Dashboard Dev")
         }
         release {
             isMinifyEnabled = false
@@ -47,11 +48,16 @@ android {
     }
 }
 
-// Force use of ARM64 binaries for AAPT2 in Proot environment
-configurations.all {
-    resolutionStrategy.eachDependency {
-        if (requested.group == "com.android.tools.build" && requested.name == "aapt2") {
-            useTarget("com.android.tools.build:aapt2:${'$'}{requested.version}:linux-aarch64")
+// Operit/Proot on Linux ARM64 needs the matching native AAPT2 binary.
+// Other hosts (Windows and GitHub x64 runners) must keep the Android plugin default.
+val isLinuxArm64 = System.getProperty("os.name").contains("linux", ignoreCase = true) &&
+    System.getProperty("os.arch").let { it.equals("aarch64", true) || it.equals("arm64", true) }
+if (isLinuxArm64) {
+    configurations.all {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "com.android.tools.build" && requested.name == "aapt2") {
+                useTarget("com.android.tools.build:aapt2:${'$'}{requested.version}:linux-aarch64")
+            }
         }
     }
 }
@@ -74,3 +80,4 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
