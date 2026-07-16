@@ -666,4 +666,3 @@ private fun accountState(connected: Boolean): String {
 private fun localState(sourceConnected: Boolean): String {
     return if (sourceConnected) "积累后自动生成" else "连接来源后生成"
 }
-
