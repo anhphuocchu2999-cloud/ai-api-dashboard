@@ -896,8 +896,6 @@ Stage 8A-2：新增 ModelInstance 数据结构和实例仓库，完成旧配置�
 
 Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。
 
----
-
 ## 2026-07-14｜Stage 8A-2B 加固 ModelInstanceRepository
 
 **目标与背景**
@@ -997,3 +995,59 @@ Stage 8A-2B 已加固实例 JSON 完整性检查和两步 commit，但仍有三�
 **下一项唯一任务**
 
 Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instanceId。
+
+---
+
+## 2026-07-16｜Stage 8B-R GitHub 云端构建与远程安装交付
+
+**目标与背景**
+
+用户明确要求以 GitHub 远端数据为唯一基线，并希望最终直接获得手机可下载的远程安装链接，不再由用户手工执行 Gradle 和 ADB。仓库当前已为 Public，因此交付链路同时按公开仓库标准处理。
+
+**方案与取舍**
+
+- 保留现有 `Baseline Android Build`，在 `assembleDebug` 成功后上传 Debug APK 构建产物。
+- 新增 `Android Prerelease` 工作流；推送 `v*-beta.*` 标签时构建 Debug APK，并创建 GitHub Prerelease。
+- Release APK 文件名包含标签，Release 目标提交使用 GitHub 运行时的精确 SHA。
+- 当前没有生产签名材料，首个远程交付明确标记为 Debug Prerelease，不冒充商店正式版。
+- 不新增服务器，不在 GitHub 保存用户 API Key、Cookie、Bearer Token 或签名私钥。
+
+**起始分支和提交**
+
+- 分支：`feature/stage-8b-simple-connection-flow`
+- 起始云端提交：`b92c4b667f50191320b57d3d18a7aa79c0968f19`
+
+**实际修改文件**
+
+- `.github/workflows/baseline-build.yml`
+- `.github/workflows/android-prerelease.yml`
+- `PROJECT.md`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 Android 业务代码、Adapter、缓存、授权、配置保存和 Widget 布局。
+- 未创建生产签名或正式商店 Release。
+- 未合并到 `main`。
+
+**验证状态**
+
+- 工作流静态检查：`git diff --check` 通过。
+- GitHub Actions `assembleDebug`：待推送后执行。
+- APK 构建产物：待 GitHub Actions 成功后核对。
+- GitHub Prerelease：待构建基线成功后创建版本标签。
+- 手机覆盖安装：待发布链接生成后由用户验证。
+- 真机核心流程：待用户确认。
+
+**提交 SHA**
+
+待提交。
+
+**回滚位置**
+
+`b92c4b667f50191320b57d3d18a7aa79c0968f19`
+
+**下一项唯一任务**
+
+推送本阶段工作流并取得一次真实 GitHub Actions 构建结果；构建失败时只修复该构建错误，构建成功后再创建首个远程安装 Prerelease。

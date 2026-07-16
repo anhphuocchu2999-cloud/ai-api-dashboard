@@ -1607,3 +1607,41 @@ OpenAI 和额外配置按 apiBase 域名推断：
 - [ ] DEVELOPMENT_LOG.md 已追加 Stage 8A-1 记录
 - [ ] AI_HANDOFF.md 已更新当前状态
 - [ ] 提交并推送
+
+---
+
+## Stage 8B-R：GitHub 云端构建与远程安装交付
+
+### 目标
+
+以 GitHub 远端开发分支作为唯一代码基线，让用户无需在本地执行 Gradle 或 ADB，也能获得与指定提交严格对应的可安装 APK。
+
+### 交付规则
+
+- 开发分支和 Pull Request 通过 GitHub Actions 执行 `assembleDebug`。
+- 构建成功后上传 `app-debug.apk` 作为短期构建产物，便于阶段验收。
+- 推送 `v*-beta.*` 标签时，自动创建 GitHub Prerelease，并附带公开可下载 APK。
+- APK 文件名必须包含版本标签，Release 必须能够追溯到唯一提交 SHA。
+- 正式签名尚未建立前，只允许标记为 Debug Prerelease，不得冒充应用商店正式版本。
+- Release 页面和构建日志不得包含 API Key、Cookie、Bearer Token 或其他用户凭据。
+
+### 本阶段范围
+
+- GitHub Actions Debug 构建产物上传。
+- GitHub Prerelease APK 发布。
+- 项目状态、开发日志和交接文档同步。
+
+### 明确不做
+
+- 不修改 Adapter、缓存、授权、配置保存或 Widget 业务逻辑。
+- 不引入开发者中转服务器。
+- 不在仓库保存签名密钥。
+- 不把 Debug APK 宣称为生产签名正式版。
+
+### 验收标准
+
+- GitHub Actions 对指定提交执行 `assembleDebug` 成功。
+- 构建产物中真实存在 APK。
+- GitHub Prerelease 提供可由手机直接下载的 APK 链接。
+- 用户覆盖安装后，首页显示的阶段和构建版本与 Release 对应。
+- 用户完成真机核心流程验收前，不合并到 `main`。
