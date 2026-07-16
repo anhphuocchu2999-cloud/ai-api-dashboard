@@ -1034,7 +1034,11 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 **验证状态**
 
 - 工作流静态检查：`git diff --check` 通过。
-- GitHub Actions `assembleDebug`：待推送后执行。
+- GitHub Actions 首次运行：`29506642960`，失败。
+- 失败步骤：`Build debug APK`。
+- 真实错误：Gradle Wrapper 尝试读取 Operit 专用本地路径 `file:///root/gradle/gradle-9.1.0-bin.zip`，GitHub Runner 返回 `Permission denied`，尚未进入 Android 编译。
+- 修复：只在两个 GitHub 工作流中把 Wrapper 地址临时替换为 `https://services.gradle.org/distributions/gradle-9.1.0-bin.zip`；仓库内 Operit 本地配置保持不变。
+- 修复后 GitHub Actions `assembleDebug`：待执行一次。
 - APK 构建产物：待 GitHub Actions 成功后核对。
 - GitHub Prerelease：待构建基线成功后创建版本标签。
 - 手机覆盖安装：待发布链接生成后由用户验证。

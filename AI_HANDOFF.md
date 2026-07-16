@@ -11,8 +11,8 @@
 - 请求实例身份：`91849aef667457656d8656bdf26120c860185e5a`
 - 实例缓存隔离：`33ad0b3a9fbb79ddd8e524df2c8cf08b930fc89e`
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
-- 当前云端基线：`b92c4b667f50191320b57d3d18a7aa79c0968f19`
-- 当前状态：上一构建错误的 Gradle `resValues` 配置已修复；GitHub Actions、APK 产物和真机安装仍待验证
+- 当前云端基线：`25620bce72bf4502d45d45bafe2405ca62edefd0`
+- 当前状态：首次 GitHub Actions 已真实执行，但 Gradle Wrapper 指向 Operit 本地文件路径而失败；工作流专用修复待重新构建验证
 
 ## 云端状态
 
@@ -21,7 +21,10 @@
 - 唯一开发基线：GitHub 远端 `feature/stage-8b-simple-connection-flow`
 - 本地旧副本不得覆盖远端；继续开发必须从远端最新 HEAD 建立干净工作区。
 - `2f67e57806406d90cb0046d87df8da994834335e` 的构建曾因 Debug `resValue` 未启用而失败。
-- `b92c4b667f50191320b57d3d18a7aa79c0968f19` 已加入 `resValues = true`，但尚无成功构建证据。
+- `b92c4b667f50191320b57d3d18a7aa79c0968f19` 已加入 `resValues = true`。
+- `25620bce72bf4502d45d45bafe2405ca62edefd0` 已加入云端 APK 构建与 Prerelease 工作流。
+- GitHub Actions 运行 `29506642960` 失败于 `file:///root/gradle/gradle-9.1.0-bin.zip` 权限错误，尚未进入 Android 编译。
+- 当前修复只在 GitHub Runner 内把 Wrapper 地址临时替换为 Gradle 官方 HTTPS 地址，不修改 Operit 本地 Wrapper 配置。
 
 ## 已进入云端的主要修复
 
