@@ -17,7 +17,6 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     env:
-      ANDROID_SIGNING_STORE_FILE: ${{ runner.temp }}/ai-api-dashboard-beta.p12
       ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
       ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
       ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
@@ -36,12 +35,14 @@ jobs:
         env:
           ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
         run: |
+          signing_store_file="$RUNNER_TEMP/ai-api-dashboard-beta.p12"
+          echo "ANDROID_SIGNING_STORE_FILE=$signing_store_file" >> "$GITHUB_ENV"
           test -n "$ANDROID_SIGNING_KEYSTORE_BASE64"
           test -n "$ANDROID_SIGNING_STORE_PASSWORD"
           test -n "$ANDROID_SIGNING_KEY_ALIAS"
           test -n "$ANDROID_SIGNING_KEY_PASSWORD"
           umask 077
-          printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_SIGNING_STORE_FILE"
+          printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$signing_store_file"
       - name: Build installable debug APK
         run: |
           chmod +x ./gradlew

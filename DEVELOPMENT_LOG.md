@@ -1280,3 +1280,11 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 完成静态检查并一次性推送 Stage 8D-S，确认 GitHub Actions 只运行一次 `assembleDebug`。
+
+**首次工作流定义失败与修复**
+
+- Stage 8D-S 初始提交：`005753f11f19c579ebab8a494ce6ca937d1ff368`。
+- GitHub Actions 运行：`29514358210`，在创建任何 Job 前失败，`jobs` 为空，因此没有执行 `assembleDebug`。
+- `actionlint` 明确报告 Job 级 `env` 不允许使用 `runner` 上下文；错误位置为 `ANDROID_SIGNING_STORE_FILE: ${{ runner.temp }}/...`。
+- 聚焦修复：在 Secrets 重建步骤中使用 Runner 自带的 `$RUNNER_TEMP`，并通过 `$GITHUB_ENV` 传给后续构建与清理步骤；签名材料、指纹和 Android 业务代码不变。
+- 修复后必须先通过 `actionlint` 和 `git diff --check`，再推送触发唯一一次真实 `assembleDebug`。
