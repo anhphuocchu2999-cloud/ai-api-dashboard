@@ -1687,3 +1687,81 @@ Widget 自动刷新或第八次手动点击触发刷新时，不再用“正在�
 - 请求失败时继续遵守最近成功缓存规则，但缓存数据显示不残留同步角标。
 - GitHub Actions `assembleDebug` 成功并发布新的公开 Debug Prerelease APK。
 - 用户覆盖安装并完成真机验收前，不进入下一业务阶段。
+
+---
+
+## Stage 8D-S：固定 Beta 签名与持续覆盖升级
+
+### 问题背景
+
+`v0.1.0-beta.1` 与 `v0.1.0-beta.2` 都由 GitHub Actions 临时 Runner 使用自动生成的 Debug Keystore 签名。Runner 每次全新创建，导致每个 APK 的签名证书不同，同一包名 `com.java.myapplication.dev` 无法通过 `adb install -r` 持续覆盖升级。
+
+旧 Runner 的 Debug 私钥没有保存，只有公开证书，无法重新签出与旧 Beta 相同的 APK。因此本阶段必须建立新的固定 Beta 签名身份，并明确执行一次签名迁移；之后所有 Beta 才能稳定覆盖安装。
+
+### 签名边界
+
+- 固定签名仅用于 Debug Prerelease 包 `com.java.myapplication.dev`。
+- 本阶段签名不是应用商店生产签名，不用于未来正式包 `com.java.myapplication`。
+- 私钥、Keystore 和密码不得提交到 Public 仓库、Release、Artifact、构建日志或开发日志。
+- 私钥通过 GitHub Actions Secrets 注入；Runner 只在临时目录重建签名文件，工作结束后删除。
+- 仓库只允许保存公开证书 SHA-256 指纹，用于 CI 防错校验。
+
+### GitHub Actions Secrets
+
+固定使用以下 Secret 名称：
+
+- `ANDROID_SIGNING_KEYSTORE_BASE64`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+
+Secret 缺少任意一项时，Prerelease 工作流必须在编译前失败，不得回退到临时 Debug 签名并发布。
+
+### Gradle 与 CI 规则
+
+1. 本地未提供签名环境变量时，开发者仍可使用默认 Debug 签名执行普通本地调试构建。
+2. 只要提供了任意固定签名环境变量，就必须四项完整；不完整时 Gradle 配置直接失败。
+3. Prerelease 工作流从 Secrets 重建 PKCS12 Keystore，并通过环境变量向 Gradle 注入。
+4. `assembleDebug` 完成后，必须使用 Android `apksigner` 读取 APK 实际证书摘要，并与仓库记录的公开指纹严格比较。
+5. 指纹不一致时不得上传 Artifact、不得创建 GitHub Release。
+6. 普通 Pull Request 基线构建不读取签名 Secrets，其 APK 只能标记为临时签名测试产物，不得作为可持续安装版本分发。
+
+### 当前固定 Beta 证书
+
+- Alias：`ai-api-dashboard-beta`
+- 类型：PKCS12 / RSA 4096 / SHA-256
+- 公开证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`
+- 证书用途：仅 Beta Debug 包
+
+### 一次性迁移规则
+
+- `beta.1` / `beta.2` 无法直接覆盖安装固定签名版，这是 Android 签名安全限制，不得宣称可绕过。
+- 当前旧 Debug 包和新固定签名包都可调试时，可以在卸载前通过 `run-as` 备份 App 私有 SharedPreferences，再安装固定签名包并恢复。
+- 备份可能包含 API Key、Cookie 和 Token，只能写入用户控制的私有目录；不得上传到 GitHub、开发者服务器或公开存储。
+- 恢复成功并经用户确认后必须删除临时备份。
+- 如果设备不支持 `run-as` 或私有恢复失败，立即停止，不得自动清除旧应用数据。
+
+### 本阶段范围
+
+- `app/build.gradle.kts` 固定 Beta 签名注入。
+- GitHub Prerelease 工作流 Secrets 重建、签名校验和 `v0.1.0-beta.3` 交付。
+- Baseline Artifact 明确标记为临时签名测试产物。
+- `.gitignore` 增加 PKCS12、PEM 等签名材料保护。
+- 项目状态、开发日志与 AI 交接同步。
+
+### 明确不做
+
+- 不修改 Widget、Adapter、缓存、认证、配置或网络业务逻辑。
+- 不创建正式商店签名或 Play App Signing 配置。
+- 不把任何私钥或密码提交到仓库。
+- 不继续下一项产品功能。
+- 不合并到 `main`。
+
+### 验收标准
+
+- GitHub Secrets 四项完整存在，但界面和日志不显示其值。
+- GitHub Actions 对精确提交只执行一次 `assembleDebug` 并成功。
+- APK 实际证书 SHA-256 与固定公开指纹一致。
+- `v0.1.0-beta.3` Release 目标提交、文件大小和 SHA-256 可追溯。
+- 用户完成一次旧签名到固定签名的安全迁移。
+- 后续 Beta 使用同一证书，可通过 `adb install -r` 覆盖固定签名版。

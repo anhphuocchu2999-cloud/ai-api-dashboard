@@ -3,6 +3,23 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val betaSigningStoreFile = providers.environmentVariable("ANDROID_SIGNING_STORE_FILE").orNull
+val betaSigningStorePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
+val betaSigningKeyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orNull
+val betaSigningKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orNull
+val betaSigningValues = listOf(
+    betaSigningStoreFile,
+    betaSigningStorePassword,
+    betaSigningKeyAlias,
+    betaSigningKeyPassword
+)
+val betaSigningRequested = betaSigningValues.any { !it.isNullOrBlank() }
+val betaSigningConfigured = betaSigningValues.all { !it.isNullOrBlank() }
+
+if (betaSigningRequested && !betaSigningConfigured) {
+    error("Beta signing environment is incomplete")
+}
+
 android {
     namespace = "com.java.myapplication"
     compileSdk = 35
@@ -20,11 +37,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (betaSigningConfigured) {
+            create("stableBeta") {
+                storeFile = file(betaSigningStoreFile!!)
+                storePassword = betaSigningStorePassword!!
+                keyAlias = betaSigningKeyAlias!!
+                keyPassword = betaSigningKeyPassword!!
+                storeType = "PKCS12"
+            }
+        }
+    }
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "AI API Dashboard Dev")
+            signingConfigs.findByName("stableBeta")?.let { signingConfig = it }
         }
         release {
             isMinifyEnabled = false

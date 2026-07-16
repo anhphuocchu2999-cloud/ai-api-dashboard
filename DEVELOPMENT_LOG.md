@@ -1184,3 +1184,99 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 用户覆盖安装 `v0.1.0-beta.2` 并验收 Stage 8C。
+
+---
+
+## 2026-07-16｜Stage 8D-S 固定 Beta 签名准备
+
+**目标与问题背景**
+
+用户发现连续 GitHub Debug Prerelease 的签名证书不一致。源码和工作流确认 `app/build.gradle.kts` 没有固定签名配置，GitHub Actions 也没有重建固定 Keystore，因此每个临时 Runner 都使用自己新生成的默认 Debug Keystore。`beta.1` 与 `beta.2` 私钥均未保存，无法重新获得旧签名。
+
+**方案与取舍**
+
+- 新建仅用于 `.dev` Beta 包的固定 PKCS12 签名，不与未来生产签名混用。
+- 私钥和密码只进入 GitHub Actions Secrets；Public 仓库只记录公开证书 SHA-256。
+- Gradle 支持四项环境变量完整时启用 `stableBeta`，部分配置直接失败，本地完全未配置时继续允许普通默认 Debug 构建。
+- Prerelease 工作流在编译前强制校验 Secrets，重建临时 Keystore，编译后用 `apksigner` 核对证书，再允许发布。
+- 普通 CI Artifact 明确改名为临时签名测试产物，避免与可持续安装包混淆。
+- 旧签名无法直接覆盖，后续使用 `run-as` 设计一次性私有 SharedPreferences 迁移；本准备阶段不执行手机卸载或数据操作。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`edef1e3af734c0c5a97bb932f07b0b68b524e509`
+- 本地实施分支：`agent/stable-signing`
+
+**签名材料状态**
+
+- 固定 Beta Alias：`ai-api-dashboard-beta`
+- 公开证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`
+- 私钥和密码：已生成在工作区私密目录，未输出值，未加入 Git。
+- 原始 PEM 私钥和证书临时文件：生成 PKCS12 后已删除。
+- GitHub Actions Secrets：待写入；浏览器安全策略阻止代理访问 GitHub Settings，未绕过。
+
+**实际修改文件（尚未提交）**
+
+- `app/build.gradle.kts`
+- `.github/workflows/android-prerelease.yml`
+- `.github/workflows/baseline-build.yml`
+- `.gitignore`
+- `PROJECT.md`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 Widget、Adapter、缓存、配置、授权或网络业务逻辑。
+- 未把 Keystore、密码、PEM 或私钥提交到仓库。
+- 未创建生产签名。
+- 未推送工作流，未触发 GitHub Actions，未执行编译或发布。
+- 未卸载手机旧版，未读取或迁移用户凭据。
+
+**验证状态**
+
+- 固定 PKCS12 已生成：`本地命令已核对`。
+- 公开证书指纹已从生成证书读取：`本地命令已核对`。
+- 源码与工作流静态检查：待执行。
+- GitHub Actions Secrets：待用户允许 GitHub Settings 操作后写入。
+- `assembleDebug`、APK 发布、覆盖安装和真机验收：均未执行。
+
+**阶段提交 SHA**
+
+- 待 Secrets 写入并完成静态检查后提交。
+
+**已知风险和待验证事项**
+
+- 旧 Beta 私钥不可恢复，首次固定签名版不能直接 `adb install -r`。
+- 一次性数据迁移包含本机敏感凭据，必须只经过用户控制的私有目录，并在验收后删除备份。
+- Secrets 缺失时不得推送 Prerelease 工作流，否则只会产生一次可预见的失败构建。
+
+**回滚位置**
+
+`edef1e3af734c0c5a97bb932f07b0b68b524e509`
+
+**下一项唯一任务**
+
+安全写入四项 GitHub Actions Secrets，然后提交并只执行一次云端构建。
+
+---
+
+## 2026-07-17｜Stage 8D-S GitHub Actions Secrets 写入
+
+**实际完成**
+
+- 使用用户明确授权的临时 GitHub 凭据写入四项仓库级 Actions Secrets。
+- 仅核对 Secret 名称存在，不读取、不回显 Secret 值。
+- 固定 Beta 私钥、PKCS12 和密码仍未加入 Git；Public 仓库只记录公开证书指纹。
+- 写入前核对远端 `feature/stage-8b-simple-connection-flow` 仍为起始提交 `edef1e3af734c0c5a97bb932f07b0b68b524e509`，没有云端分叉。
+
+**验证证据**
+
+- 四项 Secret 名称均已由 GitHub 返回：`ANDROID_SIGNING_KEYSTORE_BASE64`、`ANDROID_SIGNING_STORE_PASSWORD`、`ANDROID_SIGNING_KEY_ALIAS`、`ANDROID_SIGNING_KEY_PASSWORD`。
+- Secret 值未写入本文档、命令输出或仓库文件。
+- 静态检查、阶段提交、云端构建与发布在下一步执行并回填。
+
+**下一项唯一任务**
+
+完成静态检查并一次性推送 Stage 8D-S，确认 GitHub Actions 只运行一次 `assembleDebug`。
