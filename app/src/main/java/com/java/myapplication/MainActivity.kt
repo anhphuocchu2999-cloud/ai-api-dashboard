@@ -343,7 +343,18 @@ fun ConfigScreen(
                     testingIndex = index
                     connectionStatuses = connectionStatuses.toMutableList().apply { this[index] = null }
                     scope.launch {
-                        when (val result = fetchModels(testConfig.apiBase, testConfig.apiKey)) {
+                        val result = fetchModels(testConfig.apiBase, testConfig.apiKey)
+                        val currentConfig = configs.getOrNull(index)
+                        if (
+                            currentConfig == null ||
+                            currentConfig.apiBase != testConfig.apiBase ||
+                            currentConfig.apiKey != testConfig.apiKey
+                        ) {
+                            testingIndex = -1
+                            return@launch
+                        }
+
+                        when (result) {
                             is TestResult.Success -> {
                                 testingIndex = -1
                                 if (result.models.size == 1) {
