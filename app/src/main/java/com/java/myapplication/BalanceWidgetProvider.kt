@@ -48,7 +48,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             AppWidgetManager.INVALID_APPWIDGET_ID
         )
         if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            updateAppWidget(context, AppWidgetManager.getInstance(context), id)
+            handleRefreshTap(context, AppWidgetManager.getInstance(context), id)
         }
     }
 
@@ -56,10 +56,23 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         const val ACTION_REFRESH = "com.java.myapplication.ACTION_REFRESH"
         private const val LAYOUT_PREFS = "widget_layout_state"
         private const val CAROUSEL_PREFS = "widget_carousel"
+        private const val REFRESH_TAP_PREFS = "widget_refresh_taps"
         private const val COMPACT_HEIGHT_DP = 160
         private const val SAME_HOST_INTERVAL_MS = 1_000L
+        private const val REFRESH_TAP_WINDOW_MS = 3_000L
+        private const val REFRESH_TAP_TARGET = 8
         private val generations = ConcurrentHashMap<Int, Long>()
         private val counter = AtomicLong(0L)
+
+        private val refreshTapMessages = listOf(
+            "嘿嘿，再点 7 下才肯刷新～",
+            "还差 6 下，手速不错哦",
+            "还差 5 下，服务器正在装睡 💤",
+            "还差 4 下，已经成功一半啦",
+            "还差 3 下，继续继续～",
+            "还差 2 下，马上叫醒它",
+            "最后 1 下！准备发车 🚗"
+        )
 
         private data class CardIds(
             val title: Int,
@@ -88,6 +101,44 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             else -> "kimi"
         }
 
+        private fun tapCountKey(id: Int) = "count_$id"
+
+        private fun tapTimeKey(id: Int) = "time_$id"
+
+        private fun handleRefreshTap(context: Context, manager: AppWidgetManager, id: Int) {
+            val now = System.currentTimeMillis()
+            val prefs = context.getSharedPreferences(REFRESH_TAP_PREFS, Context.MODE_PRIVATE)
+            val lastTapTime = prefs.getLong(tapTimeKey(id), 0L)
+            val previousCount = if (now - lastTapTime <= REFRESH_TAP_WINDOW_MS) {
+                prefs.getInt(tapCountKey(id), 0)
+            } else {
+                0
+            }
+            val tapCount = previousCount + 1
+
+            if (tapCount < REFRESH_TAP_TARGET) {
+                prefs.edit()
+                    .putInt(tapCountKey(id), tapCount)
+                    .putLong(tapTimeKey(id), now)
+                    .apply()
+                val views = RemoteViews(context.packageName, R.layout.widget_balance)
+                views.setTextViewText(R.id.click_count, refreshTapMessages[tapCount - 1])
+                manager.partiallyUpdateAppWidget(id, views)
+                return
+            }
+
+            clearRefreshTapState(context, id)
+            updateAppWidget(context, manager, id)
+        }
+
+        private fun clearRefreshTapState(context: Context, id: Int) {
+            context.getSharedPreferences(REFRESH_TAP_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(tapCountKey(id))
+                .remove(tapTimeKey(id))
+                .apply()
+        }
+
         private fun saveCompact(context: Context, id: Int, options: Bundle): Boolean {
             val prefs = context.getSharedPreferences(LAYOUT_PREFS, Context.MODE_PRIVATE)
             val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
@@ -109,6 +160,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
 
         internal fun updateAppWidget(context: Context, manager: AppWidgetManager, id: Int) {
+            clearRefreshTapState(context, id)
             val generation = counter.incrementAndGet()
             generations[id] = generation
             val compact = compact(context, manager, id)
