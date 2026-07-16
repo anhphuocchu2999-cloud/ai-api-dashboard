@@ -1137,3 +1137,50 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 **下一项唯一任务**
 
 GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Stage 8C。验收通过前不开始下一个业务阶段。
+
+---
+
+## 2026-07-16｜Stage 8C 云端构建与 Beta 交付闭环
+
+**云端业务提交**
+
+- 分支：`feature/stage-8b-simple-connection-flow`
+- 提交：`8f4609b8dbabe802f9bd24705c896e07954a6b81`
+- 提交树与本地已审阅实现树一致：`62611a91f150d82824ce55b5241ac60b8fbeb916`
+
+**编译与发布证据**
+
+- GitHub Actions 运行：`29509997090`
+- 运行事件：开发分支 push，精确 HEAD 为 `8f4609b8dbabe802f9bd24705c896e07954a6b81`
+- `Build installable debug APK`：成功。
+- `Prepare release asset`：成功。
+- `Upload installable APK`：成功。
+- `Publish GitHub prerelease`：成功。
+- 本轮只触发上述一次 `assembleDebug`。
+
+**公开交付物**
+
+- Prerelease：`v0.1.0-beta.2`
+- Release 目标提交：`8f4609b8dbabe802f9bd24705c896e07954a6b81`
+- APK：`ai-api-dashboard-v0.1.0-beta.2-debug.apk`
+- 文件大小：`11999746` 字节。
+- GitHub Release 摘要：`sha256:c36cdc43283fd10280ff3667a239a1b9aca21faeec14d9719d3d92c27ced3b99`。
+- 公开 APK 已实际下载；本地复核 SHA-256：`C36CDC43283FD10280FF3667A239A1B9ACA21FAEEC14D9719D3D92C27CED3B99`，一致。
+
+**安装与真机状态**
+
+- 覆盖安装：待用户在 Operit AI 中执行一次公开下载与 `adb install -r` 命令。
+- 真机验收：待用户确认同步期间旧数据、卡片 `😂` 角标、无同步文字和完成后角标消失。
+
+**明确未继续的内容**
+
+- 本闭环只回填云端构建与发布证据，未新增或修改业务代码，因此未再次触发编译。
+- Stage 8C 用户真机验收前，不开始 `PROJECT.md` 的下一业务阶段，不合并到 `main`。
+
+**回滚位置**
+
+`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
+
+**下一项唯一任务**
+
+用户覆盖安装 `v0.1.0-beta.2` 并验收 Stage 8C。

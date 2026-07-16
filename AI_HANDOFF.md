@@ -11,9 +11,9 @@
 - 请求实例身份：`91849aef667457656d8656bdf26120c860185e5a`
 - 实例缓存隔离：`33ad0b3a9fbb79ddd8e524df2c8cf08b930fc89e`
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
-- 当前云端业务基线：`042a7bd411cc0c90c8faefeb484c7324f0233263`
+- 当前云端业务基线：`8f4609b8dbabe802f9bd24705c896e07954a6b81`
 - Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
-- 当前状态：用户已用真机截图确认 `v0.1.0-beta.1` Widget 可运行，并复现刷新期间数据被“正在同步…”覆盖；Stage 8C 已完成源码修改和静态检查，等待 GitHub Actions 构建 `v0.1.0-beta.2`
+- 当前状态：Stage 8C 已由 GitHub Actions 编译并发布 `v0.1.0-beta.2`；公开 APK 大小与 SHA-256 已复核，等待用户手机覆盖安装和真机验收
 
 ## 云端状态
 
@@ -32,6 +32,10 @@
 - Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.1`
 - APK：`ai-api-dashboard-v0.1.0-beta.1-debug.apk`，大小 `11999506` 字节。
 - APK SHA-256：`3F4236038302CDB27F2B76CA6D19D9BDB6E6AF3837B05F339D0574793E4AB347`。
+- Stage 8C GitHub Actions：`29509997090`，`Build installable debug APK`、Artifact 上传和 Prerelease 发布全部成功。
+- Stage 8C Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.2`
+- Stage 8C APK：`ai-api-dashboard-v0.1.0-beta.2-debug.apk`，大小 `11999746` 字节。
+- Stage 8C APK SHA-256：`C36CDC43283FD10280FF3667A239A1B9ACA21FAEEC14D9719D3D92C27CED3B99`。
 
 ## 已进入云端的主要修复
 
@@ -51,7 +55,7 @@
 
 ## 当前唯一任务
 
-把 Stage 8C 精确提交到 GitHub 远端开发分支，由 GitHub Actions 只执行一次 `assembleDebug` 并发布 `v0.1.0-beta.2`。用户覆盖安装后验收：刷新期间旧数据保持可见、无任何同步文字、已配置卡片右下角显示 `😂` 且完成后消失。当前阶段通过前不继续修改下一项业务功能。
+用户在手机 Operit AI 中下载并覆盖安装 `v0.1.0-beta.2`，随后验收：刷新期间旧数据保持可见、无任何同步文字、已配置卡片右下角显示 `😂` 且完成后消失。当前阶段通过前不继续修改下一项业务功能。
 
 ## 本地执行边界
 
@@ -60,8 +64,8 @@
 ## 阶段验收
 
 1. Android 业务源码和 Widget XML 静态检查通过。已完成。
-2. GitHub Actions 对 Stage 8C 精确提交执行一次 `assembleDebug`。待执行。
-3. GitHub Release 附带 `v0.1.0-beta.2` Debug APK。待执行。
+2. GitHub Actions 对 Stage 8C 精确提交执行一次 `assembleDebug`。已完成。
+3. GitHub Release 附带 `v0.1.0-beta.2` Debug APK。已完成。
 4. 手机覆盖安装后验证自动刷新和第八次点击刷新均不覆盖旧数据。待用户确认。
 5. 验证已配置卡片仅在请求期间显示 `😂`，未配置卡片不显示。待用户确认。
 6. 用户明确确认前，不合并到 `main`，不开始下一项业务 Bug。
