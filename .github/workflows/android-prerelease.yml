@@ -52,10 +52,16 @@ jobs:
         run: |
           apksigner_path="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner_path"
-          actual_digest="$($apksigner_path verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+          certificate_output="$($apksigner_path verify --print-certs app/build/outputs/apk/debug/app-debug.apk)"
+          actual_digest="$(printf '%s\n' "$certificate_output" \
+            | sed -n 's/.*certificate SHA-256 digest:[[:space:]]*//p' \
+            | head -n 1 \
+            | tr -d '[:space:]:' \
             | tr '[:lower:]' '[:upper:]')"
-          test "$actual_digest" = "$EXPECTED_SIGNING_CERT_SHA256"
+          expected_digest="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          test -n "$actual_digest"
+          echo "APK signing certificate SHA-256: $actual_digest"
+          test "$actual_digest" = "$expected_digest"
       - name: Prepare release asset
         shell: bash
         run: |
