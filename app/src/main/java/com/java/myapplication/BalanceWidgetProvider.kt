@@ -85,22 +85,27 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             val usage: Int,
             val percent: Int,
             val progress: Int,
-            val auxiliary: Int
+            val auxiliary: Int,
+            val syncing: Int
         )
 
         private fun ids(prefix: String) = when (prefix) {
             "mimo" -> CardIds(R.id.mimo_card, R.id.mimo_logo,
                 R.id.mimo_title, R.id.mimo_tokens, R.id.mimo_balance,
-                R.id.mimo_percent, R.id.mimo_progress, R.id.mimo_auxiliary)
+                R.id.mimo_percent, R.id.mimo_progress, R.id.mimo_auxiliary,
+                R.id.mimo_syncing)
             "ds" -> CardIds(R.id.ds_card, R.id.ds_logo,
                 R.id.ds_title, R.id.ds_tokens, R.id.ds_balance,
-                R.id.ds_percent, R.id.ds_progress, R.id.ds_auxiliary)
+                R.id.ds_percent, R.id.ds_progress, R.id.ds_auxiliary,
+                R.id.ds_syncing)
             "oai" -> CardIds(R.id.oai_card, R.id.oai_logo,
                 R.id.oai_title, R.id.oai_tokens, R.id.oai_balance,
-                R.id.oai_percent, R.id.oai_progress, R.id.oai_auxiliary)
+                R.id.oai_percent, R.id.oai_progress, R.id.oai_auxiliary,
+                R.id.oai_syncing)
             else -> CardIds(R.id.kimi_card, R.id.kimi_logo,
                 R.id.kimi_title, R.id.kimi_tokens, R.id.kimi_balance,
-                R.id.kimi_percent, R.id.kimi_progress, R.id.kimi_auxiliary)
+                R.id.kimi_percent, R.id.kimi_progress, R.id.kimi_auxiliary,
+                R.id.kimi_syncing)
         }
 
         private val renderPrefixes = listOf("kimi", "mimo", "ds", "oai")
@@ -190,15 +195,22 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 val entry = visibleEntries.getOrNull(index)
                 views.setViewVisibility(ids(target).root, if (entry == null) View.GONE else View.VISIBLE)
                 if (entry != null) {
-                    showLoading(views, target)
                     setTitle(views, target, entry.second)
                     applyBrand(views, target, entry.first, entry.second)
                 }
+                setSyncing(views, target, false)
             }
-            views.setTextViewText(R.id.update_time, "正在同步…")
-            views.setTextViewText(R.id.click_count, "")
-            bindRefresh(context, views, id)
-            manager.updateAppWidget(id, views)
+
+            // 刷新开始时只局部显示卡片角标，不重绘整张 Widget。
+            // 这样桌面会继续保留上一次渲染的数据，直到新结果准备完毕。
+            val syncingViews = RemoteViews(context.packageName, R.layout.widget_balance)
+            renderPrefixes.forEach { target -> setSyncing(syncingViews, target, false) }
+            visibleEntries.forEachIndexed { index, (_, config) ->
+                if (isConfigured(config)) setSyncing(syncingViews, targets[index], true)
+            }
+            syncingViews.setTextViewText(R.id.click_count, "")
+            bindRefresh(context, syncingViews, id)
+            manager.partiallyUpdateAppWidget(id, syncingViews)
 
             Thread {
                 val results = mutableListOf<WidgetData>()
@@ -224,6 +236,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                         setTitle(views, p, visibleEntries[index].second)
                         applyBrand(views, p, visibleEntries[index].first, visibleEntries[index].second)
                         render(context, views, data, p)
+                        setSyncing(views, p, false)
                     }
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                     views.setTextViewText(R.id.update_time, "更新 $time")
@@ -234,16 +247,17 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             }.start()
         }
 
-        private fun showLoading(views: RemoteViews, prefix: String) {
-            val ids = ids(prefix)
-            views.setTextViewText(ids.primary, "正在同步…")
-            views.setTextViewText(ids.usage, "")
-            views.setTextViewText(ids.percent, "")
-            views.setTextViewText(ids.auxiliary, "")
-            views.setViewVisibility(ids.progress, View.GONE)
-            views.setViewVisibility(ids.percent, View.GONE)
-            views.setViewVisibility(ids.auxiliary, View.GONE)
+        private fun setSyncing(views: RemoteViews, prefix: String, syncing: Boolean) {
+            val syncingId = ids(prefix).syncing
+            views.setTextViewText(syncingId, if (syncing) "😂" else "")
+            views.setViewVisibility(syncingId, if (syncing) View.VISIBLE else View.GONE)
         }
+
+        private fun isConfigured(config: ApiAccountConfig): Boolean =
+            config.enabled &&
+                config.apiBase.isNotBlank() &&
+                config.apiKey.isNotBlank() &&
+                config.model.isNotBlank()
 
         private fun fetchData(
             context: Context,
@@ -413,11 +427,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             .removePrefix("缓存·")
 
         private fun setTitle(views: RemoteViews, prefix: String, config: ApiAccountConfig) {
-            val configured = config.enabled &&
-                config.apiBase.isNotBlank() &&
-                config.apiKey.isNotBlank() &&
-                config.model.isNotBlank()
-            val title = if (configured) config.model else "未配置"
+            val title = if (isConfigured(config)) config.model else "未配置"
             views.setTextViewText(ids(prefix).title, title)
         }
 

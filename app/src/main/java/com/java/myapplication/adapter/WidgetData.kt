@@ -250,17 +250,8 @@ data class WidgetData(
             if (isTransientError(message)) {
                 val cached = loadLastSuccessfulData(canonicalKey, platformName)
                 if (cached != null) {
-                    val markedAuxiliary = if (cached.auxiliaryMetrics.isEmpty()) {
-                        listOf(DisplayMetric("", "😂"))
-                    } else {
-                        cached.auxiliaryMetrics.map { metric ->
-                            metric.copy(value = "${metric.value} 😂")
-                        }
-                    }
-
                     return cached.copy(
                         usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
-                        auxiliaryMetrics = markedAuxiliary,
                         statusText = FALLBACK_MESSAGE,
                         isSuccess = true,
                         isAvailable = true,

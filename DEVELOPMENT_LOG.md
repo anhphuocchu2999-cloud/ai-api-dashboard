@@ -1064,3 +1064,76 @@ Stage 8A-3：后台授权和缓存 Key 从 platformName/index 迁移到 instance
 **下一项唯一任务**
 
 用户在 Operit AI 中执行一次公开 APK 下载与覆盖安装命令，并真机验收配置保存、模型映射、八连点刷新、授权绑定和缓存隔离。
+
+---
+
+## 2026-07-16｜Stage 8C Widget 静默刷新与卡片同步角标
+
+**目标与问题背景**
+
+用户安装 `v0.1.0-beta.1` 后提供真机截图：Widget 自动刷新开始时，四张卡片的数据区和底部更新时间会被“正在同步…”替换。用户明确要求不显示任何自动同步文字，刷新期间继续使用上次数据，并在正在请求的对应卡片右下角显示 `😂`。
+
+**根因证据**
+
+- `BalanceWidgetProvider.updateAppWidget()` 在启动后台线程前执行完整 `updateAppWidget`，主动把 `update_time` 设置为“正在同步…”。
+- `showLoading()` 同时把每张卡片核心指标设置为“正在同步…”，并清空近期消耗、百分比、进度和辅助指标。
+- 因为刷新开始阶段使用全量 RemoteViews 更新，Launcher 上已经显示的上次数据被加载态覆盖。
+- `WidgetData.bindCacheKey()` 还会在网络失败缓存数据的辅助指标中追加 `😂`，与新的“仅表示正在刷新”语义冲突。
+
+**方案与取舍**
+
+- 刷新开始阶段只调用 `partiallyUpdateAppWidget()`，局部清除八连点文案并显示独立卡片角标，不更新数据区和上次更新时间。
+- 新结果全部准备完成后才执行一次全量 Widget 更新，并隐藏全部同步角标。
+- 仅对已启用、API Base/API Key/模型完整且当前可见的卡片显示 `😂`。
+- 四张视觉卡片增加独立同步 TextView；不复用辅助指标，避免真实数据被角标覆盖。
+- 删除失败缓存辅助指标中的旧 `😂` 装饰；缓存回退文案和最近成功数据逻辑保持不变。
+- 保留八连点三秒窗口、前七次调皮文案和第八次真实请求规则。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
+- 本地实施分支：`agent/widget-cache-refresh`
+
+**实际修改文件**
+
+- `app/src/main/java/com/java/myapplication/BalanceWidgetProvider.kt`
+- `app/src/main/java/com/java/myapplication/adapter/WidgetData.kt`
+- `app/src/main/res/layout/widget_balance.xml`
+- `.github/workflows/android-prerelease.yml`
+- `PROJECT.md`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 Adapter HTTP 请求、平台 JSON 解析、AdapterFactory 路由、认证存储、缓存身份和配置保存。
+- 未改变八连点计数规则。
+- 未实现任意数量模型实例、拖动排序或新 Widget 尺寸。
+- 未合并到 `main`。
+
+**验证状态**
+
+- `git diff --check`：通过，`本地命令已核对`。
+- Android 主源码中“正在同步/自动同步”文本搜索：0 处，`本地命令已核对`。
+- `widget_balance.xml` XML 解析：通过，`本地命令已核对`。
+- GitHub Actions `assembleDebug`：待远端精确提交后只执行一次。
+- APK 覆盖安装：待 GitHub Prerelease 生成后由用户执行一次。
+- 真机验收：待用户确认。
+
+**阶段提交 SHA**
+
+- 待云端提交后回填。
+
+**已知风险和待验证事项**
+
+- Android Launcher 对 `partiallyUpdateAppWidget()` 的渲染由系统负责，右下角位置和刷新完成后的隐藏状态必须以用户真机为准。
+- 首次添加 Widget 且没有历史 RemoteViews 时，首轮请求期间可以保持默认空数据；本阶段不伪造缓存。
+
+**回滚位置**
+
+`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
+
+**下一项唯一任务**
+
+GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Stage 8C。验收通过前不开始下一个业务阶段。

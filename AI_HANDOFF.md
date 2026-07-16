@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8B-R：GitHub 云端构建与远程安装交付`
+`Stage 8C：Widget 静默刷新与卡片同步角标`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -12,7 +12,8 @@
 - 实例缓存隔离：`33ad0b3a9fbb79ddd8e524df2c8cf08b930fc89e`
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
 - 当前云端业务基线：`042a7bd411cc0c90c8faefeb484c7324f0233263`
-- 当前状态：GitHub Actions 构建、APK Artifact 和公开 Prerelease 均成功；等待用户手机覆盖安装和真机验收
+- Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
+- 当前状态：用户已用真机截图确认 `v0.1.0-beta.1` Widget 可运行，并复现刷新期间数据被“正在同步…”覆盖；Stage 8C 已完成源码修改和静态检查，等待 GitHub Actions 构建 `v0.1.0-beta.2`
 
 ## 云端状态
 
@@ -50,7 +51,7 @@
 
 ## 当前唯一任务
 
-用户在手机 Operit AI 中执行发布页提供的单条命令，下载并覆盖安装 `v0.1.0-beta.1`，随后完成真机核心流程验收。当前阶段通过前不继续修改业务功能。
+把 Stage 8C 精确提交到 GitHub 远端开发分支，由 GitHub Actions 只执行一次 `assembleDebug` 并发布 `v0.1.0-beta.2`。用户覆盖安装后验收：刷新期间旧数据保持可见、无任何同步文字、已配置卡片右下角显示 `😂` 且完成后消失。当前阶段通过前不继续修改下一项业务功能。
 
 ## 本地执行边界
 
@@ -58,8 +59,9 @@
 
 ## 阶段验收
 
-1. GitHub Actions 对远端精确提交执行 `assembleDebug` 成功。已完成。
-2. GitHub Release 附带与标签和提交对应的 Debug APK。已完成。
-3. 手机覆盖安装后核对应用名称、阶段和版本。
-4. 真机回归配置保存、模型映射、八连点刷新、授权绑定和缓存隔离。
-5. 用户明确确认前，不合并到 `main`，不开始下一项业务 Bug。
+1. Android 业务源码和 Widget XML 静态检查通过。已完成。
+2. GitHub Actions 对 Stage 8C 精确提交执行一次 `assembleDebug`。待执行。
+3. GitHub Release 附带 `v0.1.0-beta.2` Debug APK。待执行。
+4. 手机覆盖安装后验证自动刷新和第八次点击刷新均不覆盖旧数据。待用户确认。
+5. 验证已配置卡片仅在请求期间显示 `😂`，未配置卡片不显示。待用户确认。
+6. 用户明确确认前，不合并到 `main`，不开始下一项业务 Bug。

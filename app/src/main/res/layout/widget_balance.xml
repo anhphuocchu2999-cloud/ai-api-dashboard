@@ -97,6 +97,16 @@
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
+
+            <TextView
+                android:id="@+id/kimi_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="end|bottom"
+                android:text=""
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- MiMo -->
@@ -181,6 +191,16 @@
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
+
+            <TextView
+                android:id="@+id/mimo_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="end|bottom"
+                android:text=""
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
@@ -275,6 +295,16 @@
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
+
+            <TextView
+                android:id="@+id/ds_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="end|bottom"
+                android:text=""
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- OpenAI -->
@@ -359,6 +389,16 @@
                 android:text=""
                 android:textSize="9sp"
                 android:textColor="#FF8E8E93" />
+
+            <TextView
+                android:id="@+id/oai_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="end|bottom"
+                android:text=""
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
@@ -375,7 +415,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Updated: --:--:--"
+            android:text=""
             android:textSize="9sp"
             android:textColor="#FF8E8E93" />
 
