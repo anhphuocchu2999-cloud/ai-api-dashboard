@@ -13,10 +13,12 @@ import android.widget.RemoteViews
 import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.AdapterRequest
 import com.java.myapplication.adapter.WidgetData
+import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.stats.RecentUsageTracker
+import com.java.myapplication.webauth.WebAuthProfileRegistry
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -245,7 +247,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             }
             val adapter = AdapterFactory.getAdapter(slot, config.apiBase)
                 ?: return WidgetData.error(slot, "当前服务暂未提供账户数据")
-            val auth = BackgroundAuthRepository.load(prefs, slot)
+            val auth = loadBoundAuthorization(prefs, slot, config.apiBase)
             val request = AdapterRequest(
                 apiBase = config.apiBase,
                 modelApiKey = config.apiKey,
@@ -258,6 +260,21 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 WidgetData.error(slot, "获取失败")
             }
             return applyRecentUsage(context, slot, config, raw)
+        }
+
+        private fun loadBoundAuthorization(
+            prefs: android.content.SharedPreferences,
+            slot: String,
+            apiBase: String
+        ): BackgroundAuthConfig {
+            val profile = WebAuthProfileRegistry.findFor(slot, apiBase)
+                ?: return BackgroundAuthConfig()
+            val auth = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+            return auth.takeIf {
+                it.enabled &&
+                    it.authType == profile.authType &&
+                    it.authValue.isNotBlank()
+            } ?: BackgroundAuthConfig()
         }
 
         private fun applyRecentUsage(
