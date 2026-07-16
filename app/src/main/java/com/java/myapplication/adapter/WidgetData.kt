@@ -209,6 +209,31 @@ data class WidgetData(
             }
             return result
         }
+
+        private fun cachedFieldKeys(obj: JSONObject): Set<String> = buildSet {
+            obj.optJSONObject("primaryMetric")?.let { metric ->
+                add("primary:${metric.optString("label", "").trim()}")
+            }
+            val usage = obj.optJSONArray("usageMetrics")
+            for (index in 0 until (usage?.length() ?: 0)) {
+                val metric = usage?.optJSONObject(index) ?: continue
+                val value = metric.optString("value", "").trim()
+                if (value.isNotBlank() && value != "暂无可计算数据") {
+                    add("usage:${metric.optString("label", "").trim()}")
+                }
+            }
+            if (obj.has("percentage")) {
+                add("percentage:${obj.optString("percentageLabel", "").trim()}")
+            }
+            val auxiliary = obj.optJSONArray("auxiliaryMetrics")
+            for (index in 0 until (auxiliary?.length() ?: 0)) {
+                val metric = auxiliary?.optJSONObject(index) ?: continue
+                add("auxiliary:${metric.optString("label", "").trim()}")
+            }
+            listOf("total", "used", "remaining", "callCount", "usagePercent").forEach { field ->
+                if (obj.has(field)) add("legacy:$field")
+            }
+        }
     }
 
     /**
@@ -297,8 +322,15 @@ data class WidgetData(
             callCount?.let { obj.put("callCount", it) }
             usagePercent?.let { obj.put("usagePercent", it) }
 
-            context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
+            val prefs = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
+            val existingKeys = prefs.getString(canonicalKey, null)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { raw -> runCatching { cachedFieldKeys(JSONObject(raw)) }.getOrNull() }
+                .orEmpty()
+            val candidateKeys = cachedFieldKeys(obj)
+            if (!candidateKeys.containsAll(existingKeys)) return
+
+            prefs.edit()
                 .putString(canonicalKey, obj.toString())
                 .apply()
         } catch (e: Exception) {
