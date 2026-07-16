@@ -1,9 +1,13 @@
 name: Baseline Android Build
 
 on:
+  push:
+    branches:
+      - feature/stage-8b-simple-connection-flow
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
