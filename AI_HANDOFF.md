@@ -15,7 +15,8 @@
 - Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
 - 本阶段起始远端 HEAD：`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
 - Stage 8E-S 业务提交：`6637b6d92d230e41deb2d15299cd201db0ca28d1`
-- 当前状态：用户已用 beta.5 真机确认“缓存·”前缀冗余，并确认同步角标仍与辅助数据共享一行导致裁切；正在实现独立右下角状态行并准备 `v0.1.0-beta.6`
+- Stage 8E-1 业务提交：`77c25508e24cffb6d1a5019f963a99bf429816b0`
+- 当前状态：GitHub Actions `29558328511` 已完成单元测试、`assembleDebug`、固定证书校验并发布 `v0.1.0-beta.6`；等待用户覆盖安装验收独立右下角状态行
 
 ## 云端状态
 
@@ -57,7 +58,16 @@
 
 ## 当前唯一任务
 
-完成 Stage 8E-1 静态检查，推送后由 GitHub Actions 只构建一次 `v0.1.0-beta.6`，用户覆盖安装验收独立状态行。
+用户覆盖安装 `v0.1.0-beta.6`，验收四张卡片状态行是否固定在右下角、是否不再挤压辅助指标，以及缓存回退是否不再显示“缓存·”和“缓存时间”。
+
+## Stage 8E-1 云端交付
+
+- GitHub Actions：`29558328511`，结论 `success`。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.6`
+- APK：`ai-api-dashboard-v0.1.0-beta.6-debug.apk`，大小 `11999850` 字节。
+- APK SHA-256：`C8E81A1FC919EE63FAFA936122C44F3C7C181F3A2CA3A062FB98ED42A771AA7C`。
+- 固定证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 覆盖安装与真机验收：待用户执行。
 
 ## Stage 8E-S 云端交付
 

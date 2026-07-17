@@ -1423,3 +1423,17 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 提交并触发一次云端 `testDebugUnitTest + assembleDebug`，发布固定签名 beta.6 后等待用户真机验收。
+
+**云端交付结果**
+
+- 业务提交：`77c25508e24cffb6d1a5019f963a99bf429816b0`。
+- GitHub Actions：`29558328511`，结论 `success`。
+- `testDebugUnitTest`、唯一一次 `assembleDebug`、固定证书校验：全部成功。
+- Release：`v0.1.0-beta.6`。
+- APK：`ai-api-dashboard-v0.1.0-beta.6-debug.apk`，大小 `11999850` 字节。
+- APK SHA-256：`C8E81A1FC919EE63FAFA936122C44F3C7C181F3A2CA3A062FB98ED42A771AA7C`。
+- 覆盖安装与真机验收：待用户执行，不得宣称通过。
+
+**下一项唯一任务（交付后）**
+
+用户覆盖安装 beta.6，真机确认状态行独立、完整且缓存回退不污染指标文本。
