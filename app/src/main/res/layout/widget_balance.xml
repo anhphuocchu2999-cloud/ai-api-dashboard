@@ -25,7 +25,7 @@
             android:orientation="vertical"
             android:padding="8dp"
             android:background="@drawable/bg_platform_card_dark"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -105,16 +105,23 @@
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
 
-                <TextView
-                    android:id="@+id/kimi_syncing"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:gravity="end|bottom"
-                    android:text=""
-                    android:textSize="14sp"
-                    android:visibility="gone" />
             </LinearLayout>
+
+            <TextView
+                android:layout_width="1dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/kimi_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end|bottom"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FF8E8E93"
+                android:textSize="9sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- MiMo -->
@@ -127,7 +134,7 @@
             android:orientation="vertical"
             android:padding="8dp"
             android:background="@drawable/bg_platform_card_dark"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -207,16 +214,23 @@
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
 
-                <TextView
-                    android:id="@+id/mimo_syncing"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:gravity="end|bottom"
-                    android:text=""
-                    android:textSize="14sp"
-                    android:visibility="gone" />
             </LinearLayout>
+
+            <TextView
+                android:layout_width="1dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/mimo_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end|bottom"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FF8E8E93"
+                android:textSize="9sp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
@@ -239,7 +253,7 @@
             android:orientation="vertical"
             android:padding="8dp"
             android:background="@drawable/bg_platform_card_dark"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -319,16 +333,23 @@
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
 
-                <TextView
-                    android:id="@+id/ds_syncing"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:gravity="end|bottom"
-                    android:text=""
-                    android:textSize="14sp"
-                    android:visibility="gone" />
             </LinearLayout>
+
+            <TextView
+                android:layout_width="1dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/ds_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end|bottom"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FF8E8E93"
+                android:textSize="9sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- OpenAI -->
@@ -341,7 +362,7 @@
             android:orientation="vertical"
             android:padding="8dp"
             android:background="@drawable/bg_platform_card_dark"
-            android:gravity="center_vertical">
+            android:gravity="top">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -421,16 +442,23 @@
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
 
-                <TextView
-                    android:id="@+id/oai_syncing"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:gravity="end|bottom"
-                    android:text=""
-                    android:textSize="14sp"
-                    android:visibility="gone" />
             </LinearLayout>
+
+            <TextView
+                android:layout_width="1dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/oai_syncing"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end|bottom"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="#FF8E8E93"
+                android:textSize="9sp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 

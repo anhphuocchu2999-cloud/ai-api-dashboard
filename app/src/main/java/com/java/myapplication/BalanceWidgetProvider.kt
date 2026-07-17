@@ -260,7 +260,11 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                         setTitle(views, p, visibleEntries[index].second)
                         applyBrand(views, p, visibleEntries[index].first, visibleEntries[index].second)
                         render(context, views, data, p, id)
-                        setSyncing(views, p, false)
+                        setSyncing(
+                            views,
+                            p,
+                            data.isFallback || !data.isSuccess || !data.isAvailable
+                        )
                     }
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                     views.setTextViewText(R.id.update_time, "更新 $time")
@@ -273,7 +277,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
         private fun setSyncing(views: RemoteViews, prefix: String, syncing: Boolean) {
             val syncingId = ids(prefix).syncing
-            views.setTextViewText(syncingId, if (syncing) "😂" else "")
+            views.setTextViewText(syncingId, if (syncing) "😂 数据在路上～" else "")
             views.setViewVisibility(syncingId, if (syncing) View.VISIBLE else View.GONE)
         }
 
@@ -382,7 +386,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
             views.setTextViewText(
                 ids.primary,
-                data.primaryMetric?.let { if (data.isFallback) cached(it) else metric(it) }
+                data.primaryMetric?.let(::metric)
                     ?: "暂无可展示数据"
             )
 
@@ -393,7 +397,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 ?.get(usageIndex % data.usageMetrics.size)
             views.setTextViewText(
                 ids.usage,
-                usage?.let { if (data.isFallback) cached(it) else metric(it) }
+                usage?.let(::metric)
                     ?: "近期消耗 暂无可计算数据"
             )
             views.setViewVisibility(ids.usage, View.VISIBLE)
@@ -405,9 +409,10 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(ids.progress, View.VISIBLE)
                 views.setViewVisibility(ids.percent, View.VISIBLE)
                 views.setProgressBar(ids.progress, 100, data.percentage.coerceIn(0, 100), false)
-                val label = if (data.isFallback) "缓存·${strip(data.percentageLabel)}"
-                else data.percentageLabel
-                views.setTextViewText(ids.percent, "$label ${data.percentage}%")
+                views.setTextViewText(
+                    ids.percent,
+                    "${strip(data.percentageLabel)} ${data.percentage}%"
+                )
             } else {
                 views.setViewVisibility(ids.progress, View.GONE)
                 views.setViewVisibility(ids.percent, View.GONE)
@@ -418,7 +423,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             val auxIndex = carousel.getInt(auxKey, 0)
             if (data.auxiliaryMetrics.isNotEmpty()) {
                 val aux = data.auxiliaryMetrics[auxIndex % data.auxiliaryMetrics.size]
-                views.setTextViewText(ids.auxiliary, if (data.isFallback) cached(aux) else metric(aux))
+                views.setTextViewText(ids.auxiliary, metric(aux))
                 views.setViewVisibility(ids.auxiliary, View.VISIBLE)
                 carousel.edit().putInt(auxKey, (auxIndex + 1) % 1000).apply()
             } else {
@@ -434,16 +439,6 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 label.isBlank() -> value
                 value.isBlank() -> label
                 else -> "$label $value"
-            }
-        }
-
-        private fun cached(item: WidgetData.DisplayMetric): String {
-            val label = strip(item.label)
-            val value = item.value.trim()
-            return when {
-                label.isBlank() -> "缓存·$value"
-                value.isBlank() -> "缓存·$label"
-                else -> "缓存·$label $value"
             }
         }
 

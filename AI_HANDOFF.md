@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8E-S：Public Beta 逻辑与数据稳定性收口`
+`Stage 8E-1：Widget 独立俏皮状态行`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -15,7 +15,7 @@
 - Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
 - 本阶段起始远端 HEAD：`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
 - Stage 8E-S 业务提交：`6637b6d92d230e41deb2d15299cd201db0ca28d1`
-- 当前状态：GitHub Actions `29551280479` 已完成单元测试、`assembleDebug`、固定证书校验并发布 `v0.1.0-beta.5`；等待用户覆盖安装与集中真机验收
+- 当前状态：用户已用 beta.5 真机确认“缓存·”前缀冗余，并确认同步角标仍与辅助数据共享一行导致裁切；正在实现独立右下角状态行并准备 `v0.1.0-beta.6`
 
 ## 云端状态
 
@@ -57,7 +57,7 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 `v0.1.0-beta.5`，集中验收配置保存、槽位独立授权、缓存回退、八连点刷新、同步角标和四个平台真实数据；真机结果未确认前不得写成通过。
+完成 Stage 8E-1 静态检查，推送后由 GitHub Actions 只构建一次 `v0.1.0-beta.6`，用户覆盖安装验收独立状态行。
 
 ## Stage 8E-S 云端交付
 

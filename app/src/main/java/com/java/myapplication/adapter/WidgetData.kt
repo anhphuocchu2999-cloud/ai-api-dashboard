@@ -81,7 +81,6 @@ data class WidgetData(
     companion object {
         private const val CACHE_PREFS_NAME = "widget_last_success"
         private const val FALLBACK_MESSAGE = "网络有点抖，先看上次数据～"
-        private const val FRESH_CACHE_WINDOW_MS = 30_000L
 
         private val TRANSIENT_ERROR_KEYWORDS = listOf(
             "域名解析失败",
@@ -259,17 +258,6 @@ data class WidgetData(
             }
         }
 
-        private fun cacheAgeText(savedAt: Long?): String {
-            if (savedAt == null || savedAt <= 0L) return "时间未知"
-            val ageMs = (System.currentTimeMillis() - savedAt).coerceAtLeast(0L)
-            return when {
-                ageMs <= FRESH_CACHE_WINDOW_MS -> "30秒内"
-                ageMs < 60_000L -> "${(ageMs / 1_000L).coerceAtLeast(1L)}秒前"
-                ageMs < 60L * 60L * 1_000L -> "${ageMs / 60_000L}分钟前"
-                ageMs < 24L * 60L * 60L * 1_000L -> "${ageMs / (60L * 60L * 1_000L)}小时前"
-                else -> "${ageMs / (24L * 60L * 60L * 1_000L)}天前"
-            }
-        }
     }
 
     /**
@@ -286,11 +274,8 @@ data class WidgetData(
             if (isTransientError(message)) {
                 val cached = loadLastSuccessfulData(canonicalKey, platformName)
                 if (cached != null) {
-                    val ageText = cacheAgeText(cached.cachedAtMillis)
                     return cached.copy(
-                        auxiliaryMetrics = cached.auxiliaryMetrics +
-                            DisplayMetric("缓存时间", ageText),
-                        statusText = "$FALLBACK_MESSAGE（$ageText）",
+                        statusText = FALLBACK_MESSAGE,
                         isSuccess = true,
                         isAvailable = true,
                         errorMessage = message,
