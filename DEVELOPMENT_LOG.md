@@ -1497,7 +1497,7 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 
 **阶段提交 SHA**
 
-- 待提交并由云端核对后回填。
+- 业务与实验实现提交：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`。
 
 **已知限制与待验证事项**
 
@@ -1513,3 +1513,20 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 推送精确提交，由 GitHub Actions 执行唯一一次单元测试与 `assembleDebug`，发布固定签名 `v0.1.0-beta.7`；用户安装后只验收实验链路，不接入现有 Widget。
+
+**云端构建与交付结果**
+
+- 远端开发分支 HEAD：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`，与业务提交一致。
+- GitHub Actions：`29565363529`，结论 `success`。
+- `Test and build installable debug APK`：成功；本轮只执行这一次 `testDebugUnitTest + assembleDebug`。
+- 固定 Beta 证书校验：成功；工作流期望证书 SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- Release：`v0.1.0-beta.7`，目标提交与业务提交一致，标记为 Prerelease。
+- APK：`ai-api-dashboard-v0.1.0-beta.7-debug.apk`，大小 `12036378` 字节。
+- GitHub Release 摘要：`sha256:a84b1f0b0725aeb5322bd94eed642e62364ce5ca605e6632ec620c17d423f216`。
+- 从公开 Release 重新下载后本地复核 SHA-256：`A84B1F0B0725AEB5322BD94EED642E62364CE5CA605E6632EC620C17D423F216`，一致。
+- 覆盖安装：待用户在 Operit AI 中执行一次。
+- 真机实验验收：待用户验证登录、确认页面、捕获数量、单次 AI 识别和结果预览，不得宣称通过。
+
+**下一项唯一任务（交付后）**
+
+用户覆盖安装 `v0.1.0-beta.7`，打开第二个桌面入口“仪表盘识别实验室”，完成一次真实站点实验并回传识别结果；在用户确认前不接入现有 Widget。

@@ -18,7 +18,8 @@
 - Stage 8E-1 业务提交：`77c25508e24cffb6d1a5019f963a99bf429816b0`
 - Stage 8E-1 文档闭环与当前云端基线：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
 - Stage 8F-P1 起始远端 HEAD：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
-- 当前状态：独立实验入口、HTTPS WebView 捕获、本机脱敏、单次 OpenAI-Compatible AI 识别和结果预览已完成本地静态检查；待提交并执行唯一一次 GitHub Actions 构建
+- Stage 8F-P1 业务提交与 Release 目标：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`
+- 当前状态：GitHub Actions `29565363529` 已完成单元测试、唯一一次 `assembleDebug`、固定证书校验并发布 `v0.1.0-beta.7`；等待用户覆盖安装并验收独立实验链路
 
 ## 云端状态
 
@@ -60,7 +61,7 @@
 
 ## 当前唯一任务
 
-把 Stage 8F-P1 精确提交推送到 `feature/stage-8b-simple-connection-flow`，由 GitHub Actions 执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.7`；用户只验收独立实验链路，暂不接入现有 Widget。
+用户覆盖安装 `v0.1.0-beta.7`，打开第二个桌面入口“仪表盘识别实验室”，验证一次真实仪表盘登录、页面确认、JSON 捕获、单次 AI 识别和结果预览；暂不接入现有 Widget。
 
 ## Stage 8F-P1 实验边界
 
@@ -70,6 +71,15 @@
 - 本机脱敏后只向用户填写的 OpenAI-Compatible API Base 发出一次模型请求；API Key 不写入实验配置。
 - 模型映射只预览、不保存；endpoint 必须来自捕获集合，结果仍需用户人工核对。
 - 不修改 Widget、Adapter、配置、授权和最近成功缓存。
+
+## Stage 8F-P1 云端交付
+
+- GitHub Actions：`29565363529`，结论 `success`。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.7`
+- APK：`ai-api-dashboard-v0.1.0-beta.7-debug.apk`，大小 `12036378` 字节。
+- APK SHA-256：`A84B1F0B0725AEB5322BD94EED642E62364CE5CA605E6632EC620C17D423F216`。
+- 固定证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 覆盖安装与真机实验验收：待用户执行。
 
 ## Stage 8E-1 云端交付
 
