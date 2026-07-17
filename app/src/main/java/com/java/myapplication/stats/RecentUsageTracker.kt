@@ -68,6 +68,7 @@ object RecentUsageTracker {
         ).take(32)
     }
 
+    @Synchronized
     fun apply(
         context: Context?,
         identity: String,
@@ -195,9 +196,10 @@ object RecentUsageTracker {
 
     private fun appendOrReplace(history: MutableList<Snapshot>, current: Snapshot) {
         val last = history.lastOrNull()
-        if (last != null && current.time - last.time < MIN_SAMPLE_INTERVAL_MS) {
-            history[history.lastIndex] = current
-        } else {
+        // Keep the oldest sample inside the five-minute bucket. Replacing it on
+        // every refresh can move the baseline forever and prevent a real delta
+        // from ever reaching the minimum interval.
+        if (last == null || current.time - last.time >= MIN_SAMPLE_INTERVAL_MS) {
             history.add(current)
         }
 

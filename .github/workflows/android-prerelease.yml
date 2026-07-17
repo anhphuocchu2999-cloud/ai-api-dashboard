@@ -7,8 +7,22 @@ on:
     tags:
       - 'v*-beta.*'
     paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradle.properties'
       - '.github/workflows/android-prerelease.yml'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Prerelease tag to publish
+        required: true
+        default: v0.1.0-beta.5
+
+concurrency:
+  group: android-prerelease-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -43,10 +57,10 @@ jobs:
           test -n "$ANDROID_SIGNING_KEY_PASSWORD"
           umask 077
           printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$signing_store_file"
-      - name: Build installable debug APK
+      - name: Test and build installable debug APK
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew testDebugUnitTest assembleDebug
       - name: Verify stable signing certificate
         shell: bash
         run: |
@@ -67,7 +81,7 @@ jobs:
         run: |
           release_tag="$GITHUB_REF_NAME"
           if [[ "$GITHUB_REF" == "refs/heads/feature/stage-8b-simple-connection-flow" ]]; then
-            release_tag="v0.1.0-beta.4"
+            release_tag="${{ inputs.release_tag || 'v0.1.0-beta.5' }}"
           fi
           release_apk="ai-api-dashboard-${release_tag}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$release_apk"

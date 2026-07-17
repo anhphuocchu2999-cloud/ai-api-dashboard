@@ -31,6 +31,9 @@ object ConfigRepository {
 
     fun loadAllConfigs(prefs: SharedPreferences): List<ApiAccountConfig> {
         val savedConfigs = loadLegacySourceConfigs(prefs)
+        if (containsPlaintextApiKey(prefs)) {
+            saveConfigs(prefs, savedConfigs)
+        }
 
         if (ModelInstanceRepository.hasValidInstances(prefs)) {
             val storedInstances = ModelInstanceRepository.loadAllInstances(prefs)
@@ -57,31 +60,40 @@ object ConfigRepository {
         return loadAllConfigs(prefs).filter { it.enabled }
     }
 
-    fun saveConfigs(prefs: SharedPreferences, configs: List<ApiAccountConfig>) {
+    fun saveConfigs(prefs: SharedPreferences, configs: List<ApiAccountConfig>): Boolean {
         val normalizedConfigs = normalizeFixedSlotIds(configs)
+        val encryptedApiKeys = normalizedConfigs.map { config ->
+            LocalCredentialCipher.encrypt(config.apiKey) ?: return false
+        }
         val jsonArray = JSONArray()
-        normalizedConfigs.forEach { config -> jsonArray.put(configToJson(config)) }
+        normalizedConfigs.forEachIndexed { index, config ->
+            jsonArray.put(configToJson(config, encryptedApiKeys[index]))
+        }
 
         // 关键配置必须同步提交，避免用户点击返回后进程或生命周期切换导致数据丢失。
         val editor = prefs.edit().putString(NEW_CONFIG_KEY, jsonArray.toString())
-        normalizedConfigs.forEach { config ->
+        normalizedConfigs.forEachIndexed { index, config ->
             canonicalFixedSlotName(config.id)?.let { slotName ->
-                editor.putString(slotName, legacyConfigToJson(config.copy(id = slotName)))
+                editor.putString(
+                    slotName,
+                    legacyConfigToJson(config.copy(id = slotName), encryptedApiKeys[index])
+                )
             }
         }
         val committed = editor.commit()
-        if (!committed) return
+        if (!committed) return false
 
         if (ModelInstanceRepository.hasValidInstances(prefs)) {
             val storedInstances = ModelInstanceRepository.loadAllInstances(prefs)
             val synchronizedInstances = synchronizeFixedInstances(storedInstances, normalizedConfigs)
             if (synchronizedInstances != storedInstances) {
-                ModelInstanceRepository.saveInstances(prefs, synchronizedInstances)
+                return ModelInstanceRepository.saveInstances(prefs, synchronizedInstances)
             }
         }
+        return true
     }
 
-    fun saveConfig(prefs: SharedPreferences, config: ApiAccountConfig) {
+    fun saveConfig(prefs: SharedPreferences, config: ApiAccountConfig): Boolean {
         val canonicalSlot = canonicalFixedSlotName(config.id)
         val normalizedConfig = if (canonicalSlot != null) config.copy(id = canonicalSlot) else config
 
@@ -92,7 +104,7 @@ object ConfigRepository {
         } else {
             configs.add(normalizedConfig)
         }
-        saveConfigs(prefs, configs)
+        return saveConfigs(prefs, configs)
     }
 
     private fun loadLegacySourceConfigs(prefs: SharedPreferences): List<ApiAccountConfig> {
@@ -123,6 +135,22 @@ object ConfigRepository {
         }
 
         return normalizeFixedSlotIds(configs)
+    }
+
+    private fun containsPlaintextApiKey(prefs: SharedPreferences): Boolean {
+        fun plaintext(obj: JSONObject): Boolean {
+            val stored = obj.optString("apiKey", "")
+            return stored.isNotBlank() && !LocalCredentialCipher.isEncrypted(stored)
+        }
+        return try {
+            val array = JSONArray(prefs.getString(NEW_CONFIG_KEY, "[]") ?: "[]")
+            if ((0 until array.length()).any { plaintext(array.getJSONObject(it)) }) return true
+            FIXED_SLOT_BINDINGS.keys.any { slot ->
+                prefs.getString(slot, null)?.let { plaintext(JSONObject(it)) } == true
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun synchronizeFixedInstances(
@@ -183,10 +211,10 @@ object ConfigRepository {
     /** API Base 是服务选择的真实来源；历史槽位名只做无法识别时的兼容回退。 */
     private fun inferServiceType(slotName: String, apiBase: String): ServiceType {
         return when {
-            apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
-            apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
-            apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
-            apiBase.contains("xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
+            ServiceHostMatcher.matches(apiBase, "coolyeah.net") -> ServiceType.NEW_API
+            ServiceHostMatcher.matches(apiBase, "api.deepseek.com") -> ServiceType.DEEPSEEK_OFFICIAL
+            ServiceHostMatcher.matches(apiBase, "aihuangniu.com") -> ServiceType.AIHUANGNIU
+            ServiceHostMatcher.matches(apiBase, "xiaomimimo.com") -> ServiceType.MIMO
             slotName.equals("Kimi", ignoreCase = true) -> ServiceType.NEW_API
             slotName.equals("MiMo", ignoreCase = true) -> ServiceType.MIMO
             slotName.equals("DeepSeek", ignoreCase = true) -> ServiceType.OPENAI_COMPATIBLE
@@ -200,7 +228,7 @@ object ConfigRepository {
             id = obj.optString("id", ""),
             name = obj.optString("name", ""),
             apiBase = obj.optString("apiBase", ""),
-            apiKey = obj.optString("apiKey", ""),
+            apiKey = LocalCredentialCipher.decrypt(obj.optString("apiKey", "")).orEmpty(),
             model = obj.optString("model", ""),
             enabled = obj.optBoolean("enabled", true)
         )
@@ -214,7 +242,7 @@ object ConfigRepository {
                 id = legacyKey,
                 name = name.ifBlank { legacyKey },
                 apiBase = obj.optString("apiBase", ""),
-                apiKey = obj.optString("apiKey", ""),
+                apiKey = LocalCredentialCipher.decrypt(obj.optString("apiKey", "")).orEmpty(),
                 model = obj.optString("model", ""),
                 enabled = obj.optBoolean("enabled", true)
             )
@@ -223,22 +251,22 @@ object ConfigRepository {
         }
     }
 
-    private fun configToJson(config: ApiAccountConfig): JSONObject {
+    private fun configToJson(config: ApiAccountConfig, encryptedApiKey: String): JSONObject {
         return JSONObject().apply {
             put("id", config.id)
             put("name", config.name)
             put("apiBase", config.apiBase)
-            put("apiKey", config.apiKey)
+            put("apiKey", encryptedApiKey)
             put("model", config.model)
             put("enabled", config.enabled)
         }
     }
 
-    private fun legacyConfigToJson(config: ApiAccountConfig): String {
+    private fun legacyConfigToJson(config: ApiAccountConfig, encryptedApiKey: String): String {
         return JSONObject()
             .put("name", config.name)
             .put("apiBase", config.apiBase)
-            .put("apiKey", config.apiKey)
+            .put("apiKey", encryptedApiKey)
             .put("model", config.model)
             .put("enabled", config.enabled)
             .toString()

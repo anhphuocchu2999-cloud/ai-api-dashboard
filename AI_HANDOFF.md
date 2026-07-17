@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8D-S：固定 Beta 签名与持续覆盖升级`
+`Stage 8E-S：Public Beta 逻辑与数据稳定性收口`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -13,7 +13,8 @@
 - 网络层缓存身份：`af9bc7774e647e6728480932c28345f80ebe5f51`
 - 当前云端业务基线：`8f4609b8dbabe802f9bd24705c896e07954a6b81`
 - Stage 8B-R 文档闭环：`e1b0b7fde43e876af58f1eb77e24777dfc8c558b`
-- 当前状态：同步角标定位修复已由提交 `67dce82d116284b7d80655b1f3cd01ef5486e3a5` 完成；运行 `29516222227` 已成功构建、核对固定证书并发布 `v0.1.0-beta.4`，等待用户覆盖安装与真机验收
+- 本阶段起始远端 HEAD：`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
+- 当前状态：稳定性批次代码与文档已完成本地静态检查；本机缺少 Android SDK，源码编译与固定签名 `v0.1.0-beta.5` 发布等待 GitHub Actions 核实
 
 ## 云端状态
 
@@ -55,7 +56,7 @@
 
 ## 当前唯一任务
 
-用户从 GitHub Release 覆盖安装 `v0.1.0-beta.4`，验收 `😂` 位于底部信息行最右侧且不再覆盖辅助指标；验收前不继续下一项 Bug。
+将 Stage 8E-S 推送到远端开发分支，仅触发一次 GitHub `assembleDebug`；构建、固定证书校验和 `v0.1.0-beta.5` 发布成功后，用户覆盖安装并集中验收。
 
 ## 本地执行边界
 

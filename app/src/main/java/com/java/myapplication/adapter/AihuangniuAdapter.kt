@@ -6,6 +6,7 @@ import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import com.java.myapplication.stats.RecentUsageTracker
+import com.java.myapplication.config.ServiceHostMatcher
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -40,7 +41,7 @@ class AihuangniuAdapter : PlatformAdapter {
     )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
-        return apiBase.contains("aihuangniu.com", ignoreCase = true)
+        return ServiceHostMatcher.matches(apiBase, "aihuangniu.com")
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {
@@ -102,6 +103,7 @@ class AihuangniuAdapter : PlatformAdapter {
                 usageResult is UsageFetchResult.ModelNotFound -> {
                     WidgetData.error(platformName, "当前模型没有返回独立用量")
                 }
+                usageResult is UsageFetchResult.Error -> WidgetData.error(platformName, usageResult.message)
                 profileData != null -> profileData
                 else -> WidgetData.error(platformName, "用量接口本次未返回")
             }
@@ -124,6 +126,7 @@ class AihuangniuAdapter : PlatformAdapter {
             profileSuccess != null && usage != null -> "账户余额和 API 用量已同步"
             profileSuccess != null -> when (usageResult) {
                 UsageFetchResult.ModelNotFound -> "账户余额已同步，当前模型没有独立用量"
+                is UsageFetchResult.Error -> "账户余额已同步，${usageResult.message}"
                 else -> "账户余额已同步，API 用量本次未返回"
             }
             backgroundToken.isNotBlank() -> "API 用量已同步，平台账户授权本次不可用"
@@ -246,7 +249,16 @@ class AihuangniuAdapter : PlatformAdapter {
             val responseCode = conn.responseCode
             if (responseCode !in 200..299) {
                 conn.disconnect()
-                return UsageFetchResult.Unavailable
+                return UsageFetchResult.Error(
+                    when (responseCode) {
+                        401 -> "API Key 无效"
+                        403 -> "API 用量访问被拒绝"
+                        404 -> "用量接口不存在"
+                        429 -> "请求过于频繁"
+                        in 500..599 -> "用量服务器错误"
+                        else -> "用量请求失败 ($responseCode)"
+                    }
+                )
             }
 
             val body = conn.inputStream.bufferedReader().use { it.readText() }
@@ -254,8 +266,14 @@ class AihuangniuAdapter : PlatformAdapter {
             parseUsageCumulative(body, modelName)
                 ?.let { UsageFetchResult.Success(it) }
                 ?: UsageFetchResult.ModelNotFound
+        } catch (_: java.net.SocketTimeoutException) {
+            UsageFetchResult.Error("用量连接超时")
+        } catch (_: java.net.UnknownHostException) {
+            UsageFetchResult.Error("用量域名解析失败")
+        } catch (_: java.io.IOException) {
+            UsageFetchResult.Error("用量网络错误")
         } catch (_: Exception) {
-            UsageFetchResult.Unavailable
+            UsageFetchResult.Error("用量读取失败")
         }
     }
 
@@ -392,6 +410,7 @@ class AihuangniuAdapter : PlatformAdapter {
     private sealed class UsageFetchResult {
         data class Success(val usage: UsageCumulative) : UsageFetchResult()
         data object ModelNotFound : UsageFetchResult()
+        data class Error(val message: String) : UsageFetchResult()
         data object Unavailable : UsageFetchResult()
     }
 

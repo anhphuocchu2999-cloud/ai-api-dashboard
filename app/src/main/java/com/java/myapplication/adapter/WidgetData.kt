@@ -47,7 +47,10 @@ data class WidgetData(
     val isFallback: Boolean = false,
 
     // 当前模型实例／槽位的缓存身份；为空时不写入最近成功缓存。
-    val cacheKey: String? = null
+    val cacheKey: String? = null,
+
+    // 仅用于缓存回退展示；实时结果不设置。
+    val cachedAtMillis: Long? = null
 ) {
 
     init {
@@ -78,6 +81,7 @@ data class WidgetData(
     companion object {
         private const val CACHE_PREFS_NAME = "widget_last_success"
         private const val FALLBACK_MESSAGE = "网络有点抖，先看上次数据～"
+        private const val FRESH_CACHE_WINDOW_MS = 30_000L
 
         private val TRANSIENT_ERROR_KEYWORDS = listOf(
             "域名解析失败",
@@ -90,6 +94,19 @@ data class WidgetData(
             "服务器异常",
             "获取失败"
         )
+
+        fun clearLastSuccessfulDataForInstance(instanceKey: String) {
+            val context = DashboardApplication.appContextOrNull() ?: return
+            val canonical = InstanceKeyResolver.canonicalInstanceId(instanceKey)
+                .lowercase()
+                .replace(Regex("[^a-z0-9_-]"), "_")
+            if (canonical.isBlank()) return
+            val prefs = context.getSharedPreferences(CACHE_PREFS_NAME, Context.MODE_PRIVATE)
+            val prefix = "model-cache-$canonical-"
+            val editor = prefs.edit()
+            prefs.all.keys.filter { it.startsWith(prefix) }.forEach(editor::remove)
+            editor.apply()
+        }
 
         fun error(
             platformName: String,
@@ -174,7 +191,8 @@ data class WidgetData(
                     isAvailable = true,
                     errorMessage = null,
                     isFallback = true,
-                    cacheKey = canonicalKey
+                    cacheKey = canonicalKey,
+                    cachedAtMillis = obj.optLong("savedAt", 0L).takeIf { it > 0L }
                 )
             } catch (e: Exception) {
                 android.util.Log.w("WidgetData", "读取最近成功数据失败: $canonicalKey", e)
@@ -210,28 +228,46 @@ data class WidgetData(
             return result
         }
 
+        /**
+         * 使用稳定的数据能力槽位比较完整度，禁止把会变化的中文展示标签当成字段身份。
+         */
         private fun cachedFieldKeys(obj: JSONObject): Set<String> = buildSet {
             obj.optJSONObject("primaryMetric")?.let { metric ->
-                add("primary:${metric.optString("label", "").trim()}")
+                if (metric.optString("value", "").isNotBlank()) add("primary")
             }
             val usage = obj.optJSONArray("usageMetrics")
+            var usageSlot = 0
             for (index in 0 until (usage?.length() ?: 0)) {
                 val metric = usage?.optJSONObject(index) ?: continue
                 val value = metric.optString("value", "").trim()
                 if (value.isNotBlank() && value != "暂无可计算数据") {
-                    add("usage:${metric.optString("label", "").trim()}")
+                    add("usage-slot:${usageSlot++}")
                 }
             }
             if (obj.has("percentage")) {
-                add("percentage:${obj.optString("percentageLabel", "").trim()}")
+                add("percentage")
             }
             val auxiliary = obj.optJSONArray("auxiliaryMetrics")
             for (index in 0 until (auxiliary?.length() ?: 0)) {
                 val metric = auxiliary?.optJSONObject(index) ?: continue
-                add("auxiliary:${metric.optString("label", "").trim()}")
+                val label = metric.optString("label", "").trim()
+                val value = metric.optString("value", "").trim()
+                if (label.isNotBlank() && value.isNotBlank()) add("auxiliary:$label")
             }
             listOf("total", "used", "remaining", "callCount", "usagePercent").forEach { field ->
                 if (obj.has(field)) add("legacy:$field")
+            }
+        }
+
+        private fun cacheAgeText(savedAt: Long?): String {
+            if (savedAt == null || savedAt <= 0L) return "时间未知"
+            val ageMs = (System.currentTimeMillis() - savedAt).coerceAtLeast(0L)
+            return when {
+                ageMs <= FRESH_CACHE_WINDOW_MS -> "30秒内"
+                ageMs < 60_000L -> "${(ageMs / 1_000L).coerceAtLeast(1L)}秒前"
+                ageMs < 60L * 60L * 1_000L -> "${ageMs / 60_000L}分钟前"
+                ageMs < 24L * 60L * 60L * 1_000L -> "${ageMs / (60L * 60L * 1_000L)}小时前"
+                else -> "${ageMs / (24L * 60L * 60L * 1_000L)}天前"
             }
         }
     }
@@ -250,9 +286,11 @@ data class WidgetData(
             if (isTransientError(message)) {
                 val cached = loadLastSuccessfulData(canonicalKey, platformName)
                 if (cached != null) {
+                    val ageText = cacheAgeText(cached.cachedAtMillis)
                     return cached.copy(
-                        usageMetrics = listOf(DisplayMetric(FALLBACK_MESSAGE, "")),
-                        statusText = FALLBACK_MESSAGE,
+                        auxiliaryMetrics = cached.auxiliaryMetrics +
+                            DisplayMetric("缓存时间", ageText),
+                        statusText = "$FALLBACK_MESSAGE（$ageText）",
                         isSuccess = true,
                         isAvailable = true,
                         errorMessage = message,
@@ -298,6 +336,7 @@ data class WidgetData(
                 .put("cacheKey", canonicalKey)
                 .put("isSuccess", true)
                 .put("isAvailable", true)
+                .put("savedAt", System.currentTimeMillis())
 
             modelName?.let { obj.put("modelName", it) }
             primaryMetric?.let { obj.put("primaryMetric", metricToJson(it)) }

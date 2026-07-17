@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.java.myapplication.DashboardApplication
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
+import com.java.myapplication.config.InstanceKeyResolver
 import java.security.MessageDigest
 
 /**
@@ -59,23 +60,26 @@ internal class NetworkAwareAdapter(
     /**
      * 使用实例、API配置和网页登录账户的 SHA-256 指纹生成本地缓存键。
      *
-     * API Key、Cookie和Bearer Token只参与内存中的摘要计算，不会写入缓存键、日志或界面。
-     * 任一凭据发生变化都会建立新的缓存空间，避免展示上一个账户的数据。
+     * Cookie / Token 不进入身份，避免会话轮换制造无限缓存键。账户切换成功时由
+     * WebAuthActivity 清除当前槽位缓存，槽位本身仍保证不同账户不会串读。
      */
     private fun cacheIdentity(request: AdapterRequest): String {
+        val canonicalInstance = InstanceKeyResolver.canonicalInstanceId(
+            request.instanceId.trim().ifBlank { "unbound-instance" }
+        )
         val material = listOf(
-            request.instanceId.trim().ifBlank { "unbound-instance" },
+            canonicalInstance,
             request.apiBase.trim().trimEnd('/').lowercase(),
             request.modelName.orEmpty().trim(),
             request.backgroundAuthType.name,
-            request.modelApiKey.trim(),
-            request.backgroundCredential.trim()
+            request.modelApiKey.trim()
         ).joinToString("\u001F")
 
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(material.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02x".format(byte) }
-        return "model-cache-${digest.take(32)}"
+        val safeInstance = canonicalInstance.lowercase().replace(Regex("[^a-z0-9_-]"), "_")
+        return "model-cache-${safeInstance}-${digest.take(32)}"
     }
 
     private fun hasUsableNetwork(): Boolean {

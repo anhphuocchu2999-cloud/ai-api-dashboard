@@ -5,6 +5,7 @@ import com.java.myapplication.DashboardApplication
 import com.java.myapplication.config.InstanceKeyResolver
 import com.java.myapplication.config.ModelInstanceRepository
 import com.java.myapplication.config.ServiceType
+import com.java.myapplication.config.ServiceHostMatcher
 
 /**
  * Adapter 工厂。
@@ -55,10 +56,10 @@ object AdapterFactory {
 
     private fun inferLegacyServiceType(platformName: String, apiBase: String): ServiceType {
         return when {
-            apiBase.contains("xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
-            apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
-            apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
-            apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
+            ServiceHostMatcher.matches(apiBase, "xiaomimimo.com") -> ServiceType.MIMO
+            ServiceHostMatcher.matches(apiBase, "coolyeah.net") -> ServiceType.NEW_API
+            ServiceHostMatcher.matches(apiBase, "api.deepseek.com") -> ServiceType.DEEPSEEK_OFFICIAL
+            ServiceHostMatcher.matches(apiBase, "aihuangniu.com") -> ServiceType.AIHUANGNIU
             platformName.equals("MiMo", ignoreCase = true) -> ServiceType.MIMO
             platformName.equals("Kimi", ignoreCase = true) -> ServiceType.NEW_API
             else -> ServiceType.UNKNOWN

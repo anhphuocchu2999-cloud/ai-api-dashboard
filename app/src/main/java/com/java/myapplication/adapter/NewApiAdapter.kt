@@ -272,27 +272,35 @@ class NewApiAdapter : PlatformAdapter {
      */
     private fun parseTokenResponse(response: String): WidgetData {
         return try {
-            // 检查 code 字段
-            val code = extractJsonValue(response, "code")?.toBooleanStrictOrNull() ?: false
+            val root = JSONObject(response)
+            val code = when (val raw = root.opt("code")) {
+                is Boolean -> raw
+                is Number -> raw.toInt() != 0
+                else -> raw?.toString()?.toBooleanStrictOrNull() ?: false
+            }
             if (!code) {
-                val message = extractJsonValue(response, "message") ?: "请求失败"
+                val message = root.optString("message", "请求失败")
                 return WidgetData.error(platformName, message)
             }
 
-            // 提取 data 对象
-            val dataJson = extractDataObject(response) ?: return WidgetData.error(platformName, "返回格式错误")
+            val data = root.optJSONObject("data")
+                ?: return WidgetData.error(platformName, "返回格式错误")
 
-            // 解析字段（如果字段不存在或解析失败，保持为 null）
-            val totalGranted = extractJsonValue(dataJson, "total_granted")?.toDoubleOrNull()
-            val totalUsed = extractJsonValue(dataJson, "total_used")?.toDoubleOrNull()
-            val totalAvailable = extractJsonValue(dataJson, "total_available")?.toDoubleOrNull()
-            val callCount = extractJsonValue(dataJson, "call_count")?.toLongOrNull()
-            val perCallQuota = extractJsonValue(dataJson, "per_call_quota")?.toDoubleOrNull()
-            val perCallDisplayLabel = extractJsonValue(dataJson, "per_call_display_label")?.let { cleanLabel(it) } ?: "次"
+            fun decimal(key: String) = data.opt(key)?.toString()?.toDoubleOrNull()
+            val totalGranted = decimal("total_granted")
+            val totalUsed = decimal("total_used")
+            val totalAvailable = decimal("total_available")
+            val callCount = data.opt("call_count")?.toString()?.toBigDecimalOrNull()?.toLong()
+            val perCallQuota = decimal("per_call_quota")
+            val perCallDisplayLabel = data.optString("per_call_display_label", "次").let(::cleanLabel)
 
-            // 解析 model_limits（JSON 对象格式：{"kimi-k2.6": true}）
-            val modelLimitsJson = extractJsonValue(dataJson, "model_limits")
-            val modelName = if (!modelLimitsJson.isNullOrBlank()) cleanLabel(parseModelLimits(modelLimitsJson)) else null
+            val modelLimits = data.opt("model_limits")
+            val modelName = when (modelLimits) {
+                is JSONObject -> modelLimits.keys().asSequence().firstOrNull()
+                is org.json.JSONArray -> modelLimits.optString(0, "")
+                is String -> modelLimits
+                else -> null
+            }?.let(::cleanLabel)?.takeIf { it.isNotBlank() }
 
             // 计算次数（如果有 perCallQuota）
             val total: Double?

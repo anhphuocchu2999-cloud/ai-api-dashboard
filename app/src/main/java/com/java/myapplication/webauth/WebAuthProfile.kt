@@ -10,8 +10,8 @@ import com.java.myapplication.adapter.auth.BackgroundAuthType
  * - DeepSeek Cookie + get_user_summary 验证
  * - 爱黄牛 localStorage Bearer Token
  *
- * sharedAuthKey 是平台级授权键，不属于任何历史槽位。多个槽位使用同一平台时，
- * 共用这一份已验证授权，再由配置层同步兼容副本给仍按槽位读取的 Widget。
+ * sharedAuthKey 仅用于兼容迁移历史平台公共授权。新授权始终写入目标槽位，
+ * 同一平台的多个槽位可以绑定不同账户。
  *
  * probeOnly=true 表示只做网页登录后的接口结构摸排；在真实字段与凭据有效性完成
  * 验证前，不得把摸排结果声明为正式数据能力。
@@ -34,7 +34,7 @@ data class WebAuthProfile(
     /** 只读摸排模式：捕获 endpoint、状态码和 JSON 字段结构，不保存响应值。 */
     val probeOnly: Boolean = false
 ) {
-    /** 兼容旧调用方；新代码统一使用 sharedAuthKey。 */
+    /** 兼容旧迁移调用方。 */
     val instanceKey: String
         get() = sharedAuthKey
 }

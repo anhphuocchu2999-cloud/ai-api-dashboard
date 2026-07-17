@@ -2,6 +2,7 @@ package com.java.myapplication.adapter.auth
 
 import android.content.SharedPreferences
 import com.java.myapplication.config.InstanceKeyResolver
+import com.java.myapplication.config.LocalCredentialCipher
 import java.util.Locale
 import org.json.JSONObject
 
@@ -11,8 +12,7 @@ import org.json.JSONObject
  * Stage 8A-3：实例凭据统一使用稳定 instanceId；历史 `${instanceKey}_auth`
  * 键只用于兼容读取。
  *
- * Stage 8B-R：网页登录凭据改为平台公共键。读取公共键时会兼容旧的固定槽位键，
- * 采用“复制而不删除”迁移；用户明确断开平台账户时才同时清理公共键和兼容旧键。
+ * Stage 8E-S：新网页登录凭据按槽位独立保存；平台公共键仅用于一次性兼容迁移。
  */
 object BackgroundAuthRepository {
 
@@ -26,7 +26,10 @@ object BackgroundAuthRepository {
         val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
 
         readRaw(prefs, canonicalId)?.let { raw ->
-            decode(raw)?.let { return it }
+            decode(raw)?.let { decoded ->
+                if (containsPlaintextCredential(raw)) save(prefs, canonicalId, decoded)
+                return decoded
+            }
         }
 
         val fallbackKeys = buildList {
@@ -39,7 +42,7 @@ object BackgroundAuthRepository {
             val decoded = decode(raw) ?: continue
 
             // 迁移采用“复制而不删除”：写入失败时仍返回旧凭据，下次继续重试。
-            prefs.edit().putString(storageKey(canonicalId), raw).commit()
+            save(prefs, canonicalId, decoded)
             return decoded
         }
 
@@ -52,9 +55,10 @@ object BackgroundAuthRepository {
         config: BackgroundAuthConfig
     ): Boolean {
         val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
+        val encryptedAuthValue = LocalCredentialCipher.encrypt(config.authValue) ?: return false
         val json = JSONObject()
             .put("authType", config.authType.name)
-            .put("authValue", config.authValue)
+            .put("authValue", encryptedAuthValue)
             .put("enabled", config.enabled)
             .put("updatedAt", config.updatedAt)
             .toString()
@@ -102,7 +106,7 @@ object BackgroundAuthRepository {
 
                 BackgroundAuthConfig(
                     authType = authType,
-                    authValue = obj.optString("authValue", ""),
+                    authValue = LocalCredentialCipher.decrypt(obj.optString("authValue", "")).orEmpty(),
                     enabled = authType != BackgroundAuthType.NONE,
                     updatedAt = obj.optLong("updatedAt", 0L)
                 )
@@ -110,6 +114,13 @@ object BackgroundAuthRepository {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun containsPlaintextCredential(raw: String): Boolean = try {
+        val stored = JSONObject(raw).optString("authValue", "")
+        stored.isNotBlank() && !LocalCredentialCipher.isEncrypted(stored)
+    } catch (_: Exception) {
+        false
     }
 
     private fun storageKey(instanceKey: String): String = "${instanceKey}_auth"

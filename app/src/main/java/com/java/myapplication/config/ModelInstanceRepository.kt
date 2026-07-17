@@ -86,6 +86,13 @@ object ModelInstanceRepository {
                 val obj = jsonArray.getJSONObject(i)
                 instances.add(parseInstanceFromJson(obj))
             }
+            if ((0 until jsonArray.length()).any { index ->
+                    val stored = jsonArray.getJSONObject(index).optString("apiKey", "")
+                    stored.isNotBlank() && !LocalCredentialCipher.isEncrypted(stored)
+                }
+            ) {
+                saveInstances(prefs, instances)
+            }
             instances
         } catch (_: Exception) {
             emptyList()
@@ -100,7 +107,8 @@ object ModelInstanceRepository {
     fun saveInstances(prefs: SharedPreferences, instances: List<ModelInstance>): Boolean {
         val jsonArray = JSONArray()
         for (instance in instances) {
-            jsonArray.put(instanceToJson(instance))
+            val encryptedApiKey = LocalCredentialCipher.encrypt(instance.apiKey) ?: return false
+            jsonArray.put(instanceToJson(instance, encryptedApiKey))
         }
 
         // 第一步：写入实例数据
@@ -317,7 +325,7 @@ object ModelInstanceRepository {
             config.id.equals("Kimi", ignoreCase = true) -> ServiceType.NEW_API
             config.id.equals("MiMo", ignoreCase = true) -> ServiceType.MIMO
             config.id.equals("DeepSeek", ignoreCase = true) -> {
-                if (config.apiBase.contains("api.deepseek.com", ignoreCase = true)) {
+                if (ServiceHostMatcher.matches(config.apiBase, "api.deepseek.com")) {
                     ServiceType.DEEPSEEK_OFFICIAL
                 } else {
                     ServiceType.OPENAI_COMPATIBLE
@@ -341,10 +349,10 @@ object ModelInstanceRepository {
         defaultForOpenAiSlot: ServiceType?
     ): ServiceType {
         return when {
-            apiBase.contains("coolyeah.net", ignoreCase = true) -> ServiceType.NEW_API
-            apiBase.contains("api.deepseek.com", ignoreCase = true) -> ServiceType.DEEPSEEK_OFFICIAL
-            apiBase.contains("aihuangniu.com", ignoreCase = true) -> ServiceType.AIHUANGNIU
-            apiBase.contains("platform.xiaomimimo.com", ignoreCase = true) -> ServiceType.MIMO
+            ServiceHostMatcher.matches(apiBase, "coolyeah.net") -> ServiceType.NEW_API
+            ServiceHostMatcher.matches(apiBase, "api.deepseek.com") -> ServiceType.DEEPSEEK_OFFICIAL
+            ServiceHostMatcher.matches(apiBase, "aihuangniu.com") -> ServiceType.AIHUANGNIU
+            ServiceHostMatcher.matches(apiBase, "platform.xiaomimimo.com") -> ServiceType.MIMO
             defaultForOpenAiSlot != null -> defaultForOpenAiSlot  // OpenAI 槽位回退到 OPENAI_COMPATIBLE
             else -> ServiceType.UNKNOWN  // 额外配置无法识别
         }
@@ -360,7 +368,7 @@ object ModelInstanceRepository {
             displayName = obj.getString("displayName"),
             serviceType = ServiceType.fromString(obj.getString("serviceType")),
             apiBase = obj.getString("apiBase"),
-            apiKey = obj.getString("apiKey"),
+            apiKey = LocalCredentialCipher.decrypt(obj.getString("apiKey")).orEmpty(),
             modelName = obj.getString("modelName"),
             enabled = obj.getBoolean("enabled")
         )
@@ -369,13 +377,13 @@ object ModelInstanceRepository {
     /**
      * 实例转 JSON
      */
-    private fun instanceToJson(instance: ModelInstance): JSONObject {
+    private fun instanceToJson(instance: ModelInstance, encryptedApiKey: String): JSONObject {
         return JSONObject().apply {
             put("instanceId", instance.instanceId)
             put("displayName", instance.displayName)
             put("serviceType", instance.serviceType.value)
             put("apiBase", instance.apiBase)
-            put("apiKey", instance.apiKey)
+            put("apiKey", encryptedApiKey)
             put("modelName", instance.modelName)
             put("enabled", instance.enabled)
         }

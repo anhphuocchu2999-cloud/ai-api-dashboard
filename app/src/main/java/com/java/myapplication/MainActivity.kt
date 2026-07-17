@@ -274,8 +274,11 @@ fun ConfigScreen(
                 if (event == Lifecycle.Event.ON_PAUSE) {
                     val index = latestEditingIndex
                     if (index in slots.indices) {
-                        savePlatformConfig(prefs, slots[index], latestConfigs[index])
-                        refreshWidget(context)
+                        if (savePlatformConfig(prefs, slots[index], latestConfigs[index])) {
+                            refreshWidget(context)
+                        } else {
+                            Toast.makeText(context, "配置保存失败，请返回应用重试", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
@@ -304,7 +307,9 @@ fun ConfigScreen(
             connectionStatuses = connectionStatuses.toMutableList().apply { this[index] = null }
         }
         if (persist) {
-            savePlatformConfig(prefs, slots[index], newConfig)
+            if (!savePlatformConfig(prefs, slots[index], newConfig)) {
+                Toast.makeText(context, "配置保存失败，请重试", Toast.LENGTH_LONG).show()
+            }
         }
         return updated
     }
@@ -312,7 +317,10 @@ fun ConfigScreen(
     fun closeEditor() {
         val index = editingIndex
         if (index in slots.indices) {
-            savePlatformConfig(prefs, slots[index], configs[index])
+            if (!savePlatformConfig(prefs, slots[index], configs[index])) {
+                Toast.makeText(context, "配置保存失败，请重试", Toast.LENGTH_LONG).show()
+                return
+            }
             refreshWidget(context)
         }
         editingIndex = -1
@@ -353,9 +361,14 @@ fun ConfigScreen(
             onBack = ::closeEditor,
             onConfigChange = { updated ->
                 // 输入期间只更新内存，不在每个字符上同步写磁盘和实例仓库。
+                if (updated.apiBase != configs[index].apiBase) {
+                    backgroundAuths = backgroundAuths.toMutableList().apply {
+                        this[index] = BackgroundAuthConfig()
+                    }
+                }
                 replaceConfig(index, updated, persist = false)
             },
-            onTest = {
+            onTest = test@{
                 val testConfig = configs[index]
                 if (testConfig.apiBase.isBlank() || testConfig.apiKey.isBlank()) {
                     connectionStatuses = connectionStatuses.toMutableList().apply {
@@ -366,7 +379,10 @@ fun ConfigScreen(
                         )
                     }
                 } else {
-                    savePlatformConfig(prefs, slotName, testConfig)
+                    if (!savePlatformConfig(prefs, slotName, testConfig)) {
+                        Toast.makeText(context, "配置保存失败，未开始检测", Toast.LENGTH_LONG).show()
+                        return@test
+                    }
                     testingIndex = index
                     connectionStatuses = connectionStatuses.toMutableList().apply { this[index] = null }
                     scope.launch {
@@ -429,22 +445,25 @@ fun ConfigScreen(
                     }
                 }
             },
-            onConnect = {
+            onConnect = connect@{
                 webProfile?.let { profile ->
                     // 先保存当前输入，避免网页登录返回 onResume 时被旧配置覆盖。
-                    savePlatformConfig(prefs, slotName, configs[index])
+                    if (!savePlatformConfig(prefs, slotName, configs[index])) {
+                        Toast.makeText(context, "配置保存失败，未打开登录", Toast.LENGTH_LONG).show()
+                        return@connect
+                    }
                     context.startActivity(
                         WebAuthActivity.createIntent(
                             context = context,
                             profileId = profile.profileId,
-                            targetInstanceKey = profile.instanceKey
+                            targetInstanceKey = slotName
                         )
                     )
                 }
             },
             onDisconnect = {
                 webProfile?.let { profile ->
-                    clearPlatformAuthorization(prefs, profile, configs, slots)
+                    clearPlatformAuthorization(prefs, slotName)
                     backgroundAuths = synchronizePlatformAuthorizations(prefs, configs, slots)
                     Toast.makeText(context, "平台账户已断开", Toast.LENGTH_SHORT).show()
                     refreshWidget(context)
@@ -760,7 +779,7 @@ private fun SlotEditorScreen(
                     )
                 } else {
                     SimpleStatusCard(
-                        title = if (authConnected) "平台账户已连接" else "平台账户未连接",
+                        title = if (authConnected) "平台账户授权已保存" else "平台账户未授权",
                         body = if (authConnected) {
                             "已解锁并自动更新：${webDataSummary(webProfile.profileId)}"
                         } else {
@@ -903,58 +922,38 @@ private fun synchronizePlatformAuthorizations(
     val profiles = slots.indices.map { index ->
         WebAuthProfileRegistry.findFor(slots[index], configs[index].apiBase)
     }
-    val sharedByProfile = mutableMapOf<String, BackgroundAuthConfig>()
-
-    profiles.filterNotNull().distinctBy { it.profileId }.forEach { profile ->
-        val shared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
-        if (isMatchingAuthorization(profile, shared)) {
-            sharedByProfile[profile.profileId] = shared
-        }
-    }
-
-    profiles.forEachIndexed { index, profile ->
-        if (profile == null || sharedByProfile.containsKey(profile.profileId)) {
-            return@forEachIndexed
-        }
-        val slotName = slots[index]
-        val local = BackgroundAuthRepository.load(prefs, slotName)
-        val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
-        val belongsToProfile = savedProfileId == profile.profileId ||
-            (savedProfileId == null && slotName.equals(profile.instanceKey, ignoreCase = true))
-
-        if (belongsToProfile && isMatchingAuthorization(profile, local)) {
-            BackgroundAuthRepository.save(prefs, profile.instanceKey, local)
-            sharedByProfile[profile.profileId] = local
-        }
-    }
-
     return profiles.mapIndexed { index, profile ->
         if (profile == null) return@mapIndexed BackgroundAuthConfig()
-        val shared = sharedByProfile[profile.profileId]
-            ?: return@mapIndexed BackgroundAuthConfig()
         val slotName = slots[index]
-        BackgroundAuthRepository.save(prefs, slotName, shared)
-        prefs.edit().putString(webAuthProfileKey(slotName), profile.profileId).commit()
-        shared
+        val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
+        val local = BackgroundAuthRepository.load(prefs, slotName)
+        if (savedProfileId == profile.profileId && isMatchingAuthorization(profile, local)) {
+            return@mapIndexed local
+        }
+
+        // One-time migration from the old platform-wide credential. Afterwards
+        // every slot owns its credential and can use a different account.
+        val legacyShared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+        if (isMatchingAuthorization(profile, legacyShared)) {
+            BackgroundAuthRepository.save(prefs, slotName, legacyShared)
+            prefs.edit().putString(webAuthProfileKey(slotName), profile.profileId).commit()
+            legacyShared
+        } else {
+            BackgroundAuthConfig()
+        }
+    }.also {
+        profiles.filterNotNull().distinctBy { it.instanceKey }.forEach { profile ->
+            prefs.edit().remove("${profile.instanceKey}_auth").commit()
+        }
     }
 }
 
 private fun clearPlatformAuthorization(
     prefs: android.content.SharedPreferences,
-    profile: WebAuthProfile,
-    configs: List<PlatformConfig>,
-    slots: List<String>
+    slotName: String
 ) {
-    BackgroundAuthRepository.clear(prefs, profile.instanceKey)
-
-    slots.forEachIndexed { index, slotName ->
-        val boundProfile = WebAuthProfileRegistry.findFor(slotName, configs[index].apiBase)
-        val savedProfileId = prefs.getString(webAuthProfileKey(slotName), null)
-        if (boundProfile?.profileId == profile.profileId || savedProfileId == profile.profileId) {
-            BackgroundAuthRepository.clear(prefs, slotName)
-            prefs.edit().remove(webAuthProfileKey(slotName)).commit()
-        }
-    }
+    BackgroundAuthRepository.clear(prefs, slotName)
+    prefs.edit().remove(webAuthProfileKey(slotName)).commit()
 }
 
 private fun webAuthProfileKey(slotName: String): String {
@@ -988,18 +987,8 @@ fun savePlatformConfig(
     prefs: android.content.SharedPreferences,
     platform: String,
     config: PlatformConfig
-) {
-    val json = JSONObject()
-        .put("name", config.name)
-        .put("apiBase", config.apiBase)
-        .put("apiKey", config.apiKey)
-        .put("model", config.model)
-        .put("enabled", config.enabled)
-        .toString()
-
-    prefs.edit().putString(platform, json).apply()
-
-    ConfigRepository.saveConfig(
+): Boolean {
+    return ConfigRepository.saveConfig(
         prefs,
         ApiAccountConfig(
             id = platform,

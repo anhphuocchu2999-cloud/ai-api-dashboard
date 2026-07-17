@@ -27,10 +27,14 @@ import android.widget.Toast
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.adapter.WidgetData
+import com.java.myapplication.config.ServiceHostMatcher
 import com.java.myapplication.webauth.DeepSeekWebProbeRepository
 import com.java.myapplication.webauth.WebAuthProfile
 import com.java.myapplication.webauth.WebAuthProfileRegistry
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * 通用网页登录授权 Activity。
@@ -279,6 +283,7 @@ class WebAuthActivity : Activity() {
     private lateinit var targetInstanceKey: String
 
     private var loginDetected = false
+    @Volatile private var credentialVerificationInProgress = false
 
     private val authHandler = Handler(Looper.getMainLooper())
     private var cookiePollRunnable: Runnable? = null
@@ -343,13 +348,13 @@ class WebAuthActivity : Activity() {
         progressBar = findViewById(R.id.progress_bar)
 
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
 
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            javaScriptCanOpenWindowsAutomatically = true
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            javaScriptCanOpenWindowsAutomatically = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             userAgentString = MOBILE_USER_AGENT
         }
 
@@ -366,7 +371,12 @@ class WebAuthActivity : Activity() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
-            ): Boolean = false
+            ): Boolean {
+                val url = request?.url?.toString().orEmpty()
+                if (request == null || !request.isForMainFrame || isAllowedPage(url)) return false
+                Toast.makeText(this@WebAuthActivity, "已阻止跳转到非平台网页", Toast.LENGTH_SHORT).show()
+                return true
+            }
 
             override fun shouldInterceptRequest(
                 view: WebView?,
@@ -390,6 +400,10 @@ class WebAuthActivity : Activity() {
             ) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
+                if (!isAllowedPage(url.orEmpty())) {
+                    view?.stopLoading()
+                    return
+                }
                 when {
                     profile.probeOnly -> scheduleProbeInjection()
                     isDeepSeekProfile() -> scheduleAuthObserverInjection()
@@ -399,6 +413,7 @@ class WebAuthActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                if (!isAllowedPage(url.orEmpty())) return
 
                 if (profile.probeOnly) {
                     scheduleProbeInjection()
@@ -422,6 +437,12 @@ class WebAuthActivity : Activity() {
         localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
         authHandler.removeCallbacks(authObserverInstallRunnable)
         probeHandler.removeCallbacks(probeInstallRunnable)
+        if (::webView.isInitialized) {
+            webView.removeJavascriptInterface("DashboardAuth")
+            webView.removeJavascriptInterface("DashboardProbe")
+            webView.stopLoading()
+            webView.destroy()
+        }
         super.onDestroy()
     }
 
@@ -451,7 +472,7 @@ class WebAuthActivity : Activity() {
     }
 
     private fun checkAndSaveCookies() {
-        if (loginDetected) return
+        if (loginDetected || credentialVerificationInProgress || !isAllowedPage(webView.url.orEmpty())) return
 
         val cookieString = currentCookieString()
         if (cookieString.isBlank()) return
@@ -459,11 +480,51 @@ class WebAuthActivity : Activity() {
         val cookies = parseCookieString(cookieString)
         if (profile.requiredCookieNames.isNotEmpty()) {
             if (!profile.requiredCookieNames.all(cookies::containsKey)) return
-            saveCredentialAndRefresh(buildCookieHeader(cookies))
+            verifyCookieAndSave(buildCookieHeader(cookies))
             return
         }
 
         saveCredentialAndRefresh(buildCookieHeader(cookies))
+    }
+
+    private fun verifyCookieAndSave(cookieHeader: String) {
+        val verificationUrl = profile.cookieVerificationUrl
+        if (verificationUrl.isNullOrBlank()) {
+            saveCredentialAndRefresh(cookieHeader)
+            return
+        }
+        credentialVerificationInProgress = true
+        Thread {
+            var connection: HttpURLConnection? = null
+            val valid = try {
+                connection = URL(verificationUrl).openConnection() as HttpURLConnection
+                connection?.requestMethod = "GET"
+                connection?.connectTimeout = 10_000
+                connection?.readTimeout = 10_000
+                connection?.setRequestProperty("Cookie", cookieHeader)
+                connection?.setRequestProperty("Accept", "application/json")
+                (connection?.responseCode ?: -1) in 200..299
+            } catch (_: Exception) {
+                false
+            } finally {
+                connection?.disconnect()
+            }
+            runOnUiThread {
+                credentialVerificationInProgress = false
+                if (valid && !loginDetected) saveCredentialAndRefresh(cookieHeader)
+            }
+        }.start()
+    }
+
+    private fun isAllowedPage(url: String): Boolean {
+        if (!url.startsWith("https://", ignoreCase = true)) return false
+        val allowedHosts = buildSet {
+            ServiceHostMatcher.hostOf(profile.loginUrl)?.let(::add)
+            ServiceHostMatcher.hostOf(profile.cookieDomain)?.let(::add)
+            ServiceHostMatcher.hostOf(profile.cookieVerificationUrl.orEmpty())?.let(::add)
+            addAll(profile.apiBaseHostPatterns)
+        }
+        return ServiceHostMatcher.matchesAny(url, allowedHosts)
     }
 
     private fun currentCookieString(): String {
@@ -527,6 +588,12 @@ class WebAuthActivity : Activity() {
             return false
         }
 
+        prefs.edit()
+            .putString("web_auth_profile_${targetInstanceKey.lowercase()}", profile.profileId)
+            .commit()
+
+        WidgetData.clearLastSuccessfulDataForInstance(targetInstanceKey)
+
         loginDetected = true
         cookiePollRunnable?.let { authHandler.removeCallbacks(it) }
         localStoragePollRunnable?.let { authHandler.removeCallbacks(it) }
@@ -551,7 +618,7 @@ class WebAuthActivity : Activity() {
                 webView.evaluateJavascript(
                     "localStorage.getItem(${JSONObject.quote(key)})"
                 ) { value ->
-                    if (loginDetected) return@evaluateJavascript
+                    if (loginDetected || !isAllowedPage(webView.url.orEmpty())) return@evaluateJavascript
                     val token = value?.trim()?.removeSurrounding("\"")?.trim()
                     if (!token.isNullOrBlank() && token != "null") {
                         saveCredentialAndRefresh(token)
@@ -670,7 +737,7 @@ class WebAuthActivity : Activity() {
         @JavascriptInterface
         fun onObservedSession(result: String) {
             runOnUiThread {
-                if (loginDetected) return@runOnUiThread
+                if (loginDetected || !isAllowedPage(webView.url.orEmpty())) return@runOnUiThread
 
                 val payload = try {
                     JSONObject(result)
@@ -691,6 +758,7 @@ class WebAuthActivity : Activity() {
         @JavascriptInterface
         fun onResponse(payload: String) {
             try {
+                if (!isAllowedPage(webView.url.orEmpty())) return
                 val obj = JSONObject(payload)
                 DeepSeekWebProbeRepository.recordResponse(
                     context = applicationContext,

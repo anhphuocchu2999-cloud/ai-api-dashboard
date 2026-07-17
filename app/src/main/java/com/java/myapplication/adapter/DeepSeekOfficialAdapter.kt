@@ -7,6 +7,7 @@ import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import com.java.myapplication.stats.RecentUsageTracker
+import com.java.myapplication.config.ServiceHostMatcher
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -43,7 +44,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
     )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
-        return apiBase.contains("api.deepseek.com", ignoreCase = true)
+        return ServiceHostMatcher.matches(apiBase, "api.deepseek.com")
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {
@@ -54,7 +55,6 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         )
 
         if (
-            !apiData.isSuccess ||
             request.backgroundAuthType != BackgroundAuthType.COOKIE ||
             request.backgroundCredential.isBlank()
         ) {
@@ -64,7 +64,11 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         return when (val webResult = fetchWebSummary(request.backgroundCredential)) {
             is WebSummaryResult.Success -> {
                 val summary = webResult.summary
-                val merged = mergeWebSummary(apiData, summary)
+                val merged = if (apiData.isSuccess && apiData.isAvailable) {
+                    mergeWebSummary(apiData, summary)
+                } else {
+                    webSummaryOnly(request.modelName, summary, apiData.statusText)
+                }
                 RecentUsageTracker.apply(
                     context = DashboardApplication.appContextOrNull(),
                     identity = RecentUsageTracker.identity(
@@ -83,7 +87,9 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 )
             }
 
-            WebSummaryResult.AuthExpired -> apiData.copy(statusText = "网页登录需重连")
+            WebSummaryResult.AuthExpired -> if (apiData.isSuccess) {
+                apiData.copy(statusText = "网页登录需重连")
+            } else apiData
             WebSummaryResult.Unavailable -> apiData
         }
     }
@@ -97,7 +103,9 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         apiKey: String,
         modelName: String?
     ): WidgetData {
-        val normalizedBase = apiBase.trim().trimEnd('/').removeSuffix("/v1")
+        val normalizedBase = apiBase.trim().trimEnd('/').let {
+            if (it.endsWith("/v1", ignoreCase = true)) it.dropLast(3) else it
+        }
         if (apiKey.isBlank()) return WidgetData.error(platformName, "Key未配置")
 
         return try {
@@ -149,7 +157,8 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         return try {
             val root = JSONObject(response)
             val available = root.optBoolean("is_available", false)
-            val info = root.optJSONArray("balance_infos")?.optJSONObject(0)
+            val infos = root.optJSONArray("balance_infos")
+            val info = infos?.optJSONObject(0)
                 ?: return WidgetData.error(platformName, "余额解析失败")
 
             val currency = info.optString("currency", "")
@@ -165,6 +174,12 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 }
                 granted?.let {
                     add(WidgetData.DisplayMetric("赠送余额", "$symbol${formatAmount(it)}"))
+                }
+                for (index in 1 until (infos?.length() ?: 0)) {
+                    val extra = infos?.optJSONObject(index) ?: continue
+                    val extraTotal = extra.optString("total_balance", "").toBigDecimalOrNull() ?: continue
+                    val extraCurrency = extra.optString("currency", "")
+                    add(WidgetData.DisplayMetric("余额 $extraCurrency", "${currencySymbol(extraCurrency)}${formatAmount(extraTotal)}"))
                 }
             }
 
@@ -286,7 +301,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
                 401, 403 -> WebSummaryResult.AuthExpired
                 in 200..299 -> parseWebSummary(body)
                     ?.let(WebSummaryResult::Success)
-                    ?: WebSummaryResult.AuthExpired
+                    ?: WebSummaryResult.Unavailable
                 else -> WebSummaryResult.Unavailable
             }
         } catch (_: Exception) {
@@ -320,7 +335,7 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             monthlyCost?.let { (amount, currency) ->
                 auxiliary.add(
                     WidgetData.DisplayMetric(
-                        "本月消耗",
+                        "网页·本月消耗",
                         "${currencySymbol(currency)}${formatAmount(amount)}"
                     )
                 )
@@ -328,27 +343,27 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             totalCost?.let { (amount, currency) ->
                 auxiliary.add(
                     WidgetData.DisplayMetric(
-                        "累计消耗",
+                        "网页·累计消耗",
                         "${currencySymbol(currency)}${formatAmount(amount)}"
                     )
                 )
             }
             monthlyTokensAmount?.let {
                 auxiliary.add(
-                    WidgetData.DisplayMetric("本月 Token", formatTokenAmount(it))
+                    WidgetData.DisplayMetric("网页·本月 Token", formatTokenAmount(it))
                 )
             }
 
-            parseWalletArray(bizData.optJSONArray("normal_wallets"), "充值余额")
+            parseWalletArray(bizData.optJSONArray("normal_wallets"), "网页·充值余额")
                 .forEach(auxiliary::add)
-            parseWalletArray(bizData.optJSONArray("bonus_wallets"), "赠送余额")
+            parseWalletArray(bizData.optJSONArray("bonus_wallets"), "网页·赠送余额")
                 .forEach(auxiliary::add)
 
             bizData.optString("total_available_token_estimation", "")
                 .toBigDecimalOrNull()
                 ?.let {
                     auxiliary.add(
-                        WidgetData.DisplayMetric("预计可用 Token", formatTokenAmount(it))
+                        WidgetData.DisplayMetric("网页·预计可用 Token", formatTokenAmount(it))
                     )
                 }
 
@@ -399,6 +414,23 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
             auxiliaryMetrics = (apiData.auxiliaryMetrics + summary.auxiliaryMetrics)
                 .distinctBy { "${it.label}|${it.value}" },
             statusText = "网页账单已同步"
+        )
+    }
+
+    private fun webSummaryOnly(
+        modelName: String?,
+        summary: WebSummary,
+        apiError: String?
+    ): WidgetData {
+        val first = summary.auxiliaryMetrics.firstOrNull()
+        return WidgetData(
+            platformName = platformName,
+            modelName = modelName,
+            primaryMetric = first,
+            auxiliaryMetrics = summary.auxiliaryMetrics.drop(1),
+            statusText = "账户数据可用；API 余额失败${apiError?.let { "：$it" }.orEmpty()}",
+            isSuccess = true,
+            isAvailable = true
         )
     }
 

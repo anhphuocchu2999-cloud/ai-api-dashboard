@@ -13,17 +13,19 @@ import android.view.View
 import android.widget.RemoteViews
 import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.AdapterRequest
+import com.java.myapplication.adapter.HostRequestCoordinator
 import com.java.myapplication.adapter.WidgetData
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
+import com.java.myapplication.config.ServiceHostMatcher
 import com.java.myapplication.stats.RecentUsageTracker
 import com.java.myapplication.webauth.WebAuthProfileRegistry
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -50,9 +52,32 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
         )
-        if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        val expectedToken = context.getSharedPreferences(REFRESH_TAP_PREFS, Context.MODE_PRIVATE)
+            .getString(refreshTokenKey(id), null)
+        if (
+            id != AppWidgetManager.INVALID_APPWIDGET_ID &&
+            expectedToken != null &&
+            intent.getStringExtra(EXTRA_REFRESH_TOKEN) == expectedToken
+        ) {
             handleRefreshTap(context, AppWidgetManager.getInstance(context), id)
         }
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val taps = context.getSharedPreferences(REFRESH_TAP_PREFS, Context.MODE_PRIVATE).edit()
+        val layout = context.getSharedPreferences(LAYOUT_PREFS, Context.MODE_PRIVATE).edit()
+        val carousel = context.getSharedPreferences(CAROUSEL_PREFS, Context.MODE_PRIVATE).edit()
+        appWidgetIds.forEach { id ->
+            generations.remove(id)
+            taps.remove(tapCountKey(id)).remove(tapTimeKey(id)).remove(refreshTokenKey(id))
+            layout.remove("compact_$id")
+            renderPrefixes.forEach { prefix ->
+                carousel.remove("${id}_${prefix}_carousel_index")
+                    .remove("${id}_${prefix}_aux_carousel_index")
+            }
+        }
+        taps.apply(); layout.apply(); carousel.apply()
     }
 
     companion object {
@@ -60,8 +85,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         private const val LAYOUT_PREFS = "widget_layout_state"
         private const val CAROUSEL_PREFS = "widget_carousel"
         private const val REFRESH_TAP_PREFS = "widget_refresh_taps"
+        private const val EXTRA_REFRESH_TOKEN = "refresh_token"
         private const val COMPACT_HEIGHT_DP = 160
-        private const val SAME_HOST_INTERVAL_MS = 1_000L
         private const val REFRESH_TAP_WINDOW_MS = 3_000L
         private const val REFRESH_TAP_TARGET = 8
         private val generations = ConcurrentHashMap<Int, Long>()
@@ -113,6 +138,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         private fun tapCountKey(id: Int) = "count_$id"
 
         private fun tapTimeKey(id: Int) = "time_$id"
+
+        private fun refreshTokenKey(id: Int) = "token_$id"
 
         private fun handleRefreshTap(context: Context, manager: AppWidgetManager, id: Int) {
             val now = System.currentTimeMillis()
@@ -214,18 +241,15 @@ class BalanceWidgetProvider : AppWidgetProvider() {
 
             Thread {
                 val results = mutableListOf<WidgetData>()
-                val hostTimes = mutableMapOf<String, Long>()
-                visibleEntries.forEach { (slot, config) ->
-                    val host = try { URL(config.apiBase.trim().trimEnd('/')).host } catch (_: Exception) { "" }
-                    val last = hostTimes[host] ?: 0L
-                    val wait = if (host.isNotBlank() && last > 0L) {
-                        (SAME_HOST_INTERVAL_MS - (System.currentTimeMillis() - last)).coerceAtLeast(0L)
-                    } else 0L
-                    if (wait > 0L) try { Thread.sleep(wait) } catch (_: InterruptedException) {
-                        Thread.currentThread().interrupt()
+                try {
+                    visibleEntries.forEach { (slot, config) ->
+                        if (generations[id] != generation) return@Thread
+                        results += fetchData(context, prefs, slot, config)
                     }
-                    results += fetchData(context, prefs, slot, config)
-                    if (host.isNotBlank()) hostTimes[host] = System.currentTimeMillis()
+                } catch (_: Throwable) {
+                    while (results.size < visibleEntries.size) {
+                        results += WidgetData.error(visibleEntries[results.size].first, "读取失败，请稍后重试")
+                    }
                 }
 
                 Handler(Looper.getMainLooper()).post {
@@ -235,7 +259,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                         val p = targets[index]
                         setTitle(views, p, visibleEntries[index].second)
                         applyBrand(views, p, visibleEntries[index].first, visibleEntries[index].second)
-                        render(context, views, data, p)
+                        render(context, views, data, p, id)
                         setSyncing(views, p, false)
                     }
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -284,7 +308,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 backgroundAuthType = auth.authType,
                 backgroundCredential = auth.authValue
             )
-            val raw = try { adapter.fetchData(request) } catch (_: Exception) {
+            val raw = try { HostRequestCoordinator.withHost(config.apiBase) { adapter.fetchData(request) } } catch (_: Exception) {
                 WidgetData.error(slot, "获取失败")
             }
             return applyRecentUsage(context, slot, config, raw)
@@ -297,7 +321,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         ): BackgroundAuthConfig {
             val profile = WebAuthProfileRegistry.findFor(slot, apiBase)
                 ?: return BackgroundAuthConfig()
-            val auth = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+            val auth = BackgroundAuthRepository.load(prefs, slot)
             return auth.takeIf {
                 it.enabled &&
                     it.authType == profile.authType &&
@@ -343,7 +367,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun render(context: Context, views: RemoteViews, data: WidgetData, prefix: String) {
+        private fun render(context: Context, views: RemoteViews, data: WidgetData, prefix: String, appWidgetId: Int) {
             val ids = ids(prefix)
             if (!data.isSuccess || !data.isAvailable) {
                 views.setTextViewText(ids.primary, data.statusText ?: data.errorMessage ?: "未配置")
@@ -363,7 +387,8 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             )
 
             val carousel = context.getSharedPreferences(CAROUSEL_PREFS, Context.MODE_PRIVATE)
-            val usageIndex = carousel.getInt("${prefix}_carousel_index", 0)
+            val usageKey = "${appWidgetId}_${prefix}_carousel_index"
+            val usageIndex = carousel.getInt(usageKey, 0)
             val usage = data.usageMetrics.takeIf { it.isNotEmpty() }
                 ?.get(usageIndex % data.usageMetrics.size)
             views.setTextViewText(
@@ -373,7 +398,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             )
             views.setViewVisibility(ids.usage, View.VISIBLE)
             if (usage != null) {
-                carousel.edit().putInt("${prefix}_carousel_index", (usageIndex + 1) % 1000).apply()
+                carousel.edit().putInt(usageKey, (usageIndex + 1) % 1000).apply()
             }
 
             if (data.percentage != null && data.percentageLabel != null) {
@@ -389,12 +414,13 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(ids.percent, "")
             }
 
-            val auxIndex = carousel.getInt("${prefix}_aux_carousel_index", 0)
+            val auxKey = "${appWidgetId}_${prefix}_aux_carousel_index"
+            val auxIndex = carousel.getInt(auxKey, 0)
             if (data.auxiliaryMetrics.isNotEmpty()) {
                 val aux = data.auxiliaryMetrics[auxIndex % data.auxiliaryMetrics.size]
                 views.setTextViewText(ids.auxiliary, if (data.isFallback) cached(aux) else metric(aux))
                 views.setViewVisibility(ids.auxiliary, View.VISIBLE)
-                carousel.edit().putInt("${prefix}_aux_carousel_index", (auxIndex + 1) % 1000).apply()
+                carousel.edit().putInt(auxKey, (auxIndex + 1) % 1000).apply()
             } else {
                 views.setTextViewText(ids.auxiliary, "")
                 views.setViewVisibility(ids.auxiliary, View.GONE)
@@ -425,6 +451,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             .removePrefix("云端·")
             .removePrefix("本地·")
             .removePrefix("缓存·")
+            .removePrefix("网页·")
 
         private fun setTitle(views: RemoteViews, prefix: String, config: ApiAccountConfig) {
             val title = if (isConfigured(config)) config.model else "未配置"
@@ -439,12 +466,11 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         ) {
             val cardIds = ids(prefix)
             val profileId = WebAuthProfileRegistry.findFor(slot, config.apiBase)?.profileId
-            val normalizedBase = config.apiBase.lowercase(Locale.ROOT)
             val logo = when {
-                profileId == "mimo" || normalizedBase.contains("xiaomimimo.com") -> R.drawable.logo_mimo
-                profileId == "deepseek" || normalizedBase.contains("deepseek.com") -> R.drawable.logo_deepseek
-                normalizedBase.contains("coolyeah.net") || normalizedBase.contains("kimi") -> R.drawable.logo_kimi
-                normalizedBase.contains("openai.com") -> R.drawable.logo_openai
+                profileId == "mimo" || ServiceHostMatcher.matches(config.apiBase, "xiaomimimo.com") -> R.drawable.logo_mimo
+                profileId == "deepseek" || ServiceHostMatcher.matches(config.apiBase, "deepseek.com") -> R.drawable.logo_deepseek
+                ServiceHostMatcher.matches(config.apiBase, "coolyeah.net") -> R.drawable.logo_kimi
+                ServiceHostMatcher.matches(config.apiBase, "openai.com") -> R.drawable.logo_openai
                 else -> null
             }
             views.setViewVisibility(cardIds.logo, if (logo == null) View.GONE else View.VISIBLE)
@@ -462,9 +488,14 @@ class BalanceWidgetProvider : AppWidgetProvider() {
         }
 
         private fun bindRefresh(context: Context, views: RemoteViews, id: Int) {
+            val prefs = context.getSharedPreferences(REFRESH_TAP_PREFS, Context.MODE_PRIVATE)
+            val token = prefs.getString(refreshTokenKey(id), null) ?: UUID.randomUUID().toString().also {
+                prefs.edit().putString(refreshTokenKey(id), it).commit()
+            }
             val intent = Intent(context, BalanceWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                putExtra(EXTRA_REFRESH_TOKEN, token)
             }
             val pending = PendingIntent.getBroadcast(
                 context,

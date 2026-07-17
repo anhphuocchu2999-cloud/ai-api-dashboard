@@ -1,6 +1,7 @@
 package com.java.myapplication.webauth
 
 import com.java.myapplication.adapter.auth.BackgroundAuthType
+import com.java.myapplication.config.ServiceHostMatcher
 
 object WebAuthProfileRegistry {
     private val profiles = listOf(
@@ -19,7 +20,8 @@ object WebAuthProfileRegistry {
             apiBaseHostPatterns = setOf(
                 "api.xiaomimimo.com",
                 "platform.xiaomimimo.com"
-            )
+            ),
+            cookieVerificationUrl = "https://platform.xiaomimimo.com/api/v1/balance"
         ),
         WebAuthProfile(
             profileId = "deepseek",
@@ -67,11 +69,10 @@ object WebAuthProfileRegistry {
      * 四个槽位执行完全相同的规则，历史槽位名称不参与服务识别。
      */
     fun findFor(instanceKey: String, apiBase: String): WebAuthProfile? {
-        val normalizedBase = apiBase.trim().lowercase()
-        if (normalizedBase.isBlank()) return null
+        if (ServiceHostMatcher.hostOf(apiBase) == null) return null
 
         return profiles.firstOrNull { profile ->
-            profile.apiBaseHostPatterns.any { host -> normalizedBase.contains(host.lowercase()) }
+            ServiceHostMatcher.matchesAny(apiBase, profile.apiBaseHostPatterns)
         }
     }
 }

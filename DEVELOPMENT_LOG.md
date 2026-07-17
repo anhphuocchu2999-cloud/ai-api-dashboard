@@ -1328,3 +1328,50 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - APK：`ai-api-dashboard-v0.1.0-beta.4-debug.apk`，大小 `11999794` 字节。
 - APK SHA-256：`A075EC3425FAEC1D81429292F92A0B140DC26D5B57BAE0328715E4B2827A7145`。
 - 覆盖安装与角标真机验收：待用户执行并确认。
+
+---
+
+## 2026-07-17｜Stage 8E-S Public Beta 逻辑与数据稳定性收口
+
+**目标和背景**
+
+用户明确要求一次性修复已摸排的逻辑与数据缺陷，避免为十余项关联问题重复安装。用户指令覆盖本轮“一次只修一个 Bug”的默认阶段限制；范围仍限定在已有配置、授权、缓存、Widget 和平台数据链路，不新增产品功能。
+
+**起始位置**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
+- 本地实施分支：`agent/stable-signing`
+
+**实现内容**
+
+- 配置与授权凭据使用 Android Keystore AES/GCM 加密保存，兼容读取历史明文。
+- 网页授权改为槽位独立绑定；历史公共凭据一次迁移后删除公共副本。
+- URL Host 统一严格解析；WebView 禁止非 HTTPS/非平台主页面、第三方 Cookie 和混合内容，MiMo Cookie 保存前调用真实账户接口验证。
+- 缓存完整度改用稳定能力槽位，新增保存时间/缓存年龄；授权切换只清当前槽位缓存。
+- 近期统计五分钟内保留最早基线并串行保护 SharedPreferences 读改写。
+- 多 Widget 的刷新广播、轮播状态、删除清理和异常收口按 `appWidgetId` 隔离；同 Host 请求统一协调。
+- DeepSeek API 与网页登录数据解耦、区分解析失败与登录失效并补多币种；NewAPI 改用标准 JSON；爱黄牛保留具体用量错误。
+- Prerelease 工作流覆盖业务源码变更并支持指定标签；新增 Host 匹配单元测试。
+
+**明确未修改**
+
+- 未实现动态数量的 ModelInstance UI/Widget。
+- 未创建生产商店签名，固定证书仍只用于 Debug Prerelease。
+- 未上传、打印或写入任何 API Key、Cookie、Token、Keystore 或密码。
+- 未合并 `main`。
+
+**验证状态（推送前）**
+
+- `git diff --check`：通过。
+- 本机首次命令未进入 Gradle（缺少 `JAVA_HOME`）；补齐 Java 后 Wrapper 指向 Operit 本地 Linux 文件；临时切官方分发后又因本机没有 Android SDK 在源码编译前停止。以上均不构成源码编译结果。
+- GitHub Actions `assembleDebug`、固定证书核对、Release、覆盖安装和真机验收：待执行。
+- 阶段提交 SHA：待提交后回填。
+
+**回滚位置**
+
+`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
+
+**下一项唯一任务**
+
+推送本阶段并由 GitHub Actions 完成唯一一次真实 Android 编译与 `v0.1.0-beta.5` 固定签名发布；成功后只做文档结果回填，不再次触发业务构建。

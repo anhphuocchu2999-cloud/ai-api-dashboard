@@ -6,6 +6,7 @@ import com.java.myapplication.adapter.capability.DataCapability
 import com.java.myapplication.adapter.capability.DataSourceType
 import com.java.myapplication.adapter.capability.ProviderCapabilityProfile
 import com.java.myapplication.stats.RecentUsageTracker
+import com.java.myapplication.config.ServiceHostMatcher
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.net.HttpURLConnection
@@ -40,7 +41,7 @@ class MiMoAdapter : PlatformAdapter {
     )
 
     override fun detect(apiBase: String, apiKey: String): Boolean {
-        return apiBase.contains("xiaomimimo.com", ignoreCase = true)
+        return ServiceHostMatcher.matches(apiBase, "xiaomimimo.com")
     }
 
     override fun fetchData(request: AdapterRequest): WidgetData {

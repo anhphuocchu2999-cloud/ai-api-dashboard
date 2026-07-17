@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.java.myapplication.adapter.AdapterFactory
 import com.java.myapplication.adapter.AdapterRequest
+import com.java.myapplication.adapter.HostRequestCoordinator
 import com.java.myapplication.adapter.WidgetData
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
@@ -365,9 +366,9 @@ private fun loadCurrentSlotData(
     val adapter = AdapterFactory.getAdapter(slotId, apiBase)
         ?: return LiveDataState.Error("当前服务还没有可读取余额或用量的适配器")
 
-    val auth = loadPlatformAuthorization(prefs, webProfile)
+    val auth = loadPlatformAuthorization(prefs, slotId, webProfile)
     val data = try {
-        adapter.fetchData(
+        HostRequestCoordinator.withHost(apiBase) { adapter.fetchData(
             AdapterRequest(
                 apiBase = apiBase,
                 modelApiKey = apiKey,
@@ -376,7 +377,7 @@ private fun loadCurrentSlotData(
                 backgroundAuthType = auth.authType,
                 backgroundCredential = auth.authValue
             )
-        )
+        ) }
     } catch (_: Exception) {
         return LiveDataState.Error("读取失败，请稍后重试")
     }
@@ -402,11 +403,12 @@ private fun loadCurrentSlotData(
 
 private fun loadPlatformAuthorization(
     prefs: android.content.SharedPreferences,
+    slotId: String,
     profile: WebAuthProfile?
 ): BackgroundAuthConfig {
     if (profile == null) return BackgroundAuthConfig()
-    val shared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
-    return shared.takeIf {
+    val local = BackgroundAuthRepository.load(prefs, slotId)
+    return local.takeIf {
         it.enabled &&
             it.authType == profile.authType &&
             it.authValue.isNotBlank()
@@ -475,6 +477,7 @@ private fun buildLiveMetrics(
 }
 
 private fun metricSource(service: SlotServiceKind, rawLabel: String): CapabilitySource {
+    if (rawLabel.trim().startsWith("网页·")) return CapabilitySource.ACCOUNT
     val label = cleanMetricLabel(rawLabel)
     return when (service) {
         SlotServiceKind.MIMO -> CapabilitySource.ACCOUNT
@@ -505,6 +508,7 @@ private fun cleanMetricLabel(raw: String): String {
         .removePrefix("云端·")
         .removePrefix("本地·")
         .removePrefix("缓存·")
+        .removePrefix("网页·")
         .ifBlank { "未命名数据" }
 }
 
