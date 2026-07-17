@@ -8,7 +8,14 @@ data class PreparedDashboardCapture(
     val promptPayload: String,
     val rawCaptureCount: Int,
     val candidateCount: Int,
-    val allowedEndpoints: Set<String>
+    val candidates: List<CapturedResponseCandidate>
+)
+
+data class CapturedResponseCandidate(
+    val endpoint: String,
+    val method: String,
+    val status: Int,
+    val sanitizedJson: String
 )
 
 object DashboardCaptureSanitizer {
@@ -28,7 +35,7 @@ object DashboardCaptureSanitizer {
     fun prepare(exportedJson: String, lockedOrigin: String): PreparedDashboardCapture {
         val exported = JSONObject(exportedJson)
         val records = exported.optJSONArray("records") ?: JSONArray()
-        val candidates = mutableListOf<Pair<Int, JSONObject>>()
+        val candidates = mutableListOf<Pair<Int, CapturedResponseCandidate>>()
 
         for (index in 0 until records.length()) {
             val record = records.optJSONObject(index) ?: continue
@@ -37,12 +44,13 @@ object DashboardCaptureSanitizer {
             val endpoint = DashboardDiscoveryRules.withoutQuery(record.optString("url"), lockedOrigin)
             if (!DashboardDiscoveryRules.isHttpsUrl(endpoint)) continue
             val score = scoreCandidate(endpoint, record.optInt("status"))
-            val sanitizedBody = sanitizeNode(parsedBody, null, 0).toString().take(MAX_BODY_CHARS)
-            candidates += score to JSONObject()
-                .put("endpoint", endpoint)
-                .put("method", record.optString("method", "GET").uppercase().take(12))
-                .put("status", record.optInt("status"))
-                .put("sanitizedJson", sanitizedBody)
+            val sanitizedBody = sanitizeNode(parsedBody, null, 0).toString()
+            candidates += score to CapturedResponseCandidate(
+                endpoint = endpoint,
+                method = record.optString("method", "GET").uppercase().take(12),
+                status = record.optInt("status"),
+                sanitizedJson = sanitizedBody
+            )
         }
 
         val selected = candidates
@@ -60,13 +68,24 @@ object DashboardCaptureSanitizer {
             .put("source", "untrusted_dashboard_capture")
             .put("pageUrl", pageUrl)
             .put("visibleText", visibleText)
-            .put("responses", JSONArray(selected))
+            .put(
+                "responses",
+                JSONArray(
+                    selected.map { candidate ->
+                        JSONObject()
+                            .put("endpoint", candidate.endpoint)
+                            .put("method", candidate.method)
+                            .put("status", candidate.status)
+                            .put("sanitizedJson", candidate.sanitizedJson.take(MAX_BODY_CHARS))
+                    }
+                )
+            )
 
         return PreparedDashboardCapture(
             promptPayload = payload.toString(),
             rawCaptureCount = records.length(),
             candidateCount = selected.size,
-            allowedEndpoints = selected.map { it.optString("endpoint") }.filter { it.isNotBlank() }.toSet()
+            candidates = selected
         )
     }
 

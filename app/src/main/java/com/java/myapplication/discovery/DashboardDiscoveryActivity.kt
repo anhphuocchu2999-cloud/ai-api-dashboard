@@ -20,6 +20,9 @@ import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.java.myapplication.R
 import org.json.JSONTokener
 import java.net.SocketTimeoutException
@@ -131,8 +134,11 @@ class DashboardDiscoveryActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val aiAnalyzer = DashboardAiAnalyzer()
+    private var documentStartScriptHandler: ScriptHandler? = null
     private var injectionAttemptsRemaining = 0
     private var captureArmed = false
+    private var earlyCaptureActive = false
+    private var captureModeLabel = "兼容捕获"
     private var analysisInProgress = false
     private var lockedOrigin: String? = null
     private var apiBase = ""
@@ -154,8 +160,9 @@ class DashboardDiscoveryActivity : Activity() {
         override fun run() {
             if (!captureArmed || !::webView.isInitialized) return
             webView.evaluateJavascript("String((window.__aadCaptureBuffer || []).length)") { value ->
+                if (!captureArmed) return@evaluateJavascript
                 val count = value.orEmpty().trim('"').toIntOrNull() ?: 0
-                browserStatus.text = "已锁定 ${lockedOrigin.orEmpty()} · 捕获到 $count 条 JSON 响应"
+                browserStatus.text = "$captureModeLabel · 已捕获 $count 条 JSON 响应\n${lockedOrigin.orEmpty()}"
             }
             handler.postDelayed(this, CAPTURE_STATUS_INTERVAL_MS)
         }
@@ -217,7 +224,7 @@ class DashboardDiscoveryActivity : Activity() {
                 showCurrentUrl(url)
                 if (captureArmed && DashboardDiscoveryRules.originOf(url.orEmpty()) != lockedOrigin) {
                     disarmCapture("页面已跳转到其他站点，请重新确认当前页面")
-                } else if (captureArmed) {
+                } else if (captureArmed && !earlyCaptureActive) {
                     scheduleInjection()
                 }
             }
@@ -226,7 +233,7 @@ class DashboardDiscoveryActivity : Activity() {
                 super.onPageFinished(view, url)
                 progress.visibility = View.GONE
                 showCurrentUrl(url)
-                if (captureArmed && isOnLockedOrigin()) scheduleInjection()
+                if (captureArmed && isOnLockedOrigin() && !earlyCaptureActive) scheduleInjection()
             }
         }
     }
@@ -280,8 +287,10 @@ class DashboardDiscoveryActivity : Activity() {
         captureArmed = true
         confirmButton.isEnabled = false
         analyzeButton.isEnabled = true
-        browserStatus.text = "正在刷新并捕获页面 JSON，请等待数据加载完成"
-        scheduleInjection()
+        earlyCaptureActive = installDocumentStartCapture(origin)
+        captureModeLabel = if (earlyCaptureActive) "提前捕获已启用" else "兼容捕获已启用"
+        browserStatus.text = "$captureModeLabel，正在刷新页面，请等待数据加载完成"
+        if (!earlyCaptureActive) scheduleInjection()
         handler.removeCallbacks(captureStatusRunnable)
         handler.postDelayed(captureStatusRunnable, CAPTURE_STATUS_INTERVAL_MS)
         webView.reload()
@@ -327,7 +336,7 @@ class DashboardDiscoveryActivity : Activity() {
         browserPanel.visibility = View.GONE
         setupPanel.visibility = View.GONE
         resultPanel.visibility = View.VISIBLE
-        resultSummary.text = "${result.summary}\n捕获 ${capture.rawCaptureCount} 条，筛选 ${capture.candidateCount} 条；查询参数和敏感字段已在本机脱敏。"
+        resultSummary.text = "${result.summary}\n捕获 ${capture.rawCaptureCount} 条，筛选 ${capture.candidateCount} 条；已验证字段才具备后续自动刷新资格。"
         resultBody.text = result.displayBody
     }
 
@@ -363,9 +372,34 @@ class DashboardDiscoveryActivity : Activity() {
         handler.post(injectionRunnable)
     }
 
+    private fun installDocumentStartCapture(origin: String): Boolean {
+        removeDocumentStartCapture()
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return false
+        return try {
+            documentStartScriptHandler = WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                CAPTURE_SCRIPT,
+                setOf(origin)
+            )
+            true
+        } catch (_: IllegalArgumentException) {
+            false
+        } catch (_: UnsupportedOperationException) {
+            false
+        }
+    }
+
+    private fun removeDocumentStartCapture() {
+        val scriptHandler = documentStartScriptHandler ?: return
+        documentStartScriptHandler = null
+        runCatching { scriptHandler.remove() }
+    }
+
     private fun disarmCapture(message: String) {
         captureArmed = false
+        earlyCaptureActive = false
         lockedOrigin = null
+        removeDocumentStartCapture()
         handler.removeCallbacks(injectionRunnable)
         handler.removeCallbacks(captureStatusRunnable)
         confirmButton.isEnabled = true
@@ -419,6 +453,7 @@ class DashboardDiscoveryActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         aiAnalyzer.cancel()
+        removeDocumentStartCapture()
         apiKey = ""
         if (::apiKeyInput.isInitialized) apiKeyInput.text?.clear()
         if (::webView.isInitialized) {

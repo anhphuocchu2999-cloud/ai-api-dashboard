@@ -1530,3 +1530,84 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务（交付后）**
 
 用户覆盖安装 `v0.1.0-beta.7`，打开第二个桌面入口“仪表盘识别实验室”，完成一次真实站点实验并回传识别结果；在用户确认前不接入现有 Widget。
+
+---
+
+## 2026-07-17｜Stage 8F-P2 更早捕获与本机字段核对
+
+**目标和真实验收背景**
+
+用户使用 beta.7 完成真实站点实验并回传模型 JSON。AI 正确理解页面用途、两个渠道余额和两个模型 Token 信息，同时捕获到 `https://openrouter.fans/dashboard/billing/usage` 的 `$.total_usage`；但余额与 Token 四项只有页面文字，没有 endpoint 和 JSON 路径。该证据确认语义识别链路可行，也确认 P1 仍无法区分“页面看见”与“真实接口字段”。
+
+**方案与取舍**
+
+- 新增官方稳定版 AndroidX WebKit `1.16.0`，用户确认页面后按精确 HTTPS Origin 注册 Document Start Script，使观察器在网页业务脚本之前安装。
+- WebView 不支持该能力时继续使用 P1 的定时注入，不因设备版本中断实验。
+- 捕获候选保留本机脱敏后的完整、有效 JSON 用于核对；发送给模型的每条文本仍限制为 8,000 字符。
+- 新增有限 JSON 路径解释器，只允许属性和数组下标，不执行脚本、过滤器、递归或通配符。
+- AI 的 endpoint 必须来自本次捕获，JSON 路径必须在对应响应中真实取值，实际类型必须与 AI 声明一致，脱敏/截断标记不得通过。
+- 通过核对的字段输出到 `verifiedMetrics`；空 endpoint、空路径、虚构接口、取值失败或类型不符统一降级为 `observations` 并给出中文原因。
+- 针对用户这次的真实结果新增回归规则：空接口余额不能成为自动刷新字段，真实 `$.total_usage` 才能继续进入本机取值核对。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件**
+
+- `PROJECT.md`
+- `gradle/libs.versions.toml`
+- `app/build.gradle.kts`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardCaptureSanitizer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiAnalyzer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardJsonPathValidator.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardMetricVerificationRules.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardJsonPathValidatorTest.kt`
+- `app/src/test/java/com/java/myapplication/DashboardMetricVerificationRulesTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改现有 Widget、Adapter、配置、授权和最近成功缓存。
+- 未保存站点规则、实验 Cookie、捕获正文、API Key 或模型映射。
+- 未捕获请求头、请求体或认证字段，未实现后台接口重放。
+- 未把页面文字观察值直接接入 Widget。
+- 未合并到 `main`。
+
+**验证状态（推送前）**
+
+- P1 真实站点实验：`用户真机确认`，语义识别成功；一个接口字段具备候选路径，四个页面观察值缺少接口路径。
+- AndroidX WebKit 官方文档：`addDocumentStartJavaScript` 在页面脚本之前运行并支持 Origin 规则；已核对。
+- 官方 WebKit 1.16.0 AAR metadata：`minCompileSdk=33`、`minAndroidGradlePluginVersion=7.2.0`，兼容项目 `compileSdk=35`、AGP 9.0.0。
+- `git diff --check`：通过，仅有现有工作区换行提示。
+- 新增布局和 Manifest XML 解析：通过。
+- 实验源码未新增 `addJavascriptInterface`，未读取网页请求头、请求体或 Web Storage 内容。
+- 新增纯 JVM 规则测试覆盖安全路径、数组下标、缺失路径、危险表达式、空 endpoint 降级和虚构 endpoint 拒绝；待 GitHub Actions 执行。
+- 本机无 Android SDK/Java/Kotlin 编译环境，未伪造本地编译结果。
+- GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.8：待推送后只执行一次。
+- 覆盖安装与真机验收：待用户执行。
+
+**阶段提交 SHA**
+
+- 待提交并由云端核对后回填。
+
+**已知限制与待验证事项**
+
+- 提前注入仍无法直接取得 Service Worker、原生网络栈或不可读跨域响应的正文。
+- POST/GraphQL 即使识别出响应字段，本阶段也没有保存请求参数，因此还不能后台重放。
+- 页面观察值仍可帮助用户理解页面，但必须保持为观察信息。
+- 本阶段只证明字段来源和取值，不代表已完成自动刷新或 Widget 集成。
+
+**回滚位置**
+
+`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
+
+**下一项唯一任务**
+
+推送 Stage 8F-P2 精确提交，由 GitHub Actions 执行一次单元测试与 `assembleDebug`，发布固定签名 `v0.1.0-beta.8`；用户使用同一站点复测已验证字段与页面观察信息是否正确分流。

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8F-P1：通用网页仪表盘识别实验版`
+`Stage 8F-P2：更早捕获与本机字段核对`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -19,7 +19,8 @@
 - Stage 8E-1 文档闭环与当前云端基线：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
 - Stage 8F-P1 起始远端 HEAD：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
 - Stage 8F-P1 业务提交与 Release 目标：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`
-- 当前状态：GitHub Actions `29565363529` 已完成单元测试、唯一一次 `assembleDebug`、固定证书校验并发布 `v0.1.0-beta.7`；等待用户覆盖安装并验收独立实验链路
+- Stage 8F-P1 文档闭环与 Stage 8F-P2 起点：`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
+- 当前状态：用户已用 beta.7 跑通真实站点语义识别；P2 已实现提前捕获、真实路径取值核对和已验证/页面观察分流，待云端构建 beta.8
 
 ## 云端状态
 
@@ -61,7 +62,16 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 `v0.1.0-beta.7`，打开第二个桌面入口“仪表盘识别实验室”，验证一次真实仪表盘登录、页面确认、JSON 捕获、单次 AI 识别和结果预览；暂不接入现有 Widget。
+推送 Stage 8F-P2 精确提交，由 GitHub Actions 执行一次单元测试与 `assembleDebug` 并发布固定签名 `v0.1.0-beta.8`；用户使用同一站点复测已验证字段与页面观察信息是否正确分流。
+
+## Stage 8F-P2 当前实现
+
+- 实验首页版本：`Stage 8F-P2 · Prototype 20260717-002`。
+- AndroidX WebKit Document Start Script 按用户确认的精确 HTTPS Origin 提前安装；不支持时回退兼容捕获。
+- AI 指出的 endpoint 必须来自本次捕获，简单 JSON 路径必须在脱敏响应中真实取值，实际类型必须一致。
+- 通过字段输出 `verifiedMetrics`；页面文字、空路径、虚构接口、取值失败和类型不符输出 `observations`，附中文原因。
+- 用户 beta.7 结果的预期：`$.total_usage` 有机会通过；四个空 endpoint 的余额/Token 必须成为观察信息。
+- 仍不保存规则、不重放请求、不接入 Widget。
 
 ## Stage 8F-P1 实验边界
 
