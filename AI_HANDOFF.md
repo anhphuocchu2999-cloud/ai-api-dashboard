@@ -20,7 +20,8 @@
 - Stage 8F-P1 起始远端 HEAD：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
 - Stage 8F-P1 业务提交与 Release 目标：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`
 - Stage 8F-P1 文档闭环与 Stage 8F-P2 起点：`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
-- 当前状态：用户已用 beta.7 跑通真实站点语义识别；P2 已实现提前捕获、真实路径取值核对和已验证/页面观察分流，待云端构建 beta.8
+- Stage 8F-P2 业务提交与 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`
+- 当前状态：用户已用 beta.7 跑通真实站点语义识别；P2 已实现提前捕获、真实路径取值核对和已验证/页面观察分流，beta.8 云端测试、编译、固定证书校验与发布均成功，待真机复测
 
 ## 云端状态
 
@@ -62,7 +63,7 @@
 
 ## 当前唯一任务
 
-推送 Stage 8F-P2 精确提交，由 GitHub Actions 执行一次单元测试与 `assembleDebug` 并发布固定签名 `v0.1.0-beta.8`；用户使用同一站点复测已验证字段与页面观察信息是否正确分流。
+用户覆盖安装 `v0.1.0-beta.8`，使用 beta.7 的同一站点复测：`$.total_usage` 应进入 `verifiedMetrics`，四个缺少 endpoint/jsonPath 的页面文字指标应进入 `observations`；真机确认前不保存规则、不接入 Widget。
 
 ## Stage 8F-P2 当前实现
 
@@ -72,6 +73,17 @@
 - 通过字段输出 `verifiedMetrics`；页面文字、空路径、虚构接口、取值失败和类型不符输出 `observations`，附中文原因。
 - 用户 beta.7 结果的预期：`$.total_usage` 有机会通过；四个空 endpoint 的余额/Token 必须成为观察信息。
 - 仍不保存规则、不重放请求、不接入 Widget。
+
+## Stage 8F-P2 云端交付
+
+- 业务提交与 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`。
+- GitHub Actions：`29571350421`，结论 `success`，运行时间 `2026-07-17T09:49:44Z` 至 `2026-07-17T09:53:24Z`。
+- `testDebugUnitTest + assembleDebug`：成功；本阶段只触发这一轮云端测试与编译。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.8`
+- APK：`ai-api-dashboard-v0.1.0-beta.8-debug.apk`，大小 `12134847` 字节。
+- APK SHA-256：`5BAC11C9662087920F4532915551AD9F4EBDB2F2C27508FAC8AECFC5BA9A6DD1`。
+- 从 APK v2 签名块独立提取的证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，与项目固定 Beta 证书一致。
+- 覆盖安装与真机 P2 验收：待用户执行，不得宣称通过。
 
 ## Stage 8F-P1 实验边界
 

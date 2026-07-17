@@ -1361,7 +1361,7 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - 未上传、打印或写入任何 API Key、Cookie、Token、Keystore 或密码。
 - 未合并 `main`。
 
-**验证状态（推送前）**
+**验证状态**
 
 - `git diff --check`：通过。
 - 本机首次命令未进入 Gradle（缺少 `JAVA_HOME`）；补齐 Java 后 Wrapper 指向 Operit 本地 Linux 文件；临时切官方分发后又因本机没有 Android SDK 在源码编译前停止。以上均不构成源码编译结果。
@@ -1588,14 +1588,24 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - `git diff --check`：通过，仅有现有工作区换行提示。
 - 新增布局和 Manifest XML 解析：通过。
 - 实验源码未新增 `addJavascriptInterface`，未读取网页请求头、请求体或 Web Storage 内容。
-- 新增纯 JVM 规则测试覆盖安全路径、数组下标、缺失路径、危险表达式、空 endpoint 降级和虚构 endpoint 拒绝；待 GitHub Actions 执行。
+- 新增纯 JVM 规则测试覆盖安全路径、数组下标、缺失路径、危险表达式、空 endpoint 降级和虚构 endpoint 拒绝；GitHub Actions 已执行通过。
 - 本机无 Android SDK/Java/Kotlin 编译环境，未伪造本地编译结果。
-- GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.8：待推送后只执行一次。
+- GitHub Actions `29571350421`：`testDebugUnitTest + assembleDebug`、固定证书校验与 beta.8 发布均成功；本阶段只执行这一轮云端测试与编译。
 - 覆盖安装与真机验收：待用户执行。
 
 **阶段提交 SHA**
 
-- 待提交并由云端核对后回填。
+- 业务与实验实现提交：`02aae94f2f9360cac30be0f255d156c04397b9d5`。
+
+**云端构建与交付结果**
+
+- 远端开发分支和 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`。
+- GitHub Actions：`29571350421`，结论 `success`，运行时间 `2026-07-17T09:49:44Z` 至 `2026-07-17T09:53:24Z`。
+- Release：`v0.1.0-beta.8`，标记为 Prerelease。
+- APK：`ai-api-dashboard-v0.1.0-beta.8-debug.apk`，大小 `12134847` 字节。
+- 从公开 Release 下载后 SHA-256：`5BAC11C9662087920F4532915551AD9F4EBDB2F2C27508FAC8AECFC5BA9A6DD1`。
+- 从 APK v2 签名块独立提取的证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，与固定 Beta 证书一致。
+- 覆盖安装和真机 P2 复测：待用户执行，不得宣称通过。
 
 **已知限制与待验证事项**
 
@@ -1610,4 +1620,4 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 
 **下一项唯一任务**
 
-推送 Stage 8F-P2 精确提交，由 GitHub Actions 执行一次单元测试与 `assembleDebug`，发布固定签名 `v0.1.0-beta.8`；用户使用同一站点复测已验证字段与页面观察信息是否正确分流。
+用户覆盖安装 `v0.1.0-beta.8`，使用 beta.7 的同一站点复测：`$.total_usage` 应进入 `verifiedMetrics`，四个缺少 endpoint/jsonPath 的页面文字指标应进入 `observations`；通过前不保存规则、不接入 Widget。
