@@ -1437,3 +1437,79 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务（交付后）**
 
 用户覆盖安装 beta.6，真机确认状态行独立、完整且缓存回退不污染指标文本。
+
+---
+
+## 2026-07-17｜Stage 8F-P1 通用网页仪表盘识别实验版
+
+**目标和背景**
+
+用户确认先做一个可独立试验的版本，验证“用户输入仪表盘网址并登录 → 捕获页面自身网络响应 → 本机脱敏 → 调用一次用户配置模型判断字段语义 → 人工预览结果”的完整链路；验证通过后再决定是否接入现有 Widget、Adapter 和缓存。
+
+**方案与取舍**
+
+- 使用同一 APK 中的第二个桌面入口“仪表盘识别实验室”，避免改动现有 App 首页和 Widget 业务链路。
+- 实验 Activity 运行在独立进程，并在 Android 9 及以上使用独立 WebView 数据目录；退出时清除实验 Cookie、网页存储和缓存。
+- 不对任意网页使用 `addJavascriptInterface`；用户确认当前 HTTPS 页面后，主框架脚本只观察该页面 `fetch` / `XMLHttpRequest` 已可读取的 JSON 响应，再由 `evaluateJavascript` 主动取回。
+- 不读取请求头、请求体、Cookie、localStorage、sessionStorage 或密码输入；查询参数、常见认证字段、个人信息和高熵凭据在本机脱敏。
+- 每次点击只调用一次 OpenAI-Compatible `POST /v1/chat/completions`，不自动重试；页面内容按不可信输入处理。
+- 模型返回 endpoint 必须属于实际捕获集合，JSONPath 和指标类型通过本地结构校验；本阶段只展示，不保存映射。
+- 第三方 Cookie 默认关闭，用户仅在登录循环时可主动开启兼容模式；退出实验室仍清除。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件**
+
+- `PROJECT.md`
+- `app/src/main/AndroidManifest.xml`
+- `app/src/main/java/com/java/myapplication/DashboardApplication.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryRules.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardCaptureSanitizer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiAnalyzer.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardDiscoveryRulesTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改现有 Widget、Adapter、配置仓库、授权仓库、最近成功缓存和平台解析逻辑。
+- 未保存实验 API Key、捕获正文或模型映射。
+- 未实现后台重放、自动刷新或开发者服务器上传。
+- 未支持 Claude/Gemini 原生协议；实验首版只验证 OpenAI-Compatible 模型。
+- 未合并到 `main`。
+
+**验证状态（推送前）**
+
+- Git 基线与远端开发分支一致：`c14643ce50f643590065ebabfbb6de5a1424f2e2`。
+- `git diff --check`：通过，只有工作区换行格式提示。
+- 新增布局与 Manifest XML 解析：通过。
+- 新实验源码搜索：未使用 `addJavascriptInterface`，未读取 Cookie 内容、请求头、请求体或 Web Storage 内容。
+- 本机未发现 Android SDK、Java 或 Kotlin 编译器，因此未伪造本地编译结果。
+- GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验、`v0.1.0-beta.7` Prerelease：待推送后只执行一次。
+- 覆盖安装与真机链路验收：待用户执行。
+
+**阶段提交 SHA**
+
+- 待提交并由云端核对后回填。
+
+**已知限制与待验证事项**
+
+- Service Worker、原生网络栈、超大 JSON、服务器端渲染且无 JSON 请求的站点可能无法由首版脚本捕获。
+- Google 等禁止嵌入式 User-Agent 的 OAuth 登录可能失败，需后续评估系统浏览器/OAuth 回跳方案。
+- Android 8 及更早系统没有 WebView 独立数据目录 API，需以真实设备结果确认第二进程兼容性。
+- AI 对字段语义的判断必须由用户核对，不得直接视为可信生产映射。
+
+**回滚位置**
+
+`c14643ce50f643590065ebabfbb6de5a1424f2e2`
+
+**下一项唯一任务**
+
+推送精确提交，由 GitHub Actions 执行唯一一次单元测试与 `assembleDebug`，发布固定签名 `v0.1.0-beta.7`；用户安装后只验收实验链路，不接入现有 Widget。

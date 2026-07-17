@@ -34,6 +34,20 @@
             android:label="网页登录授权"
             android:theme="@style/Theme.MyApplication" />
 
+        <activity
+            android:name=".discovery.DashboardDiscoveryActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:exported="true"
+            android:label="仪表盘识别实验室"
+            android:process=":dashboard_discovery"
+            android:theme="@style/Theme.MyApplication">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".BalanceWidgetProvider"
             android:exported="true">

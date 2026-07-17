@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8E-1：Widget 独立俏皮状态行`
+`Stage 8F-P1：通用网页仪表盘识别实验版`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -16,7 +16,9 @@
 - 本阶段起始远端 HEAD：`51c1c68e180c75da47ecaa03858a0ebe33c9ac4a`
 - Stage 8E-S 业务提交：`6637b6d92d230e41deb2d15299cd201db0ca28d1`
 - Stage 8E-1 业务提交：`77c25508e24cffb6d1a5019f963a99bf429816b0`
-- 当前状态：GitHub Actions `29558328511` 已完成单元测试、`assembleDebug`、固定证书校验并发布 `v0.1.0-beta.6`；等待用户覆盖安装验收独立右下角状态行
+- Stage 8E-1 文档闭环与当前云端基线：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
+- Stage 8F-P1 起始远端 HEAD：`c14643ce50f643590065ebabfbb6de5a1424f2e2`
+- 当前状态：独立实验入口、HTTPS WebView 捕获、本机脱敏、单次 OpenAI-Compatible AI 识别和结果预览已完成本地静态检查；待提交并执行唯一一次 GitHub Actions 构建
 
 ## 云端状态
 
@@ -58,7 +60,16 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 `v0.1.0-beta.6`，验收四张卡片状态行是否固定在右下角、是否不再挤压辅助指标，以及缓存回退是否不再显示“缓存·”和“缓存时间”。
+把 Stage 8F-P1 精确提交推送到 `feature/stage-8b-simple-connection-flow`，由 GitHub Actions 执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.7`；用户只验收独立实验链路，暂不接入现有 Widget。
+
+## Stage 8F-P1 实验边界
+
+- 第二个桌面入口：`仪表盘识别实验室`，显示 `Stage 8F-P1 · Prototype 20260717-001`。
+- 运行于 `:dashboard_discovery` 独立进程；Android 9+ 使用独立 WebView 数据目录，退出清理实验 Cookie、网页存储与缓存。
+- 用户确认 HTTPS 页面后才捕获页面主框架的 JSON 响应；不使用原生 JavaScript Bridge，不读取请求头、请求体、Cookie 或 Web Storage 内容。
+- 本机脱敏后只向用户填写的 OpenAI-Compatible API Base 发出一次模型请求；API Key 不写入实验配置。
+- 模型映射只预览、不保存；endpoint 必须来自捕获集合，结果仍需用户人工核对。
+- 不修改 Widget、Adapter、配置、授权和最近成功缓存。
 
 ## Stage 8E-1 云端交付
 

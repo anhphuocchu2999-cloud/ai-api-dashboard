@@ -18,7 +18,7 @@ on:
       release_tag:
         description: Prerelease tag to publish
         required: true
-        default: v0.1.0-beta.6
+        default: v0.1.0-beta.7
 
 concurrency:
   group: android-prerelease-${{ github.ref }}
@@ -81,7 +81,7 @@ jobs:
         run: |
           release_tag="$GITHUB_REF_NAME"
           if [[ "$GITHUB_REF" == "refs/heads/feature/stage-8b-simple-connection-flow" ]]; then
-            release_tag="${{ inputs.release_tag || 'v0.1.0-beta.6' }}"
+            release_tag="${{ inputs.release_tag || 'v0.1.0-beta.7' }}"
           fi
           release_apk="ai-api-dashboard-${release_tag}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$release_apk"
