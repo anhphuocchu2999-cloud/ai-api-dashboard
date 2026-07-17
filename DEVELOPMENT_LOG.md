@@ -1375,3 +1375,19 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 推送本阶段并由 GitHub Actions 完成唯一一次真实 Android 编译与 `v0.1.0-beta.5` 固定签名发布；成功后只做文档结果回填，不再次触发业务构建。
+
+**云端构建与交付结果**
+
+- 业务提交：`6637b6d92d230e41deb2d15299cd201db0ca28d1`。
+- GitHub Actions：`29551280479`，结论 `success`。
+- `testDebugUnitTest` 与唯一一次 `assembleDebug`：成功。
+- 固定 Beta 证书校验：成功，SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- Release：`v0.1.0-beta.5`。
+- APK：`ai-api-dashboard-v0.1.0-beta.5-debug.apk`，大小 `11999794` 字节。
+- APK SHA-256：`DB49CB09CF785118C2D1474BDD62915F813E3EA21F2C5750A25500A2C2E29738`。
+- 覆盖安装：待用户执行。
+- 真机验收：待用户确认，不得宣称通过。
+
+**下一项唯一任务（交付后）**
+
+用户使用固定签名 beta.5 覆盖安装并集中真机验收；若发现问题，以 beta.5 提交和真实复现为基线处理。
