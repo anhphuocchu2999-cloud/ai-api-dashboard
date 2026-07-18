@@ -24,7 +24,8 @@
 - Stage 8F-P2 文档闭环与 P2-T 起点：`9c734bad602756cd33d50049bf064a96ba28a753`
 - Stage 8F-P2-T 业务提交与 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`
 - Stage 8F-P2-T 文档闭环与 P2-J 起点：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
-- 当前状态：用户已用 beta.9 成功完成 AI 识别，确认原 60 秒超时未再提前终止；结果抓到 MiMo `/api/v1/usage` 的 12 个字段，但模型省略 JSONPath 根标记 `$`，导致验证器全部误判为不安全。P2-J 正在安全规范化相对点路径，待 beta.10 云端验证
+- Stage 8F-P2-J 业务提交与 Release 目标：`d391f938b30313cf2f186d4f7e7b2bd41ed166a3`
+- 当前状态：用户已用 beta.9 成功完成 AI 识别，确认原 60 秒超时未再提前终止；结果抓到 MiMo `/api/v1/usage` 的 12 个字段，但模型省略 JSONPath 根标记 `$`，导致验证器全部误判为不安全。P2-J 已安全规范化相对点路径，beta.10 云端测试、编译、固定证书校验和发布均成功，待真机复测
 
 ## 云端状态
 
@@ -66,7 +67,7 @@
 
 ## 当前唯一任务
 
-提交 Stage 8F-P2-J 精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.10`；用户使用同一 MiMo 页面复测 12 个相对点路径是否通过本机验证，不接入 Widget。
+用户覆盖安装 `v0.1.0-beta.10`，使用同一 MiMo 页面复测；确认 12 个相对点路径规范化后按真实存在性和类型进入 `verifiedMetrics` 或给出准确降级原因，6 个页面文字值继续留在 `observations`，不接入 Widget。
 
 ## Stage 8F-P2-J 当前实现
 
@@ -76,6 +77,17 @@
 - 规范化后仍通过原有安全解析器、真实响应取值和实际类型核对；endpoint 仍必须属于本次捕获。
 - 递归、通配符、过滤器、函数、脚本和反斜线表达式继续拒绝。
 - 不修改 beta.9 的超时策略、捕获范围、Widget、Adapter、授权或缓存，不保存规则、不重放请求。
+
+## Stage 8F-P2-J 云端交付
+
+- 业务提交与 Release 目标：`d391f938b30313cf2f186d4f7e7b2bd41ed166a3`。
+- GitHub Actions：`29639173092`，结论 `success`，运行时间 `2026-07-18T09:26:55Z` 至 `2026-07-18T09:28:21Z`。
+- `testDebugUnitTest + assembleDebug`：成功；本阶段只触发这一轮云端测试与编译。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.10`
+- APK：`ai-api-dashboard-v0.1.0-beta.10-debug.apk`，大小 `12134847` 字节。
+- APK SHA-256：`D62EA7E062B675D35F1AF51DE29B6CF8EB810B9898B36950F134037424CFDA75`。
+- 从 APK v2 签名块独立提取的证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，与项目固定 Beta 证书一致。
+- 覆盖安装与真机路径复测：待用户执行，不得宣称通过。
 
 ## Stage 8F-P2-T 当前实现
 
