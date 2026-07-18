@@ -1,10 +1,10 @@
 # AI API Dashboard｜AI 交接状态
 
-> 最近更新：2026-07-18
+> 最近更新：2026-07-19
 
 ## 当前阶段
 
-`Stage 8F-P4.1：实验室自动检测并选择模型`
+`Stage 8F-P5-A：同源 GET 认证头自动捕获与加密重放`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -31,7 +31,9 @@
 - Stage 8F-P3 真机验收闭环与 Stage 8F-P4 起点：`005fe9ecf87ab0bd0a5c68c69c218747b1752f76`
 - Stage 8F-P4 业务提交与 Release 目标：`74375e472c779bed56ee2b420efaa4da4da91441`
 - Stage 8F-P4.1 业务提交与 Release 目标：`39646786e021ce43654b47851467c7243b06caf2`
-- 当前状态：P4.1 代码、GitHub Actions、固定签名和 beta.13 发布已完成；等待用户覆盖安装并真机验收模型检测与选择
+- Stage 8F-P4.1 真机验收：`用户真机确认`，beta.13 模型自动检测与选择可用。
+- Stage 8F-P5-A 起点：`417bde3ba69333bdccbcdab45063fce99958b5b0`
+- 当前状态：P5-A 业务代码和测试已修改，等待提交与 GitHub Actions beta.14 构建；不得宣称云端或真机通过
 
 ## 云端状态
 
@@ -73,7 +75,19 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 beta.13 并验证：实验室只填写 API Base 与 API Key，真实获取模型列表并选择后才能打开仪表盘；地址或 Key 改动后旧选择必须立即失效。验收前不进入下一阶段。
+完成 Stage 8F-P5-A 提交、GitHub Actions 和 beta.14 发布；用户使用同一站点复测“直接请求并二次核对”。真机通过前不进入 POST/GraphQL。
+
+## Stage 8F-P5-A 当前实现
+
+- 实验首页版本：`Stage 8F-P5-A · Prototype 20260719-001`。
+- WebView 只在用户确认后的精确 HTTPS Origin，通过原生请求回调观察同源、无查询参数 GET；认证头不进入页面 JavaScript 导出。
+- `DashboardReplayHeaderPolicy` 只允许 Authorization、API/Auth/Access Token、CSRF/XSRF、必要用户/租户/项目路由头和 X-Requested-With；拒绝 Cookie、Origin、Referer、未知头、换行值和超长值。
+- 捕获候选携带的认证头只用于本机生成配方草稿；`DashboardAiAnalyzer` 仍只发送 `promptPayload` 中的脱敏响应，不序列化认证头。
+- 配方文件容器升级为 v2：Cookie 与认证头整体经 Android Keystore 加密；读取兼容 v1 `encryptedCookies` 文件和 beta.11 旧 SharedPreferences 密文。
+- 实验室二次请求、已保存配方直刷与 `DashboardRecipeAdapter` 都使用相同的 Cookie + 允许认证头；任一 endpoint 两者都缺失时拒绝保存。
+- 401/403 不再直接断言“网页登录已失效”，改为说明登录可能过期或站点仍需要未支持的动态认证。
+- POST、GraphQL、请求体、查询参数、跨 Origin、Service Worker 和动态签名未实现。
+- 本机缺少 Java、Android SDK 和 ADB；差异与 XML 静态检查通过，GitHub Actions、固定签名 beta.14、覆盖安装和真机验收待执行。
 
 ## Stage 8F-P4.1 当前实现
 

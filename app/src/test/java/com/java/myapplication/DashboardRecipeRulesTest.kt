@@ -37,6 +37,7 @@ class DashboardRecipeRulesTest {
         assertEquals("https://dashboard.example.com/console", recipe.dashboardUrl)
         assertEquals(listOf(endpoint), recipe.endpoints)
         assertEquals(0L, recipe.lastSuccessAt)
+        assertEquals("Bearer local-secret", draft.replayHeadersByEndpoint[endpoint]?.get("authorization"))
     }
 
     @Test
@@ -73,6 +74,10 @@ class DashboardRecipeRulesTest {
         method = method,
         status = 200,
         sanitizedJson = "{\"data\":{\"total\":12}}",
-        hadQuery = hadQuery
+        hadQuery = hadQuery,
+        replayHeaders = mapOf(
+            "Authorization" to "Bearer local-secret",
+            "Cookie" to "must-not-enter-replay-headers"
+        )
     )
 }

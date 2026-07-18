@@ -2082,3 +2082,43 @@ Secret 缺少任意一项时，Prerelease 工作流必须在编译前失败，�
 - 检测完成后修改地址或 Key，旧模型选择立即失效，必须重新检测。
 - 检测期间修改地址或 Key，旧请求结果不得重新显示或被用于 AI 调用。
 - 不修改 Widget、配方绑定、通用 Adapter、网页捕获范围或现有平台 Adapter。
+
+---
+
+## Stage 8F-P5-A：同源 GET 认证头自动捕获与加密重放
+
+### 问题与用户目标
+
+用户在 beta.13 已确认模型自动检测可用，但“直接请求并二次核对”立即返回“网页登录已失效”。源码确认当前实现只重放 Cookie；目标网页的成功 GET 请求还可能依赖 `Authorization`、API Token 或 CSRF 请求头。服务器返回 401/403 时，现有文案又把“认证信息不完整”和“登录真实过期”错误合并成同一提示。
+
+本阶段让普通用户仍然只负责网页登录：App 从用户已经成功发出的同源 GET 请求中自动取得最小认证头，在本机加密并通过真实二次请求验证，不要求用户复制 Cookie 或 Token。
+
+### 安全与实现边界
+
+1. 只观察用户确认后的精确 HTTPS Origin，只处理最终用于已验证指标的无查询参数 GET 请求。
+2. 认证头从 Android WebView 的原生请求回调读取，不通过页面 JavaScript 导出，不加入捕获正文、AI Prompt、结果 JSON、普通日志或错误提示。
+3. 只允许有限认证头：`Authorization`、`X-API-Key`、常见 Access/Auth Token、CSRF/XSRF、必要的用户/租户/项目路由头和 `X-Requested-With`；拒绝 Cookie、Host、Origin、Referer、User-Agent、`Sec-*`、代理头、换行值、超长值和任意未知头。
+4. 每个 endpoint 保存当前成功捕获到的最小认证头；Cookie 继续由 `CookieManager` 按 endpoint 读取。Cookie 或认证头至少存在一项，才允许二次请求。
+5. Cookie 与认证头整体使用 Android Keystore 加密后写入 `noBackupFilesDir`；配方元数据只记录 endpoint、方法和字段映射，不保存认证值。
+6. beta.11～beta.13 的旧 Cookie-only 配方必须继续读取、绑定、解绑和刷新；首次再次保存时可迁移到新的加密凭据容器。
+7. 二次请求仍只允许同源、无查询参数 GET、2xx JSON、有限响应大小、同 Host 串行且间隔至少 500ms，不自动重试。
+8. 401/403 改为准确提示：当前直连授权被拒绝，可能是登录过期或站点还需要未支持的动态认证；不得继续一律断言“网页登录已失效”。
+9. 任一字段缺失或类型变化仍整份失败，不保存残缺配方，不覆盖 Widget 最近成功缓存。
+
+### 本阶段明确不做
+
+- 不支持 POST、GraphQL、请求体、带查询参数接口、跨 Origin、Service Worker 内部请求、动态签名、验证码或设备指纹。
+- 不读取或保存 localStorage、sessionStorage、密码输入框和完整任意请求头。
+- 不把认证信息发送给 AI 或开发者服务器。
+- 不修改现有 MiMo、DeepSeek、NewAPI、爱黄牛等专用 Adapter，不修改 Widget 布局和八连点逻辑。
+- 不同时保存多份配方，不合并 `main`，不创建正式商店签名。
+
+### 验收标准
+
+- Cookie-only 站点行为保持不变，旧配方可继续直接刷新。
+- 同源 GET 使用 Bearer、API Token 或 CSRF 头时，App 能自动捕获必要的允许头并完成二次请求，无需用户手工输入。
+- AI 请求体、公开日志、配方明文和 GitHub 中不存在认证值。
+- 页面尝试伪造未知头、换行值、跨 Origin 请求或查询参数请求时，不得进入可保存认证配方。
+- 认证不完整的 401/403 使用准确中文提示，不再直接断言登录过期。
+- 保存并绑定后，Widget 通过通用 Adapter 使用加密凭据刷新；失败时继续显示该实例自己的最近成功缓存。
+- GitHub Actions 的单元测试、`assembleDebug`、固定 Beta 证书校验和公开 Prerelease 发布全部成功；用户覆盖安装并真机确认后才关闭 P5-A。

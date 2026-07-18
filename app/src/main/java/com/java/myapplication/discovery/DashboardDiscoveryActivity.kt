@@ -10,6 +10,7 @@ import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -37,6 +38,7 @@ import org.json.JSONTokener
 import java.net.SocketTimeoutException
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
 
 class DashboardDiscoveryActivity : Activity() {
@@ -161,11 +163,14 @@ class DashboardDiscoveryActivity : Activity() {
     private val recipeRepository by lazy { DashboardRecipeRepository(applicationContext) }
     private var documentStartScriptHandler: ScriptHandler? = null
     private var injectionAttemptsRemaining = 0
+    @Volatile
     private var captureArmed = false
     private var earlyCaptureActive = false
     private var captureModeLabel = "兼容捕获"
     private var analysisInProgress = false
+    @Volatile
     private var lockedOrigin: String? = null
+    private val capturedReplayHeaders = ConcurrentHashMap<String, Map<String, String>>()
     private var apiBase = ""
     private var apiKey = ""
     private var model = ""
@@ -258,6 +263,14 @@ class DashboardDiscoveryActivity : Activity() {
         }
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                observeReplayHeaders(request)
+                return super.shouldInterceptRequest(view, request)
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 if (request == null || !request.isForMainFrame) return false
                 if (DashboardDiscoveryRules.isHttpsUrl(request.url.toString())) return false
@@ -283,6 +296,18 @@ class DashboardDiscoveryActivity : Activity() {
                 if (captureArmed && isOnLockedOrigin() && !earlyCaptureActive) scheduleInjection()
             }
         }
+    }
+
+    private fun observeReplayHeaders(request: WebResourceRequest?) {
+        val currentOrigin = lockedOrigin ?: return
+        if (!captureArmed || request == null) return
+        val requestKey = DashboardReplayHeaderPolicy.requestKey(
+            method = request.method.orEmpty(),
+            url = request.url.toString(),
+            lockedOrigin = currentOrigin
+        ) ?: return
+        val headers = DashboardReplayHeaderPolicy.sanitize(request.requestHeaders.orEmpty())
+        if (headers.isNotEmpty()) capturedReplayHeaders[requestKey] = headers
     }
 
     private fun bindActions() {
@@ -428,6 +453,7 @@ class DashboardDiscoveryActivity : Activity() {
         }
         lockedOrigin = origin
         captureArmed = true
+        capturedReplayHeaders.clear()
         confirmButton.isEnabled = false
         analyzeButton.isEnabled = true
         earlyCaptureActive = installDocumentStartCapture(origin)
@@ -452,7 +478,11 @@ class DashboardDiscoveryActivity : Activity() {
             }
             Thread {
                 try {
-                    val capture = DashboardCaptureSanitizer.prepare(exported, lockedOrigin.orEmpty())
+                    val capture = DashboardCaptureSanitizer.prepare(
+                        exportedJson = exported,
+                        lockedOrigin = lockedOrigin.orEmpty(),
+                        replayHeadersByRequest = capturedReplayHeaders.toMap()
+                    )
                     if (capture.candidateCount == 0) {
                         runOnUiThread {
                             if (!isDestroyed) {
@@ -559,8 +589,12 @@ class DashboardDiscoveryActivity : Activity() {
         val cookies = recipe.endpoints.associateWith { endpoint ->
             CookieManager.getInstance().getCookie(endpoint).orEmpty()
         }
-        if (cookies.values.any { it.isBlank() }) {
-            resultRecipeStatus.text = "没有取得数据接口所需的登录 Cookie，请确认网页已经登录"
+        val replayHeaders = draft.replayHeadersByEndpoint
+        if (recipe.endpoints.any { endpoint ->
+                cookies[endpoint].isNullOrBlank() && replayHeaders[endpoint].isNullOrEmpty()
+            }
+        ) {
+            resultRecipeStatus.text = "没有取得数据接口所需的 Cookie 或认证信息，请确认网页已经登录并重新捕获"
             return
         }
         recipeInProgress = true
@@ -568,9 +602,9 @@ class DashboardDiscoveryActivity : Activity() {
         resultRecipeStatus.text = "正在直接请求并二次核对 ${recipe.metrics.size} 个字段…"
         Thread {
             try {
-                val replay = recipeClient.fetch(recipe, cookies)
+                val replay = recipeClient.fetch(recipe, cookies, replayHeaders)
                 val savedRecipe = recipe.copy(lastSuccessAt = System.currentTimeMillis())
-                if (!recipeRepository.save(savedRecipe, cookies)) {
+                if (!recipeRepository.save(savedRecipe, cookies, replayHeaders)) {
                     throw IllegalStateException("本机加密保存失败，没有写入明文凭据")
                 }
                 runOnUiThread {
@@ -616,9 +650,18 @@ class DashboardDiscoveryActivity : Activity() {
         resultBody.text = ""
         Thread {
             try {
-                val replay = recipeClient.fetch(saved.recipe, saved.cookiesByEndpoint)
+                val replay = recipeClient.fetch(
+                    saved.recipe,
+                    saved.cookiesByEndpoint,
+                    saved.replayHeadersByEndpoint
+                )
                 val updated = saved.recipe.copy(lastSuccessAt = System.currentTimeMillis())
-                if (!recipeRepository.save(updated, saved.cookiesByEndpoint)) {
+                if (!recipeRepository.save(
+                        updated,
+                        saved.cookiesByEndpoint,
+                        saved.replayHeadersByEndpoint
+                    )
+                ) {
                     throw IllegalStateException("刷新成功，但本机状态更新时间保存失败")
                 }
                 runOnUiThread {
@@ -773,6 +816,7 @@ class DashboardDiscoveryActivity : Activity() {
         captureArmed = false
         earlyCaptureActive = false
         lockedOrigin = null
+        capturedReplayHeaders.clear()
         removeDocumentStartCapture()
         handler.removeCallbacks(injectionRunnable)
         handler.removeCallbacks(captureStatusRunnable)
@@ -831,6 +875,7 @@ class DashboardDiscoveryActivity : Activity() {
         aiAnalyzer.cancel()
         recipeClient.cancel()
         removeDocumentStartCapture()
+        capturedReplayHeaders.clear()
         apiKey = ""
         if (::apiKeyInput.isInitialized) apiKeyInput.text?.clear()
         if (::webView.isInitialized) {

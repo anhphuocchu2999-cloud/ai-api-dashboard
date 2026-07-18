@@ -9,7 +9,8 @@ import java.io.File
 
 data class SavedDashboardRecipe(
     val recipe: DashboardRequestRecipe,
-    val cookiesByEndpoint: Map<String, String>
+    val cookiesByEndpoint: Map<String, String>,
+    val replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
 )
 
 /**
@@ -17,7 +18,7 @@ data class SavedDashboardRecipe(
  *
  * DashboardDiscoveryActivity runs in a dedicated process while Widget runs in the main process.
  * SharedPreferences keeps a per-process cache and therefore cannot be the source of truth for P4.
- * The file contains only recipe metadata plus an Android-Keystore encrypted cookie payload.
+ * The file contains only recipe metadata plus Android-Keystore encrypted cookies/auth headers.
  */
 class DashboardRecipeRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -32,15 +33,43 @@ class DashboardRecipeRepository(context: Context) {
         return decrypt(container)
     }
 
-    fun save(recipe: DashboardRequestRecipe, cookiesByEndpoint: Map<String, String>): Boolean {
+    fun save(
+        recipe: DashboardRequestRecipe,
+        cookiesByEndpoint: Map<String, String>,
+        replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
+    ): Boolean {
         if (DashboardRecipeRules.validate(recipe) != null) return false
-        if (recipe.endpoints.any { cookiesByEndpoint[it].isNullOrBlank() }) return false
-        val cookiePayload = JSONObject().apply {
-            recipe.endpoints.forEach { endpoint -> put(endpoint, cookiesByEndpoint.getValue(endpoint)) }
-        }.toString()
-        val encryptedCookies = LocalCredentialCipher.encrypt(cookiePayload) ?: return false
-        if (!LocalCredentialCipher.isEncrypted(encryptedCookies)) return false
-        val saved = writeContainer(RecipeContainer(recipe, encryptedCookies))
+        val safeHeaders = recipe.endpoints.associateWith { endpoint ->
+            DashboardReplayHeaderPolicy.sanitize(replayHeadersByEndpoint[endpoint].orEmpty())
+        }
+        if (recipe.endpoints.any { endpoint ->
+                cookiesByEndpoint[endpoint].isNullOrBlank() && safeHeaders[endpoint].isNullOrEmpty()
+            }
+        ) {
+            return false
+        }
+        val credentialPayload = JSONObject()
+            .put("version", CREDENTIAL_VERSION)
+            .put(
+                "cookiesByEndpoint",
+                JSONObject().apply {
+                    recipe.endpoints.forEach { endpoint ->
+                        put(endpoint, cookiesByEndpoint[endpoint].orEmpty())
+                    }
+                }
+            )
+            .put(
+                "headersByEndpoint",
+                JSONObject().apply {
+                    recipe.endpoints.forEach { endpoint ->
+                        put(endpoint, JSONObject(safeHeaders[endpoint].orEmpty()))
+                    }
+                }
+            )
+            .toString()
+        val encryptedCredentials = LocalCredentialCipher.encrypt(credentialPayload) ?: return false
+        if (!LocalCredentialCipher.isEncrypted(encryptedCredentials)) return false
+        val saved = writeContainer(RecipeContainer(recipe, encryptedCredentials))
         if (saved) clearLegacyPrefs()
         return saved
     }
@@ -49,12 +78,20 @@ class DashboardRecipeRepository(context: Context) {
         val saved = load() ?: return false
         val canonical = InstanceKeyResolver.canonicalInstanceId(instanceId)
         if (canonical.isBlank()) return false
-        return save(saved.recipe.copy(boundInstanceId = canonical), saved.cookiesByEndpoint)
+        return save(
+            saved.recipe.copy(boundInstanceId = canonical),
+            saved.cookiesByEndpoint,
+            saved.replayHeadersByEndpoint
+        )
     }
 
     fun unbind(): Boolean {
         val saved = load() ?: return false
-        return save(saved.recipe.copy(boundInstanceId = null), saved.cookiesByEndpoint)
+        return save(
+            saved.recipe.copy(boundInstanceId = null),
+            saved.cookiesByEndpoint,
+            saved.replayHeadersByEndpoint
+        )
     }
 
     fun clear(): Boolean {
@@ -67,12 +104,13 @@ class DashboardRecipeRepository(context: Context) {
         if (!recipeFile.baseFile.exists()) return null
         return runCatching {
             val root = JSONObject(recipeFile.openRead().use { it.readBytes().toString(Charsets.UTF_8) })
-            if (root.optInt("version") != CONTAINER_VERSION) return@runCatching null
+            if (root.optInt("version") !in 1..CONTAINER_VERSION) return@runCatching null
             val recipe = DashboardRequestRecipe.fromJson(root.optJSONObject("recipe") ?: return@runCatching null)
                 ?: return@runCatching null
-            val encryptedCookies = root.optString("encryptedCookies")
-            if (!LocalCredentialCipher.isEncrypted(encryptedCookies)) return@runCatching null
-            RecipeContainer(recipe, encryptedCookies)
+            val encryptedCredentials = root.optString("encryptedCredentials")
+                .ifBlank { root.optString("encryptedCookies") }
+            if (!LocalCredentialCipher.isEncrypted(encryptedCredentials)) return@runCatching null
+            RecipeContainer(recipe, encryptedCredentials)
         }.getOrNull()
     }
 
@@ -80,7 +118,7 @@ class DashboardRecipeRepository(context: Context) {
         val payload = JSONObject()
             .put("version", CONTAINER_VERSION)
             .put("recipe", container.recipe.toJson())
-            .put("encryptedCookies", container.encryptedCookies)
+            .put("encryptedCredentials", container.encryptedCredentials)
             .toString()
             .toByteArray(Charsets.UTF_8)
         val output = runCatching { recipeFile.startWrite() }.getOrNull() ?: return false
@@ -96,11 +134,28 @@ class DashboardRecipeRepository(context: Context) {
     }
 
     private fun decrypt(container: RecipeContainer): SavedDashboardRecipe? {
-        val cookiePayload = LocalCredentialCipher.decrypt(container.encryptedCookies) ?: return null
-        val cookieRoot = runCatching { JSONObject(cookiePayload) }.getOrNull() ?: return null
+        val credentialPayload = LocalCredentialCipher.decrypt(container.encryptedCredentials) ?: return null
+        val credentialRoot = runCatching { JSONObject(credentialPayload) }.getOrNull() ?: return null
+        val cookieRoot = credentialRoot.optJSONObject("cookiesByEndpoint") ?: credentialRoot
+        val headersRoot = credentialRoot.optJSONObject("headersByEndpoint")
         val cookies = container.recipe.endpoints.associateWith { endpoint -> cookieRoot.optString(endpoint) }
-        if (cookies.values.any { it.isBlank() }) return null
-        return SavedDashboardRecipe(container.recipe, cookies)
+        val replayHeaders = container.recipe.endpoints.associateWith { endpoint ->
+            val endpointHeaders = headersRoot?.optJSONObject(endpoint) ?: JSONObject()
+            val rawHeaders = linkedMapOf<String, String>()
+            val keys = endpointHeaders.keys()
+            while (keys.hasNext()) {
+                val name = keys.next()
+                rawHeaders[name] = endpointHeaders.optString(name)
+            }
+            DashboardReplayHeaderPolicy.sanitize(rawHeaders)
+        }
+        if (container.recipe.endpoints.any { endpoint ->
+                cookies[endpoint].isNullOrBlank() && replayHeaders[endpoint].isNullOrEmpty()
+            }
+        ) {
+            return null
+        }
+        return SavedDashboardRecipe(container.recipe, cookies, replayHeaders)
     }
 
     private fun migrateLegacyRecipe(): SavedDashboardRecipe? {
@@ -120,11 +175,12 @@ class DashboardRecipeRepository(context: Context) {
 
     private data class RecipeContainer(
         val recipe: DashboardRequestRecipe,
-        val encryptedCookies: String
+        val encryptedCredentials: String
     )
 
     private companion object {
-        const val CONTAINER_VERSION = 1
+        const val CONTAINER_VERSION = 2
+        const val CREDENTIAL_VERSION = 2
         const val FILE_NAME = "dashboard_recipe_v1.json"
         const val LEGACY_PREFS_NAME = "dashboard_recipe_v1"
         const val LEGACY_KEY_RECIPE = "latest_recipe"

@@ -47,7 +47,11 @@ internal class DashboardRecipeAdapter(context: Context) : PlatformAdapter {
         }
 
         return try {
-            val replay = client.fetch(saved.recipe, saved.cookiesByEndpoint)
+            val replay = client.fetch(
+                saved.recipe,
+                saved.cookiesByEndpoint,
+                saved.replayHeadersByEndpoint
+            )
             val projection = DashboardRecipeWidgetMapper.project(replay.metrics)
             WidgetData(
                 platformName = platformName,

@@ -2055,3 +2055,92 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 **下一项唯一任务**
 
 用户覆盖安装 beta.13，真机验证真实模型列表、单/多模型选择和输入变化失效行为；用户确认前停止开发。
+
+---
+
+## 2026-07-19｜Stage 8F-P4.1 真机验收闭环
+
+**用户真机结果**
+
+- 用户覆盖安装 beta.13 后明确回复“可以用了”，确认实验室模型自动检测与选择可以完成。
+- 随后进入配方二次直连时立即收到“网页登录已失效”，该问题属于下一阶段认证重放范围，不否定 P4.1 模型检测本身。
+
+**验收结论**
+
+- `/v1/models` 真实检测：`用户真机确认`，通过。
+- 不再手输模型名称并从真实列表选择：`用户真机确认`，通过。
+- Stage 8F-P4.1：代码、云端构建、固定签名 beta.13 和用户真机验收闭环。
+
+---
+
+## 2026-07-19｜Stage 8F-P5-A 同源 GET 认证头自动捕获与加密重放
+
+**目标和问题背景**
+
+- beta.13 的网页捕获和 AI 字段核对成功，但“直接请求并二次核对”立即返回 401/403。
+- 源码确认旧链路只重放 Cookie，并把所有 401/403 统一解释为“网页登录已失效”；目标站点的成功 GET 请求可能还依赖 Authorization、API Token、CSRF 或用户/租户路由头。
+- 用户已明确确认开始修复，并同意由 App 自动处理不同站点的常见认证组合，不要求用户手工复制凭据。
+
+**方案与取舍**
+
+- 本阶段只完成造成当前 401/403 的一个能力：同源、无查询参数 GET 请求的必要认证头捕获、加密保存和重放。
+- 认证头通过 Android WebView 原生请求回调读取，不进入 JavaScript 导出、脱敏响应、AI Prompt、结果 JSON或普通日志。
+- 使用严格允许列表和长度/换行校验，只保留认证、CSRF 和必要路由头；Cookie、Origin、Referer、User-Agent、未知头和浏览器安全头均拒绝。
+- Cookie 与允许认证头整体经 Android Keystore 加密；旧 Cookie-only 文件和旧 SharedPreferences 配方继续兼容读取并可在绑定/解绑时迁移。
+- 二次请求、实验室直接刷新与 Widget 通用 Adapter 使用同一加密凭据；任一 endpoint 同时缺少 Cookie 和认证头时拒绝保存。
+- POST、GraphQL、请求体、查询参数、跨 Origin 和动态签名继续冻结，待 P5-A 真机通过后再单独推进。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`417bde3ba69333bdccbcdab45063fce99958b5b0`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件（提交前）**
+
+- `PROJECT.md`
+- `.github/workflows/android-prerelease.yml`
+- `app/src/main/java/com/java/myapplication/adapter/DashboardRecipeAdapter.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardCaptureSanitizer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeClient.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeRepository.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardReplayHeaderPolicy.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRequestRecipe.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardRecipeRulesTest.kt`
+- `app/src/test/java/com/java/myapplication/DashboardReplayHeaderPolicyTest.kt`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 MiMo、DeepSeek、NewAPI、爱黄牛等专用 Adapter。
+- 未修改 Widget 布局、八连点、模型配置、缓存写入规则或现有平台授权仓库。
+- 未增加 POST、GraphQL、请求体、查询参数、跨 Origin、localStorage、Service Worker 或动态签名支持。
+- 未新增依赖、数据库、WorkManager、开发者服务器或云端凭据同步；未合并 `main`。
+
+**提交前验证状态**
+
+- `PROJECT.md` 已先记录 P5-A 正式范围、安全边界和验收标准。
+- 本地与远端起点一致，开始时工作区干净。
+- `git diff --check`：通过，仅有现有 Windows 换行提示。
+- 实验布局 XML：按 UTF-8 解析通过。
+- 新增纯规则测试覆盖允许认证头、Cookie/Origin/未知头拒绝、换行注入拒绝、同源无查询 GET 请求键和跨 Origin/POST/查询参数拒绝。
+- 现有配方规则测试补充认证头随候选进入内存草稿且再次经过允许列表清洗。
+- 本机没有 Java、Android SDK 或 ADB；单元测试、Android 编译、固定签名和发布必须由 GitHub Actions 执行，当前尚未执行，不得宣称通过。
+
+**编译、安装和验收状态**
+
+- GitHub Actions：待推送后执行唯一一轮。
+- 固定签名 beta.14：待发布。
+- 覆盖安装：待用户执行。
+- 真机认证头捕获与 Widget 复测：待用户确认。
+
+**回滚位置**
+
+`417bde3ba69333bdccbcdab45063fce99958b5b0`
+
+**下一项唯一任务**
+
+完成 P5-A 静态检查、提交和 GitHub Actions；云端成功后交付 beta.14，等待用户使用同一站点复测二次直连。真机通过前不进入 POST/GraphQL。

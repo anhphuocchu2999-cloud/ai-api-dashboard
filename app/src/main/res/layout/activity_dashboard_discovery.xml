@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Stage 8F-P4.1 · Prototype 20260718-005"
+                android:text="Stage 8F-P5-A · Prototype 20260719-001"
                 android:textColor="#6B625D"
                 android:textSize="13sp" />
 
@@ -231,7 +231,7 @@
             android:layout_height="wrap_content"
             android:background="#FFF4D6"
             android:padding="8dp"
-            android:text="确认后页面会刷新一次。捕获到的 JSON 会先脱敏；点击 AI 识别即同意把脱敏候选数据发给当前模型接口。"
+            android:text="确认后页面会刷新一次。捕获到的 JSON 会先脱敏；必要认证头只在本机用于直连验证并加密保存，不会发送给 AI。"
             android:textColor="#5B4200"
             android:textSize="12sp" />
 

@@ -16,7 +16,8 @@ data class CapturedResponseCandidate(
     val method: String,
     val status: Int,
     val sanitizedJson: String,
-    val hadQuery: Boolean
+    val hadQuery: Boolean,
+    val replayHeaders: Map<String, String> = emptyMap()
 )
 
 object DashboardCaptureSanitizer {
@@ -31,7 +32,11 @@ object DashboardCaptureSanitizer {
         "dashboard", "summary", "account", "wallet", "token", "request", "limit", "plan"
     )
 
-    fun prepare(exportedJson: String, lockedOrigin: String): PreparedDashboardCapture {
+    fun prepare(
+        exportedJson: String,
+        lockedOrigin: String,
+        replayHeadersByRequest: Map<String, Map<String, String>> = emptyMap()
+    ): PreparedDashboardCapture {
         val exported = JSONObject(exportedJson)
         val records = exported.optJSONArray("records") ?: JSONArray()
         val candidates = mutableListOf<Pair<Int, CapturedResponseCandidate>>()
@@ -45,12 +50,23 @@ object DashboardCaptureSanitizer {
             if (!DashboardDiscoveryRules.isHttpsUrl(endpoint)) continue
             val score = scoreCandidate(endpoint, record.optInt("status"))
             val sanitizedBody = sanitizeNode(parsedBody, null, 0).toString()
+            val method = record.optString("method", "GET").uppercase().take(12)
+            val requestKey = DashboardReplayHeaderPolicy.requestKey(
+                method = method,
+                url = rawEndpoint,
+                lockedOrigin = lockedOrigin
+            )
+            val replayHeaders = requestKey
+                ?.let(replayHeadersByRequest::get)
+                ?.let(DashboardReplayHeaderPolicy::sanitize)
+                .orEmpty()
             candidates += score to CapturedResponseCandidate(
                 endpoint = endpoint,
-                method = record.optString("method", "GET").uppercase().take(12),
+                method = method,
                 status = record.optInt("status"),
                 sanitizedJson = sanitizedBody,
-                hadQuery = DashboardDiscoveryRules.hasQueryOrFragment(rawEndpoint, lockedOrigin)
+                hadQuery = DashboardDiscoveryRules.hasQueryOrFragment(rawEndpoint, lockedOrigin),
+                replayHeaders = replayHeaders
             )
         }
 

@@ -87,7 +87,8 @@ data class DashboardRequestRecipe(
 
 data class DashboardRecipeDraft(
     val recipe: DashboardRequestRecipe? = null,
-    val error: String? = null
+    val error: String? = null,
+    val replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
 )
 
 object DashboardRecipeRules {
@@ -125,6 +126,19 @@ object DashboardRecipeRules {
                 return DashboardRecipeDraft(error = "首版只能保存与当前仪表盘同站点的数据接口")
             }
         }
+        val replayHeadersByEndpoint = endpoints.associateWith { endpoint ->
+            candidates
+                .filter { candidate ->
+                    candidate.endpoint == endpoint &&
+                        candidate.method == "GET" &&
+                        candidate.status in 200..299 &&
+                        candidate.replayHeaders.isNotEmpty()
+                }
+                .lastOrNull()
+                ?.replayHeaders
+                ?.let(DashboardReplayHeaderPolicy::sanitize)
+                .orEmpty()
+        }
         val recipe = DashboardRequestRecipe(
             pagePurpose = pagePurpose.trim().take(200).ifBlank { "网页仪表盘" },
             dashboardUrl = DashboardDiscoveryRules.withoutQuery(dashboardUrl, lockedOrigin),
@@ -135,7 +149,10 @@ object DashboardRecipeRules {
             lastSuccessAt = 0L
         )
         return validate(recipe)?.let { DashboardRecipeDraft(error = it) }
-            ?: DashboardRecipeDraft(recipe = recipe)
+            ?: DashboardRecipeDraft(
+                recipe = recipe,
+                replayHeadersByEndpoint = replayHeadersByEndpoint
+            )
     }
 
     fun validate(recipe: DashboardRequestRecipe): String? {
