@@ -15,7 +15,8 @@ data class CapturedResponseCandidate(
     val endpoint: String,
     val method: String,
     val status: Int,
-    val sanitizedJson: String
+    val sanitizedJson: String,
+    val hadQuery: Boolean
 )
 
 object DashboardCaptureSanitizer {
@@ -39,7 +40,8 @@ object DashboardCaptureSanitizer {
             val record = records.optJSONObject(index) ?: continue
             val rawBody = record.optString("body")
             val parsedBody = parseJson(rawBody) ?: continue
-            val endpoint = DashboardDiscoveryRules.withoutQuery(record.optString("url"), lockedOrigin)
+            val rawEndpoint = record.optString("url")
+            val endpoint = DashboardDiscoveryRules.withoutQuery(rawEndpoint, lockedOrigin)
             if (!DashboardDiscoveryRules.isHttpsUrl(endpoint)) continue
             val score = scoreCandidate(endpoint, record.optInt("status"))
             val sanitizedBody = sanitizeNode(parsedBody, null, 0).toString()
@@ -47,7 +49,8 @@ object DashboardCaptureSanitizer {
                 endpoint = endpoint,
                 method = record.optString("method", "GET").uppercase().take(12),
                 status = record.optInt("status"),
-                sanitizedJson = sanitizedBody
+                sanitizedJson = sanitizedBody,
+                hadQuery = DashboardDiscoveryRules.hasQueryOrFragment(rawEndpoint, lockedOrigin)
             )
         }
 

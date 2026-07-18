@@ -1,0 +1,127 @@
+package com.java.myapplication.discovery
+
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+data class DashboardReplayResult(
+    val displayBody: String,
+    val metricCount: Int
+)
+
+class DashboardRecipeClient {
+    @Volatile
+    private var activeConnection: HttpURLConnection? = null
+
+    fun fetch(recipe: DashboardRequestRecipe, cookiesByEndpoint: Map<String, String>): DashboardReplayResult {
+        DashboardRecipeRules.validate(recipe)?.let { throw IllegalArgumentException(it) }
+        val responses = mutableMapOf<String, Any>()
+        var previousRequestAt = 0L
+        for (endpoint in recipe.endpoints) {
+            val cookie = cookiesByEndpoint[endpoint].orEmpty()
+            if (cookie.isBlank()) throw IllegalStateException("登录状态缺失，请重新打开网页并登录")
+            val waitMillis = MIN_HOST_INTERVAL_MS - (System.currentTimeMillis() - previousRequestAt)
+            if (previousRequestAt > 0L && waitMillis > 0L) Thread.sleep(waitMillis)
+            responses[endpoint] = requestJson(endpoint, recipe, cookie)
+            previousRequestAt = System.currentTimeMillis()
+        }
+
+        val outputMetrics = JSONArray()
+        for (metric in recipe.metrics) {
+            val root = responses[metric.endpoint]
+                ?: throw IllegalStateException("数据接口没有返回可用内容")
+            val resolution = DashboardJsonPathValidator.resolve(root, metric.jsonPath)
+            if (!resolution.pathSafe || !resolution.found) {
+                throw IllegalStateException("“${metric.label}”字段已经变化，请重新识别这个仪表盘")
+            }
+            if (resolution.valueType != metric.valueType) {
+                throw IllegalStateException("“${metric.label}”的数据类型已经变化，请重新识别这个仪表盘")
+            }
+            outputMetrics.put(
+                JSONObject()
+                    .put("type", metric.type)
+                    .put("label", metric.label.ifBlank { metric.type })
+                    .put("value", DashboardJsonPathValidator.sampleValue(resolution.value))
+                    .put("unit", metric.unit)
+                    .put("source", "本次直接请求")
+            )
+        }
+        val output = JSONObject()
+            .put("pagePurpose", recipe.pagePurpose)
+            .put("refreshedAt", System.currentTimeMillis())
+            .put("metrics", outputMetrics)
+        return DashboardReplayResult(output.toString(2), outputMetrics.length())
+    }
+
+    fun cancel() {
+        activeConnection?.disconnect()
+        activeConnection = null
+    }
+
+    private fun requestJson(endpoint: String, recipe: DashboardRequestRecipe, cookie: String): Any {
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        activeConnection = connection
+        return try {
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            connection.setRequestProperty("Cookie", cookie)
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Origin", recipe.origin)
+            connection.setRequestProperty("Referer", recipe.dashboardUrl)
+            connection.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
+            val status = connection.responseCode
+            if (status !in 200..299) throw IllegalStateException(httpError(status))
+            val responseText = connection.inputStream.use { stream ->
+                val reader = BufferedReader(InputStreamReader(stream, Charsets.UTF_8))
+                readLimited(reader)
+            }
+            val parsed = runCatching { JSONTokener(responseText).nextValue() }.getOrNull()
+            if (parsed !is JSONObject && parsed !is JSONArray) {
+                throw IllegalStateException("数据接口没有返回 JSON，请重新识别这个仪表盘")
+            }
+            parsed
+        } finally {
+            connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
+        }
+    }
+
+    private fun readLimited(reader: BufferedReader): String {
+        val output = StringBuilder()
+        val buffer = CharArray(8_192)
+        while (output.length <= MAX_RESPONSE_CHARS) {
+            val read = reader.read(buffer)
+            if (read <= 0) break
+            output.append(buffer, 0, read)
+            if (output.length > MAX_RESPONSE_CHARS) {
+                throw IllegalStateException("数据接口返回内容过大，首版暂不支持")
+            }
+        }
+        if (output.isBlank()) throw IllegalStateException("数据接口返回了空内容")
+        return output.toString()
+    }
+
+    private fun httpError(status: Int): String = when (status) {
+        301, 302, 303, 307, 308 -> "数据接口发生跳转，首版不会携带登录状态继续跳转"
+        401, 403 -> "网页登录已经失效，请重新打开仪表盘并登录"
+        404 -> "保存的数据接口已经不存在，请重新识别这个仪表盘"
+        429 -> "请求过于频繁，请稍后再试"
+        in 500..599 -> "仪表盘服务器暂时异常"
+        else -> "数据接口请求失败（HTTP $status）"
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 15_000
+        const val READ_TIMEOUT_MS = 20_000
+        const val MIN_HOST_INTERVAL_MS = 500L
+        const val MAX_RESPONSE_CHARS = 262_144
+        const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
+    }
+}

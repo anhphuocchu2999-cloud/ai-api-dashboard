@@ -1808,3 +1808,79 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 停止开发并等待用户决定下一阶段；在用户确认前不得把实验映射持久化或接入现有 Widget。
+
+---
+
+## 2026-07-18｜Stage 8F-P3 已验证 GET + Cookie 请求配方
+
+**目标和问题背景**
+
+Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/usage` JSON，13 个字段通过 endpoint、JSON 路径和值类型的本机核对。用户进一步确认将识别结果整合进现有版本，使 App 记住已验证接口和字段规则，以后能够直接请求，而不是每次重新打开网页并调用 AI。
+
+**方案与取舍**
+
+- 本阶段只完成一项能力：把已验证的简单 `GET + Cookie + JSON` 接口保存为最近一份本机请求配方。
+- AI 仍只负责首次字段语义识别；保存前必须使用当前 WebView Cookie 重新直连一次，并对全部字段做第二次真实取值与类型核对。
+- endpoint 必须来自本次捕获、与确认页面精确同 Origin、无查询参数且方法只能是 GET。
+- Cookie 按 endpoint 收集后整体使用 Android Keystore 加密；配方 JSON 只保存最小规则，不含凭据、捕获正文、样本值或 AI API Key。
+- 后续可从实验首页直接刷新或删除配方；刷新失败保留配方并提示重新登录/识别，不把旧值冒充新值。
+- 先在实验室完成真机闭环，验收通过后才允许作为通用数据源接入 Widget。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件（提交前）**
+
+- `PROJECT.md`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryRules.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardCaptureSanitizer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiAnalyzer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRequestRecipe.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeRepository.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeClient.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardDiscoveryRulesTest.kt`
+- `app/src/test/java/com/java/myapplication/DashboardRecipeRulesTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 Widget、AdapterFactory、现有平台 Adapter、槽位配置、授权仓库或最近成功缓存。
+- 未替换 MiMo、DeepSeek 已有专用直连接口。
+- 未支持 POST、GraphQL、查询参数、跨 Origin、Bearer/OAuth 或 localStorage 重放。
+- 未保存多份配方、未定时刷新、未上传开发者服务器、未合并 `main`。
+
+**验证状态（推送前）**
+
+- 云端分支与本地起点一致，起始工作区干净。
+- `PROJECT.md` 已先记录用户确认的正式 P3 需求和安全边界。
+- `git diff --check`：通过，仅有现有 Windows 换行提示。
+- 实验布局 XML：解析通过。
+- 新增纯规则测试覆盖同 Origin GET 成功、POST 拒绝、带查询参数拒绝、跨 Origin 拒绝，以及配方序列化不含凭据和样本值。
+- 本机没有 Android SDK、ADB 或 Java，无法执行 Android 编译和安装；不得宣称本地已编译或已安装。
+- GitHub Actions `testDebugUnitTest + assembleDebug`：待唯一一次执行。
+- 覆盖安装与真机验收：待用户执行。
+
+**阶段提交 SHA**
+
+- 待提交。
+
+**已知限制与待验证事项**
+
+- 部分网站会使用 POST、GraphQL、动态 CSRF、查询参数或 localStorage Token；首版会明确拒绝，不会假装通用直连成功。
+- 某些 Cookie 具有更窄的 Path；实现按 endpoint 分别读取和加密保存，仍需真实站点验证其退出 WebView 后能否重放。
+- P3 成功只证明实验室直连闭环，不等于 Widget 已接入。
+
+**回滚位置**
+
+`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
+
+**下一项唯一任务**
+
+推送本阶段业务提交并只触发一次 GitHub Actions 测试与编译；发布 beta.11 后由用户真机验证保存和重开直刷。验收前停止，不进入 Widget 接入。

@@ -26,6 +26,8 @@ import androidx.webkit.WebViewFeature
 import com.java.myapplication.R
 import org.json.JSONTokener
 import java.net.SocketTimeoutException
+import java.text.DateFormat
+import java.util.Date
 import javax.net.ssl.SSLException
 
 class DashboardDiscoveryActivity : Activity() {
@@ -131,9 +133,17 @@ class DashboardDiscoveryActivity : Activity() {
     private lateinit var analyzeButton: Button
     private lateinit var resultSummary: TextView
     private lateinit var resultBody: TextView
+    private lateinit var resultRecipeStatus: TextView
+    private lateinit var saveRecipeButton: Button
+    private lateinit var savedRecipePanel: View
+    private lateinit var savedRecipeSummary: TextView
+    private lateinit var refreshSavedRecipeButton: Button
+    private lateinit var deleteSavedRecipeButton: Button
 
     private val handler = Handler(Looper.getMainLooper())
     private val aiAnalyzer = DashboardAiAnalyzer()
+    private val recipeClient = DashboardRecipeClient()
+    private val recipeRepository by lazy { DashboardRecipeRepository(applicationContext) }
     private var documentStartScriptHandler: ScriptHandler? = null
     private var injectionAttemptsRemaining = 0
     private var captureArmed = false
@@ -144,6 +154,9 @@ class DashboardDiscoveryActivity : Activity() {
     private var apiBase = ""
     private var apiKey = ""
     private var model = ""
+    private var currentAnalysis: DashboardAnalysisResult? = null
+    private var currentCapture: PreparedDashboardCapture? = null
+    private var recipeInProgress = false
 
     private val injectionRunnable = object : Runnable {
         override fun run() {
@@ -174,6 +187,7 @@ class DashboardDiscoveryActivity : Activity() {
         bindViews()
         configureWebView()
         bindActions()
+        updateSavedRecipePanel()
     }
 
     private fun bindViews() {
@@ -193,6 +207,12 @@ class DashboardDiscoveryActivity : Activity() {
         analyzeButton = findViewById(R.id.discovery_analyze)
         resultSummary = findViewById(R.id.discovery_result_summary)
         resultBody = findViewById(R.id.discovery_result_body)
+        resultRecipeStatus = findViewById(R.id.discovery_recipe_status)
+        saveRecipeButton = findViewById(R.id.discovery_save_recipe)
+        savedRecipePanel = findViewById(R.id.discovery_saved_recipe_panel)
+        savedRecipeSummary = findViewById(R.id.discovery_saved_recipe_summary)
+        refreshSavedRecipeButton = findViewById(R.id.discovery_refresh_saved_recipe)
+        deleteSavedRecipeButton = findViewById(R.id.discovery_delete_saved_recipe)
     }
 
     private fun configureWebView() {
@@ -242,6 +262,9 @@ class DashboardDiscoveryActivity : Activity() {
         findViewById<Button>(R.id.discovery_open_dashboard).setOnClickListener { openDashboard() }
         confirmButton.setOnClickListener { confirmAndCapture() }
         analyzeButton.setOnClickListener { analyzeCapture() }
+        saveRecipeButton.setOnClickListener { testAndSaveRecipe() }
+        refreshSavedRecipeButton.setOnClickListener { refreshSavedRecipe() }
+        deleteSavedRecipeButton.setOnClickListener { deleteSavedRecipe() }
         findViewById<Button>(R.id.discovery_back_to_browser).setOnClickListener { showBrowser() }
         findViewById<Button>(R.id.discovery_restart).setOnClickListener { restartExperiment() }
     }
@@ -338,11 +361,21 @@ class DashboardDiscoveryActivity : Activity() {
 
     private fun showResult(result: DashboardAnalysisResult, capture: PreparedDashboardCapture) {
         analysisInProgress = false
+        currentAnalysis = result
+        currentCapture = capture
         browserPanel.visibility = View.GONE
         setupPanel.visibility = View.GONE
         resultPanel.visibility = View.VISIBLE
         resultSummary.text = "${result.summary}\n捕获 ${capture.rawCaptureCount} 条，筛选 ${capture.candidateCount} 条；已验证字段才具备后续自动刷新资格。"
         resultBody.text = result.displayBody
+        resultRecipeStatus.text = if (result.structureValid) {
+            "下一步会使用当前网页登录状态直接请求一次；全部字段再次通过后才保存。"
+        } else {
+            "没有可保存的已验证字段。"
+        }
+        saveRecipeButton.text = "直接测试并加密保存"
+        saveRecipeButton.visibility = if (result.structureValid) View.VISIBLE else View.GONE
+        saveRecipeButton.isEnabled = result.structureValid
     }
 
     private fun finishAnalysisWithError(message: String) {
@@ -354,9 +387,15 @@ class DashboardDiscoveryActivity : Activity() {
 
     private fun showBrowser() {
         resultPanel.visibility = View.GONE
-        setupPanel.visibility = View.GONE
-        browserPanel.visibility = View.VISIBLE
-        analyzeButton.isEnabled = captureArmed && !analysisInProgress
+        if (captureArmed) {
+            setupPanel.visibility = View.GONE
+            browserPanel.visibility = View.VISIBLE
+            analyzeButton.isEnabled = !analysisInProgress
+        } else {
+            browserPanel.visibility = View.GONE
+            setupPanel.visibility = View.VISIBLE
+            updateSavedRecipePanel()
+        }
     }
 
     private fun restartExperiment() {
@@ -364,11 +403,153 @@ class DashboardDiscoveryActivity : Activity() {
         webView.loadUrl("about:blank")
         apiKey = ""
         apiKeyInput.text?.clear()
+        currentAnalysis = null
+        currentCapture = null
         resultBody.text = ""
         resultSummary.text = ""
+        resultRecipeStatus.text = ""
+        saveRecipeButton.text = "直接测试并加密保存"
+        saveRecipeButton.visibility = View.VISIBLE
         browserPanel.visibility = View.GONE
         resultPanel.visibility = View.GONE
         setupPanel.visibility = View.VISIBLE
+        updateSavedRecipePanel()
+    }
+
+    private fun testAndSaveRecipe() {
+        if (recipeInProgress) return
+        val analysis = currentAnalysis ?: return
+        val capture = currentCapture ?: return
+        val origin = lockedOrigin.orEmpty()
+        val draft = DashboardRecipeRules.create(
+            pagePurpose = analysis.pagePurpose,
+            dashboardUrl = webView.url.orEmpty(),
+            lockedOrigin = origin,
+            metrics = analysis.verifiedMetrics,
+            candidates = capture.candidates,
+            now = System.currentTimeMillis()
+        )
+        val recipe = draft.recipe
+        if (recipe == null) {
+            resultRecipeStatus.text = draft.error ?: "当前结果不能保存为请求配方"
+            return
+        }
+        val cookies = recipe.endpoints.associateWith { endpoint ->
+            CookieManager.getInstance().getCookie(endpoint).orEmpty()
+        }
+        if (cookies.values.any { it.isBlank() }) {
+            resultRecipeStatus.text = "没有取得数据接口所需的登录 Cookie，请确认网页已经登录"
+            return
+        }
+        recipeInProgress = true
+        saveRecipeButton.isEnabled = false
+        resultRecipeStatus.text = "正在直接请求并二次核对 ${recipe.metrics.size} 个字段…"
+        Thread {
+            try {
+                val replay = recipeClient.fetch(recipe, cookies)
+                val savedRecipe = recipe.copy(lastSuccessAt = System.currentTimeMillis())
+                if (!recipeRepository.save(savedRecipe, cookies)) {
+                    throw IllegalStateException("本机加密保存失败，没有写入明文凭据")
+                }
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        recipeInProgress = false
+                        resultSummary.text = "直连测试通过并已加密保存 ${replay.metricCount} 个字段"
+                        resultBody.text = replay.displayBody
+                        resultRecipeStatus.text = "以后打开实验室可以直接刷新，不再调用 AI。"
+                        saveRecipeButton.text = "已保存本次请求配方"
+                        saveRecipeButton.isEnabled = false
+                        updateSavedRecipePanel()
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        recipeInProgress = false
+                        saveRecipeButton.isEnabled = true
+                        resultRecipeStatus.text = recipeUserFacingError(error)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun refreshSavedRecipe() {
+        if (recipeInProgress) return
+        val saved = recipeRepository.load()
+        if (saved == null) {
+            updateSavedRecipePanel()
+            setupError.text = "保存的配方或登录状态已经损坏，请删除后重新识别"
+            setupError.visibility = View.VISIBLE
+            return
+        }
+        recipeInProgress = true
+        refreshSavedRecipeButton.isEnabled = false
+        setupPanel.visibility = View.GONE
+        browserPanel.visibility = View.GONE
+        resultPanel.visibility = View.VISIBLE
+        saveRecipeButton.visibility = View.GONE
+        resultRecipeStatus.text = "正在按已保存配方直接请求，不会调用 AI…"
+        resultSummary.text = "正在刷新 ${saved.recipe.pagePurpose}"
+        resultBody.text = ""
+        Thread {
+            try {
+                val replay = recipeClient.fetch(saved.recipe, saved.cookiesByEndpoint)
+                val updated = saved.recipe.copy(lastSuccessAt = System.currentTimeMillis())
+                if (!recipeRepository.save(updated, saved.cookiesByEndpoint)) {
+                    throw IllegalStateException("刷新成功，但本机状态更新时间保存失败")
+                }
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        recipeInProgress = false
+                        refreshSavedRecipeButton.isEnabled = true
+                        resultSummary.text = "直接刷新成功，本次取得 ${replay.metricCount} 个真实字段"
+                        resultBody.text = replay.displayBody
+                        resultRecipeStatus.text = "本次没有调用 AI，也没有打开仪表盘网页。"
+                        updateSavedRecipePanel()
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        recipeInProgress = false
+                        refreshSavedRecipeButton.isEnabled = true
+                        resultSummary.text = "直接刷新没有完成"
+                        resultBody.text = ""
+                        resultRecipeStatus.text = recipeUserFacingError(error)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun deleteSavedRecipe() {
+        if (recipeInProgress) return
+        if (recipeRepository.clear()) {
+            Toast.makeText(this, "已删除请求配方和加密登录状态", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "删除失败，请稍后重试", Toast.LENGTH_SHORT).show()
+        }
+        updateSavedRecipePanel()
+    }
+
+    private fun updateSavedRecipePanel() {
+        if (!::savedRecipePanel.isInitialized) return
+        val saved = recipeRepository.load()
+        savedRecipePanel.visibility = if (saved == null) View.GONE else View.VISIBLE
+        if (saved != null) {
+            val lastSuccess = saved.recipe.lastSuccessAt.takeIf { it > 0L }?.let {
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
+            } ?: "尚未刷新"
+            savedRecipeSummary.text = "${saved.recipe.pagePurpose}\n${saved.recipe.metrics.size} 个字段 · 上次成功 $lastSuccess"
+        }
+    }
+
+    private fun recipeUserFacingError(error: Exception): String = when (error) {
+        is SocketTimeoutException -> "仪表盘接口响应超时，请稍后再试"
+        is SSLException -> "仪表盘 HTTPS 连接失败"
+        is IllegalArgumentException, is IllegalStateException -> error.message ?: "直接请求失败"
+        else -> "直接请求失败，请检查网络或重新登录"
     }
 
     private fun scheduleInjection() {
@@ -458,6 +639,7 @@ class DashboardDiscoveryActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         aiAnalyzer.cancel()
+        recipeClient.cancel()
         removeDocumentStartCapture()
         apiKey = ""
         if (::apiKeyInput.isInitialized) apiKeyInput.text?.clear()

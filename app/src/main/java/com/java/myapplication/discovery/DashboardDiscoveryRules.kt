@@ -32,6 +32,16 @@ object DashboardDiscoveryRules {
         }
     }
 
+    fun hasQueryOrFragment(value: String, baseOrigin: String? = null): Boolean {
+        return try {
+            val raw = URI(value)
+            val resolved = if (!raw.isAbsolute && baseOrigin != null) URI(baseOrigin).resolve(raw) else raw
+            !resolved.rawQuery.isNullOrBlank() || !resolved.rawFragment.isNullOrBlank()
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     fun normalizeChatCompletionsUrl(apiBase: String): String? {
         val uri = parseHttps(apiBase) ?: return null
         var path = uri.path.orEmpty().trimEnd('/')

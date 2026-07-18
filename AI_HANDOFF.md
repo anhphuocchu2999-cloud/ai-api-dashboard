@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8F-P2-J：安全相对 JSON 路径兼容`
+`Stage 8F-P3：已验证 GET + Cookie 请求配方`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -25,7 +25,8 @@
 - Stage 8F-P2-T 业务提交与 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`
 - Stage 8F-P2-T 文档闭环与 P2-J 起点：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
 - Stage 8F-P2-J 业务提交与 Release 目标：`d391f938b30313cf2f186d4f7e7b2bd41ed166a3`
-- 当前状态：用户已用 beta.10 完成真机复测；13 个 MiMo 真实接口字段进入 `verifiedMetrics`，路径均规范化为 `$.…` 且本机取得真实值，2 个缺少接口来源的页面数字继续留在 `observations`。Stage 8F-P2-J 用户真机验收通过，等待用户决定下一阶段
+- Stage 8F-P3 起始远端 HEAD：`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
+- 当前状态：用户已明确确认把已验证 GET + Cookie 请求配方整合进现有实验室。业务代码和单元测试已在本地干净工作区完成，等待唯一一次云端 `testDebugUnitTest + assembleDebug`；尚未真机验收，不得接入 Widget
 
 ## 云端状态
 
@@ -67,7 +68,17 @@
 
 ## 当前唯一任务
 
-Stage 8F-P2-J 已完成代码、云端构建、固定签名发布和用户真机验收。停止开发并等待用户确认下一阶段；不得自动保存映射、重放接口或接入 Widget。
+完成 Stage 8F-P3 唯一一次云端测试与编译，发布固定签名 beta.11；用户真机验证“直接测试并保存 → 关闭重开 → 不调用 AI 直接刷新”。验收前不得接入 Widget。
+
+## Stage 8F-P3 当前实现
+
+- 实验首页版本：`Stage 8F-P3 · Prototype 20260718-003`。
+- AI 识别并本机核对后，结果页可对同 Origin、无查询参数的 GET 接口使用当前 WebView Cookie 做一次真实直连二次核对。
+- 所有已验证字段必须在新响应中再次存在且类型一致，才会保存一份最小请求配方。
+- 请求配方不含响应正文、样本值或 AI API Key；Cookie 映射整体经 Android Keystore 加密，加密失败不降级为明文。
+- 实验首页可直接刷新最近保存的一份配方或同时删除规则与加密登录状态；直接刷新不调用 AI、不打开网页。
+- 首版明确拒绝 POST、GraphQL、带查询参数、跨 Origin、Bearer/OAuth/localStorage 等协议；不接入 Widget、AdapterFactory、槽位配置或最近成功缓存。
+- 本地缺少 Android SDK 和 Java，未冒充执行本地构建；GitHub Actions 是本阶段唯一测试与编译执行端。
 
 ## Stage 8F-P2-J 当前实现
 

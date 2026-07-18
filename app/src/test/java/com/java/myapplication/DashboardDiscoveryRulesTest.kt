@@ -39,6 +39,9 @@ class DashboardDiscoveryRulesTest {
         assertFalse(redacted.contains("abcdefghijklmnop"))
         assertFalse(redacted.contains("user@example.com"))
         assertFalse(redacted.contains("sk-abcdefghijklmnopqrstuvwxyz"))
+        assertTrue(DashboardDiscoveryRules.hasQueryOrFragment("https://dashboard.example.com/api/usage?range=month"))
+        assertTrue(DashboardDiscoveryRules.hasQueryOrFragment("https://dashboard.example.com/api/usage#part"))
+        assertFalse(DashboardDiscoveryRules.hasQueryOrFragment("https://dashboard.example.com/api/usage"))
     }
 
     @Test

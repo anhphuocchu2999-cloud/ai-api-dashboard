@@ -13,7 +13,9 @@ data class DashboardAnalysisResult(
     val structureValid: Boolean,
     val summary: String,
     val verifiedCount: Int,
-    val observationCount: Int
+    val observationCount: Int,
+    val pagePurpose: String,
+    val verifiedMetrics: List<DashboardMetricRecipe>
 )
 
 class DashboardAiAnalyzer {
@@ -132,6 +134,21 @@ class DashboardAiAnalyzer {
                 .put("notes", parsed.optJSONArray("notes") ?: JSONArray())
             val verifiedCount = verified.length()
             val observationCount = observations.length()
+            val verifiedMetrics = buildList {
+                for (index in 0 until verified.length()) {
+                    val metric = verified.optJSONObject(index) ?: continue
+                    add(
+                        DashboardMetricRecipe(
+                            type = metric.optString("type"),
+                            label = metric.optString("label").take(200),
+                            endpoint = metric.optString("endpoint"),
+                            jsonPath = metric.optString("jsonPath"),
+                            valueType = metric.optString("valueType"),
+                            unit = metric.optString("unit").take(40)
+                        )
+                    )
+                }
+            }
             DashboardAnalysisResult(
                 displayBody = output.toString(2),
                 structureValid = verifiedCount > 0,
@@ -141,7 +158,9 @@ class DashboardAiAnalyzer {
                     "暂时没有找到可自动刷新的字段；识别到 $observationCount 项页面观察信息"
                 },
                 verifiedCount = verifiedCount,
-                observationCount = observationCount
+                observationCount = observationCount,
+                pagePurpose = parsed.optString("pagePurpose").take(200),
+                verifiedMetrics = verifiedMetrics
             )
         } catch (_: Exception) {
             DashboardAnalysisResult(
@@ -149,7 +168,9 @@ class DashboardAiAnalyzer {
                 structureValid = false,
                 summary = "模型返回内容不是有效映射 JSON，请人工查看",
                 verifiedCount = 0,
-                observationCount = 0
+                observationCount = 0,
+                pagePurpose = "",
+                verifiedMetrics = emptyList()
             )
         }
     }
