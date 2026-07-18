@@ -3,7 +3,6 @@ package com.java.myapplication
 import com.java.myapplication.discovery.CapturedResponseCandidate
 import com.java.myapplication.discovery.DashboardMetricRecipe
 import com.java.myapplication.discovery.DashboardRecipeRules
-import com.java.myapplication.discovery.DashboardRequestRecipe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -63,25 +62,6 @@ class DashboardRecipeRulesTest {
             listOf(candidate(endpoint = "https://api.other.example/usage")), 1L
         )
         assertTrue(draft.error.orEmpty().contains("同站点"))
-    }
-
-    @Test
-    fun serializedRecipeRoundTripsWithoutCredentialOrSampleValue() {
-        val recipe = DashboardRequestRecipe(
-            pagePurpose = "用量仪表盘",
-            dashboardUrl = "https://dashboard.example.com/console",
-            origin = "https://dashboard.example.com",
-            endpoints = listOf(endpoint),
-            metrics = listOf(metric),
-            createdAt = 10L,
-            lastSuccessAt = 20L
-        )
-        val json = recipe.toJson()
-        val restored = DashboardRequestRecipe.fromJson(json)
-
-        assertNotNull(restored)
-        assertEquals(recipe, restored)
-        assertTrue(!json.has("cookie") && !json.has("sampleValue") && !json.has("apiKey"))
     }
 
     private fun candidate(

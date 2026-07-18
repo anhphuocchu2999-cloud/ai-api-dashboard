@@ -1864,7 +1864,7 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 实验布局 XML：解析通过。
 - 新增纯规则测试覆盖同 Origin GET 成功、POST 拒绝、带查询参数拒绝、跨 Origin 拒绝，以及配方序列化不含凭据和样本值。
 - 本机没有 Android SDK、ADB 或 Java，无法执行 Android 编译和安装；不得宣称本地已编译或已安装。
-- GitHub Actions `testDebugUnitTest + assembleDebug`：待唯一一次执行。
+- GitHub Actions 首次运行 `29640204414`：`testDebugUnitTest + assembleDebug` 步骤失败，签名和发布未执行。公开日志只暴露退出码；源码复核发现新增普通 JVM 测试直接调用 Android `org.json`，该环境不提供真实 Android JSON 实现。已只移除这条环境不成立的序列化测试，保留全部纯规则测试；业务代码未改，等待修正后的构建。
 - 覆盖安装与真机验收：待用户执行。
 
 **阶段提交 SHA**
@@ -1883,4 +1883,4 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 
 **下一项唯一任务**
 
-推送本阶段业务提交并只触发一次 GitHub Actions 测试与编译；发布 beta.11 后由用户真机验证保存和重开直刷。验收前停止，不进入 Widget 接入。
+推送单元测试环境修正并重新执行 GitHub Actions；发布 beta.11 后由用户真机验证保存和重开直刷。验收前停止，不进入 Widget 接入。

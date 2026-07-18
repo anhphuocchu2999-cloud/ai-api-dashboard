@@ -26,7 +26,7 @@
 - Stage 8F-P2-T 文档闭环与 P2-J 起点：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
 - Stage 8F-P2-J 业务提交与 Release 目标：`d391f938b30313cf2f186d4f7e7b2bd41ed166a3`
 - Stage 8F-P3 起始远端 HEAD：`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
-- 当前状态：用户已明确确认把已验证 GET + Cookie 请求配方整合进现有实验室。业务代码和单元测试已在本地干净工作区完成，等待唯一一次云端 `testDebugUnitTest + assembleDebug`；尚未真机验收，不得接入 Widget
+- 当前状态：用户已明确确认把已验证 GET + Cookie 请求配方整合进现有实验室。首轮云端运行 `29640204414` 在测试/编译步骤失败，签名和发布未执行；新增 JVM 测试错误调用 Android `org.json` 的环境问题已做最小修正，业务代码未改。等待修正后云端构建；尚未真机验收，不得接入 Widget
 
 ## 云端状态
 
