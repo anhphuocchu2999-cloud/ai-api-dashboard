@@ -29,6 +29,7 @@ class DashboardAiAnalyzer {
         格式：{"pagePurpose":"","confidence":0.0,"metrics":[{"type":"balance|usage|quota|tokens|requests|subscription|reset_time|other","label":"","endpoint":"","jsonPath":"","valueType":"number|string|boolean|object|array","unit":"","confidence":0.0}],"observations":[{"type":"","label":"","value":"","unit":"","confidence":0.0}],"notes":[""]}。
         metrics 只允许放入已经在 responses 中找到真实 endpoint 和 jsonPath 的字段；只从 visibleText 看见、
         没有真实接口路径的数字必须放进 observations。endpoint 和 jsonPath 必须逐字来自输入，不能编造。
+        jsonPath 优先使用以 $. 开头的标准根路径，例如 $.data.usage.total。
     """.trimIndent()
 
     fun analyze(
@@ -105,8 +106,11 @@ class DashboardAiAnalyzer {
 
             for (index in 0 until metrics.length()) {
                 val metric = metrics.optJSONObject(index) ?: continue
-                val verification = verifyMetric(metric, capture)
                 val copy = JSONObject(metric.toString())
+                DashboardJsonPathValidator.canonicalize(copy.optString("jsonPath"))?.let {
+                    copy.put("jsonPath", it)
+                }
+                val verification = verifyMetric(copy, capture)
                 if (verification.verified) {
                     copy.put("actualValueType", verification.actualType)
                     copy.put("sampleValue", DashboardJsonPathValidator.sampleValue(verification.value))

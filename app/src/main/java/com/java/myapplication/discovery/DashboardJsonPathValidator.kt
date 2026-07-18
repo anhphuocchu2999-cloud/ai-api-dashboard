@@ -18,8 +18,22 @@ object DashboardJsonPathValidator {
         data class Index(val value: Int) : PathToken
     }
 
+    fun canonicalize(path: String): String? {
+        val trimmed = path.trim()
+        if (trimmed.isBlank()) return null
+        val rooted = when {
+            trimmed.startsWith('$') -> trimmed
+            trimmed.startsWith('.') || trimmed.startsWith('[') -> "\$$trimmed"
+            else -> "\$.$trimmed"
+        }
+        return rooted.takeIf { parse(it) != null }
+    }
+
     fun resolve(root: Any?, path: String): JsonPathResolution {
-        val tokens = parse(path) ?: return JsonPathResolution(pathSafe = false, found = false)
+        val canonicalPath = canonicalize(path)
+            ?: return JsonPathResolution(pathSafe = false, found = false)
+        val tokens = parse(canonicalPath)
+            ?: return JsonPathResolution(pathSafe = false, found = false)
         var current: Any? = root
         for (token in tokens) {
             val next = when (token) {

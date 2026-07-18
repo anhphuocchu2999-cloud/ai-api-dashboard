@@ -1702,3 +1702,71 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 用户覆盖安装 `v0.1.0-beta.9`，使用同一站点和模型复测“调用一次 AI 识别”；确认不再被原 60 秒时限提前终止，并核对 `verifiedMetrics` / `observations` 分流。
+
+---
+
+## 2026-07-18｜Stage 8F-P2-J 安全相对 JSON 路径兼容
+
+**目标和真机问题**
+
+用户使用 beta.9 成功完成一次 AI 识别，证明本次没有再被原 60 秒时限提前终止。模型从 MiMo 真实 `https://platform.xiaomimimo.com/api/v1/usage` 响应识别出 12 个余额、Token、请求次数和限流字段，但返回 `data.costUsage.totalCost` 等省略 `$` 根标记的点路径；本机验证器只接受 `$.data.costUsage.totalCost`，因此 `verifiedMetrics` 为空，12 项全部以“字段路径格式不安全”降级到 `observations`。另有 6 项页面文字观察信息按预期保留。
+
+**方案与取舍**
+
+- 新增安全路径规范化：普通相对点路径在本机补为标准 `$` 根路径。
+- 规范化仅改变语法表示，不跳过原有安全解析、endpoint 捕获集合、真实取值和类型一致性核对。
+- AI 结果展示统一写回规范化路径，避免后续规则格式混杂。
+- 提示模型优先返回 `$.` 标准路径，但本机不能把正确性寄托在模型格式完全一致上。
+- 相对形式的递归、通配符、过滤器、函数、脚本和反斜线仍拒绝。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件**
+
+- `PROJECT.md`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardJsonPathValidator.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiAnalyzer.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardJsonPathValidatorTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未放宽 endpoint 必须来自本次捕获、字段必须真实存在和实际类型必须一致的规则。
+- 未修改模型超时、捕获条数、脱敏逻辑、Widget、Adapter、配置、授权或缓存。
+- 未保存映射、捕获正文或 API Key，未实现后台接口重放。
+- 未新增自动重试或开发者服务器上传，未合并 `main`。
+
+**验证状态（推送前）**
+
+- 用户真机证据：beta.9 AI 调用成功返回；12 个真实接口候选只因缺少 `$` 根标记被拒绝，6 个页面观察值分流正确。
+- 源码证据：原解析器 `parse()` 明确要求路径首字符必须为 `$`。
+- `git diff --check`：通过，仅有现有工作区换行提示。
+- 实验布局 XML 解析：通过。
+- 新增回归测试覆盖相对数组点路径规范化，以及相对通配符、过滤器和函数继续拒绝；待 GitHub Actions 执行。
+- 本机未执行 Android 编译；GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.10 发布待执行且只允许一次。
+- 覆盖安装与真机验收：待用户执行。
+
+**阶段提交 SHA**
+
+- 待提交并由云端核对后回填。
+
+**已知限制与待验证事项**
+
+- 只有安全简单路径会被规范化；复杂 JSONPath 表达式仍不支持。
+- 路径通过语法规范化后仍可能因真实字段不存在或类型不一致而降级，这是预期真实性保护。
+- 本阶段不保存映射、不重放请求、不接入 Widget。
+
+**回滚位置**
+
+`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
+
+**下一项唯一任务**
+
+提交精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug`，发布固定签名 `v0.1.0-beta.10`；用户使用同一 MiMo 页面复测相对路径验证。

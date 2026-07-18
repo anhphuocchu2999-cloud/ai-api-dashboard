@@ -31,6 +31,17 @@ class DashboardJsonPathValidatorTest {
     }
 
     @Test
+    fun canonicalizesSafeRelativeDotPath() {
+        val relative = "data.items[0].quota"
+
+        assertEquals("$.data.items[0].quota", DashboardJsonPathValidator.canonicalize(relative))
+        val result = DashboardJsonPathValidator.resolve(sample, relative)
+        assertTrue(result.pathSafe)
+        assertTrue(result.found)
+        assertEquals(5050, result.value)
+    }
+
+    @Test
     fun supportsQuotedPropertyWithoutExecutingExpressions() {
         val result = DashboardJsonPathValidator.resolve(sample, "$.data['total.usage']")
         assertTrue(result.found)
@@ -43,7 +54,10 @@ class DashboardJsonPathValidatorTest {
             "$..quota",
             "$.data.*",
             "$.items[?(@.enabled)]",
-            "$.items[0].value()"
+            "$.items[0].value()",
+            "data.*",
+            "items[?(@.enabled)]",
+            "items[0].value()"
         ).forEach { path ->
             val result = DashboardJsonPathValidator.resolve(sample, path)
             assertFalse(path, result.pathSafe)

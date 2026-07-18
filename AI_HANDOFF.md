@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8F-P2-T：模型识别请求超时修复`
+`Stage 8F-P2-J：安全相对 JSON 路径兼容`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -23,7 +23,8 @@
 - Stage 8F-P2 业务提交与 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`
 - Stage 8F-P2 文档闭环与 P2-T 起点：`9c734bad602756cd33d50049bf064a96ba28a753`
 - Stage 8F-P2-T 业务提交与 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`
-- 当前状态：用户真机运行 beta.8 时在“调用一次 AI 识别”阶段触发 60 秒读取超时；P2-T 已缩减模型输入、保留完整本机核对候选并把有限读取时限调整为 120 秒，beta.9 云端测试、编译、固定证书校验和发布均成功，待真机复测
+- Stage 8F-P2-T 文档闭环与 P2-J 起点：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
+- 当前状态：用户已用 beta.9 成功完成 AI 识别，确认原 60 秒超时未再提前终止；结果抓到 MiMo `/api/v1/usage` 的 12 个字段，但模型省略 JSONPath 根标记 `$`，导致验证器全部误判为不安全。P2-J 正在安全规范化相对点路径，待 beta.10 云端验证
 
 ## 云端状态
 
@@ -65,7 +66,16 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 `v0.1.0-beta.9`，使用同一站点和模型复测“调用一次 AI 识别”；确认不再被原 60 秒时限提前终止，并核对 `verifiedMetrics` / `observations` 分流，不接入 Widget。
+提交 Stage 8F-P2-J 精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.10`；用户使用同一 MiMo 页面复测 12 个相对点路径是否通过本机验证，不接入 Widget。
+
+## Stage 8F-P2-J 当前实现
+
+- 实验首页版本：`Stage 8F-P2-J · Prototype 20260718-002`。
+- 接受 `data.costUsage.totalCost` 这类只含普通属性、点号和数组下标的相对路径，并规范化为 `$.data.costUsage.totalCost`。
+- 标准 `$` 路径继续原样使用；结果输出统一为规范化路径。
+- 规范化后仍通过原有安全解析器、真实响应取值和实际类型核对；endpoint 仍必须属于本次捕获。
+- 递归、通配符、过滤器、函数、脚本和反斜线表达式继续拒绝。
+- 不修改 beta.9 的超时策略、捕获范围、Widget、Adapter、授权或缓存，不保存规则、不重放请求。
 
 ## Stage 8F-P2-T 当前实现
 
