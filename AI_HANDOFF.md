@@ -26,7 +26,9 @@
 - Stage 8F-P2-T 文档闭环与 P2-J 起点：`91ba4d2c22dc2cf7f8705110fc157a95c1560e81`
 - Stage 8F-P2-J 业务提交与 Release 目标：`d391f938b30313cf2f186d4f7e7b2bd41ed166a3`
 - Stage 8F-P3 起始远端 HEAD：`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
-- 当前状态：用户已明确确认把已验证 GET + Cookie 请求配方整合进现有实验室。首轮云端运行 `29640204414` 在测试/编译步骤失败，签名和发布未执行；新增 JVM 测试错误调用 Android `org.json` 的环境问题已做最小修正，业务代码未改。等待修正后云端构建；尚未真机验收，不得接入 Widget
+- Stage 8F-P3 业务提交：`1f1c23b9f3fd00b3b107ccfde78577d274cb4cd2`
+- Stage 8F-P3 JVM 测试环境修正与 Release 目标：`28b9df9ef6333154828a87caaa3a03624f6f78c6`
+- 当前状态：beta.11 已完成云端测试、Android 编译、固定签名校验和公开发布；等待用户覆盖安装并真机验证“直接测试并保存 → 关闭重开 → 不调用 AI 直接刷新”。验收前不得接入 Widget
 
 ## 云端状态
 
@@ -68,7 +70,7 @@
 
 ## 当前唯一任务
 
-完成 Stage 8F-P3 唯一一次云端测试与编译，发布固定签名 beta.11；用户真机验证“直接测试并保存 → 关闭重开 → 不调用 AI 直接刷新”。验收前不得接入 Widget。
+用户覆盖安装固定签名 beta.11，真机验证“直接测试并保存 → 关闭重开 → 不调用 AI 直接刷新”。验收前不得接入 Widget。
 
 ## Stage 8F-P3 当前实现
 
@@ -79,6 +81,17 @@
 - 实验首页可直接刷新最近保存的一份配方或同时删除规则与加密登录状态；直接刷新不调用 AI、不打开网页。
 - 首版明确拒绝 POST、GraphQL、带查询参数、跨 Origin、Bearer/OAuth/localStorage 等协议；不接入 Widget、AdapterFactory、槽位配置或最近成功缓存。
 - 本地缺少 Android SDK 和 Java，未冒充执行本地构建；GitHub Actions 是本阶段唯一测试与编译执行端。
+
+## Stage 8F-P3 云端交付
+
+- 首轮 GitHub Actions：`29640204414`，失败于新增 JVM 单元测试调用 Android `org.json`；未进入签名、Artifact 或 Release。
+- 最小修正：只移除环境不成立的 JSON 往返 JVM 测试，业务代码未改；规则测试继续覆盖 GET、POST、查询参数和跨 Origin 边界。
+- 成功 GitHub Actions：`29640399072`，结论 `success`；`testDebugUnitTest + assembleDebug`、固定签名校验、Artifact 上传和 Prerelease 发布全部成功。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.11`
+- APK：`ai-api-dashboard-v0.1.0-beta.11-debug.apk`，大小 `12151827` 字节。
+- 从公开 Release 下载后 SHA-256：`A8390E6E7FE89FE52D8FBB18AED7178C3ECF696776F65784E70693A2B7D9777A`。
+- 工作流校验的固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 覆盖安装和真机配方复测：待用户执行，不得宣称通过。
 
 ## Stage 8F-P2-J 当前实现
 

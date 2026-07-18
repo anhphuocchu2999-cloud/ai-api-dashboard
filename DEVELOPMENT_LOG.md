@@ -1862,14 +1862,25 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - `PROJECT.md` 已先记录用户确认的正式 P3 需求和安全边界。
 - `git diff --check`：通过，仅有现有 Windows 换行提示。
 - 实验布局 XML：解析通过。
-- 新增纯规则测试覆盖同 Origin GET 成功、POST 拒绝、带查询参数拒绝、跨 Origin 拒绝，以及配方序列化不含凭据和样本值。
+- 新增纯规则测试覆盖同 Origin GET 成功、POST 拒绝、带查询参数拒绝和跨 Origin 拒绝；配方序列化由 Android 真机链路待验收。
 - 本机没有 Android SDK、ADB 或 Java，无法执行 Android 编译和安装；不得宣称本地已编译或已安装。
-- GitHub Actions 首次运行 `29640204414`：`testDebugUnitTest + assembleDebug` 步骤失败，签名和发布未执行。公开日志只暴露退出码；源码复核发现新增普通 JVM 测试直接调用 Android `org.json`，该环境不提供真实 Android JSON 实现。已只移除这条环境不成立的序列化测试，保留全部纯规则测试；业务代码未改，等待修正后的构建。
+- GitHub Actions 首次运行 `29640204414`：`testDebugUnitTest + assembleDebug` 步骤失败，签名和发布未执行。公开日志只暴露退出码；源码复核发现新增普通 JVM 测试直接调用 Android `org.json`，该环境不提供真实 Android JSON 实现。只移除这条环境不成立的序列化测试，保留全部纯规则测试；业务代码未改。
+- 修正后 GitHub Actions `29640399072`：`testDebugUnitTest + assembleDebug` 成功，固定证书校验、Artifact 上传和 beta.11 发布全部成功。
 - 覆盖安装与真机验收：待用户执行。
 
 **阶段提交 SHA**
 
-- 待提交。
+- 业务提交：`1f1c23b9f3fd00b3b107ccfde78577d274cb4cd2`。
+- JVM 测试环境修正与 Release 目标：`28b9df9ef6333154828a87caaa3a03624f6f78c6`。
+
+**云端构建与交付结果**
+
+- 成功运行：`29640399072`，结论 `success`。
+- Release：`v0.1.0-beta.11`，标记为 Prerelease。
+- APK：`ai-api-dashboard-v0.1.0-beta.11-debug.apk`，大小 `12151827` 字节。
+- 从公开 Release 下载后 SHA-256：`A8390E6E7FE89FE52D8FBB18AED7178C3ECF696776F65784E70693A2B7D9777A`。
+- 工作流固定 Beta 证书 SHA-256 校验：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。
+- 覆盖安装和真机配方复测：待用户执行，不得宣称通过。
 
 **已知限制与待验证事项**
 
@@ -1883,4 +1894,4 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 
 **下一项唯一任务**
 
-推送单元测试环境修正并重新执行 GitHub Actions；发布 beta.11 后由用户真机验证保存和重开直刷。验收前停止，不进入 Widget 接入。
+用户覆盖安装 beta.11，验证同 Origin GET + Cookie 站点能够直接测试并保存；关闭重开实验室后点击“不调用 AI，直接刷新”仍取得新数据。验收前停止，不进入 Widget 接入。
