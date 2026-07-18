@@ -15,15 +15,21 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.java.myapplication.R
+import com.java.myapplication.config.ApiAccountConfig
+import com.java.myapplication.config.ConfigRepository
+import com.java.myapplication.config.InstanceKeyResolver
+import com.java.myapplication.refreshWidget
 import org.json.JSONTokener
 import java.net.SocketTimeoutException
 import java.text.DateFormat
@@ -137,6 +143,9 @@ class DashboardDiscoveryActivity : Activity() {
     private lateinit var saveRecipeButton: Button
     private lateinit var savedRecipePanel: View
     private lateinit var savedRecipeSummary: TextView
+    private lateinit var recipeInstanceSpinner: Spinner
+    private lateinit var bindRecipeButton: Button
+    private lateinit var unbindRecipeButton: Button
     private lateinit var refreshSavedRecipeButton: Button
     private lateinit var deleteSavedRecipeButton: Button
 
@@ -157,6 +166,7 @@ class DashboardDiscoveryActivity : Activity() {
     private var currentAnalysis: DashboardAnalysisResult? = null
     private var currentCapture: PreparedDashboardCapture? = null
     private var recipeInProgress = false
+    private var bindableConfigs: List<ApiAccountConfig> = emptyList()
 
     private val injectionRunnable = object : Runnable {
         override fun run() {
@@ -211,6 +221,9 @@ class DashboardDiscoveryActivity : Activity() {
         saveRecipeButton = findViewById(R.id.discovery_save_recipe)
         savedRecipePanel = findViewById(R.id.discovery_saved_recipe_panel)
         savedRecipeSummary = findViewById(R.id.discovery_saved_recipe_summary)
+        recipeInstanceSpinner = findViewById(R.id.discovery_recipe_instance)
+        bindRecipeButton = findViewById(R.id.discovery_bind_recipe)
+        unbindRecipeButton = findViewById(R.id.discovery_unbind_recipe)
         refreshSavedRecipeButton = findViewById(R.id.discovery_refresh_saved_recipe)
         deleteSavedRecipeButton = findViewById(R.id.discovery_delete_saved_recipe)
     }
@@ -263,6 +276,8 @@ class DashboardDiscoveryActivity : Activity() {
         confirmButton.setOnClickListener { confirmAndCapture() }
         analyzeButton.setOnClickListener { analyzeCapture() }
         saveRecipeButton.setOnClickListener { testAndSaveRecipe() }
+        bindRecipeButton.setOnClickListener { bindSavedRecipeToWidget() }
+        unbindRecipeButton.setOnClickListener { unbindSavedRecipeFromWidget() }
         refreshSavedRecipeButton.setOnClickListener { refreshSavedRecipe() }
         deleteSavedRecipeButton.setOnClickListener { deleteSavedRecipe() }
         findViewById<Button>(R.id.discovery_back_to_browser).setOnClickListener { showBrowser() }
@@ -527,6 +542,7 @@ class DashboardDiscoveryActivity : Activity() {
         if (recipeInProgress) return
         if (recipeRepository.clear()) {
             Toast.makeText(this, "已删除请求配方和加密登录状态", Toast.LENGTH_SHORT).show()
+            refreshWidget(applicationContext)
         } else {
             Toast.makeText(this, "删除失败，请稍后重试", Toast.LENGTH_SHORT).show()
         }
@@ -538,10 +554,75 @@ class DashboardDiscoveryActivity : Activity() {
         val saved = recipeRepository.load()
         savedRecipePanel.visibility = if (saved == null) View.GONE else View.VISIBLE
         if (saved != null) {
+            bindableConfigs = loadBindableConfigs()
+            val labels = bindableConfigs.map { config ->
+                buildString {
+                    append(config.model)
+                    config.name.trim().takeIf { it.isNotBlank() && it != config.model }?.let {
+                        append(" · ").append(it)
+                    }
+                }
+            }
+            recipeInstanceSpinner.adapter = ArrayAdapter(
+                this,
+                android.R.layout.simple_spinner_item,
+                labels
+            ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            val boundInstanceId = saved.recipe.boundInstanceId
+            val selectedIndex = bindableConfigs.indexOfFirst { config ->
+                InstanceKeyResolver.canonicalInstanceId(config.id) == boundInstanceId
+            }
+            if (selectedIndex >= 0) recipeInstanceSpinner.setSelection(selectedIndex)
+            recipeInstanceSpinner.visibility = if (bindableConfigs.isEmpty()) View.GONE else View.VISIBLE
+            bindRecipeButton.isEnabled = bindableConfigs.isNotEmpty()
+            unbindRecipeButton.visibility = if (boundInstanceId == null) View.GONE else View.VISIBLE
             val lastSuccess = saved.recipe.lastSuccessAt.takeIf { it > 0L }?.let {
                 DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
             } ?: "尚未刷新"
-            savedRecipeSummary.text = "${saved.recipe.pagePurpose}\n${saved.recipe.metrics.size} 个字段 · 上次成功 $lastSuccess"
+            val bindingText = when {
+                boundInstanceId == null -> "尚未接入 Widget"
+                selectedIndex >= 0 -> "已接入 ${labels[selectedIndex]}"
+                else -> "已接入实例 $boundInstanceId（当前卡片不可用）"
+            }
+            val configHint = if (bindableConfigs.isEmpty()) "\n请先在主 App 完整配置并启用一张卡片" else ""
+            savedRecipeSummary.text = "${saved.recipe.pagePurpose}\n${saved.recipe.metrics.size} 个字段 · 上次成功 $lastSuccess\n$bindingText$configHint"
+        }
+    }
+
+    private fun loadBindableConfigs(): List<ApiAccountConfig> {
+        val prefs = getSharedPreferences("api_config", MODE_PRIVATE)
+        return ConfigRepository.loadAllConfigs(prefs).filter { config ->
+            config.enabled &&
+                config.apiBase.isNotBlank() &&
+                config.apiKey.isNotBlank() &&
+                config.model.isNotBlank()
+        }
+    }
+
+    private fun bindSavedRecipeToWidget() {
+        if (recipeInProgress) return
+        val config = bindableConfigs.getOrNull(recipeInstanceSpinner.selectedItemPosition)
+        if (config == null) {
+            Toast.makeText(this, "请先选择一张已配置卡片", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (recipeRepository.bindToInstance(config.id)) {
+            refreshWidget(applicationContext)
+            Toast.makeText(this, "已接入 ${config.model}", Toast.LENGTH_SHORT).show()
+            updateSavedRecipePanel()
+        } else {
+            Toast.makeText(this, "接入失败，请重新测试并保存配方", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun unbindSavedRecipeFromWidget() {
+        if (recipeInProgress) return
+        if (recipeRepository.unbind()) {
+            refreshWidget(applicationContext)
+            Toast.makeText(this, "已解除 Widget 接入", Toast.LENGTH_SHORT).show()
+            updateSavedRecipePanel()
+        } else {
+            Toast.makeText(this, "解除失败，请稍后重试", Toast.LENGTH_SHORT).show()
         }
     }
 

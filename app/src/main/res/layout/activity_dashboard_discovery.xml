@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Stage 8F-P3 · Prototype 20260718-003"
+                android:text="Stage 8F-P4 · Prototype 20260718-004"
                 android:textColor="#6B625D"
                 android:textSize="13sp" />
 
@@ -38,7 +38,7 @@
                 android:layout_marginTop="16dp"
                 android:background="#FFFFE4"
                 android:padding="12dp"
-                android:text="实验版暂不写入现有 Widget。AI 只识别一次；直接测试通过后，仅在本机保存最小字段规则和 Android Keystore 加密的网页登录状态。"
+                android:text="AI 只负责首次识别。直接测试通过后，可把这一份本机加密配方明确接入一张已配置卡片；其他卡片仍走原有平台数据源。"
                 android:textColor="#5B4200"
                 android:textSize="14sp" />
 
@@ -67,6 +67,27 @@
                     android:layout_marginTop="6dp"
                     android:textColor="#1B5E20"
                     android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/discovery_recipe_instance"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp" />
+
+                <Button
+                    android:id="@+id/discovery_bind_recipe"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="接入所选 Widget 卡片" />
+
+                <Button
+                    android:id="@+id/discovery_unbind_recipe"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="解除 Widget 接入"
+                    android:visibility="gone" />
 
                 <Button
                     android:id="@+id/discovery_refresh_saved_recipe"

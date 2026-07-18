@@ -363,7 +363,7 @@ private fun loadCurrentSlotData(
     webProfile: WebAuthProfile?
 ): LiveDataState {
     val prefs = context.getSharedPreferences("api_config", Context.MODE_PRIVATE)
-    val adapter = AdapterFactory.getAdapter(slotId, apiBase)
+    val adapter = AdapterFactory.getAdapter(slotId, apiBase, slotId)
         ?: return LiveDataState.Error("当前服务还没有可读取余额或用量的适配器")
 
     val auth = loadPlatformAuthorization(prefs, slotId, webProfile)

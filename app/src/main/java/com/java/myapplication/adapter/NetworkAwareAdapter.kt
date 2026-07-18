@@ -17,7 +17,8 @@ import java.security.MessageDigest
  * 网络状态服务不可用或权限异常时采用 fail-open，不阻断原 Adapter 请求。
  */
 internal class NetworkAwareAdapter(
-    private val delegate: PlatformAdapter
+    private val delegate: PlatformAdapter,
+    private val cacheNamespace: String = ""
 ) : PlatformAdapter {
 
     override val platformName: String
@@ -67,13 +68,13 @@ internal class NetworkAwareAdapter(
         val canonicalInstance = InstanceKeyResolver.canonicalInstanceId(
             request.instanceId.trim().ifBlank { "unbound-instance" }
         )
-        val material = listOf(
-            canonicalInstance,
-            request.apiBase.trim().trimEnd('/').lowercase(),
-            request.modelName.orEmpty().trim(),
-            request.backgroundAuthType.name,
-            request.modelApiKey.trim()
-        ).joinToString("\u001F")
+        val materialParts = mutableListOf(canonicalInstance)
+        if (cacheNamespace.isNotBlank()) materialParts += cacheNamespace
+        materialParts += request.apiBase.trim().trimEnd('/').lowercase()
+        materialParts += request.modelName.orEmpty().trim()
+        materialParts += request.backgroundAuthType.name
+        materialParts += request.modelApiKey.trim()
+        val material = materialParts.joinToString("\u001F")
 
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(material.toByteArray(Charsets.UTF_8))

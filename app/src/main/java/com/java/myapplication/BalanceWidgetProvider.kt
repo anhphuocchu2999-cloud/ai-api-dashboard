@@ -301,7 +301,7 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             ) {
                 return WidgetData.empty(slot)
             }
-            val adapter = AdapterFactory.getAdapter(slot, config.apiBase)
+            val adapter = AdapterFactory.getAdapter(slot, config.apiBase, slot)
                 ?: return WidgetData.error(slot, "当前服务暂未提供账户数据")
             val auth = loadBoundAuthorization(prefs, slot, config.apiBase)
             val request = AdapterRequest(

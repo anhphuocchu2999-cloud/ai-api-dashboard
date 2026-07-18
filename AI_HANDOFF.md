@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8F-P3：已验证 GET + Cookie 请求配方`
+`Stage 8F-P4：已验证请求配方接入 Widget`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -28,7 +28,8 @@
 - Stage 8F-P3 起始远端 HEAD：`dc37698e140e92cb0e79c5c9c8c14d9d02e7b9a5`
 - Stage 8F-P3 业务提交：`1f1c23b9f3fd00b3b107ccfde78577d274cb4cd2`
 - Stage 8F-P3 JVM 测试环境修正与 Release 目标：`28b9df9ef6333154828a87caaa3a03624f6f78c6`
-- 当前状态：用户已用 beta.11 完成真机复测，“直接测试并保存 → 关闭重开 → 不调用 AI 直接刷新”通过。Stage 8F-P3 已闭环，停止开发并等待用户确认下一阶段
+- Stage 8F-P3 真机验收闭环与 Stage 8F-P4 起点：`005fe9ecf87ab0bd0a5c68c69c218747b1752f76`
+- 当前状态：用户已明确确认“接入”。P4 代码和静态复核已完成，待 GitHub Actions 执行测试、`assembleDebug`、固定签名校验和 beta.12 发布；真机 Widget 验收尚未完成
 
 ## 云端状态
 
@@ -70,7 +71,19 @@
 
 ## 当前唯一任务
 
-Stage 8F-P3 已完成代码、云端构建、固定签名发布和用户真机验收。停止开发并等待用户确认下一阶段；建议的下一阶段是 Stage 8F-P4，将已验收请求配方作为通用数据源接入 AdapterFactory 和 Widget，但不得自动开始。
+完成 Stage 8F-P4 云端构建和 beta.12 发布，然后由用户覆盖安装并验证：选择一张卡片接入已保存配方后，Widget 显示真实字段；解绑/删除后恢复原 Adapter；断网时只读取该配方与该实例自己的最近成功缓存。验收前不进入下一阶段。
+
+## Stage 8F-P4 当前实现
+
+- 实验首页版本：`Stage 8F-P4 · Prototype 20260718-004`。
+- “已保存的直连配方”区域列出已启用且完整配置的模型卡片，用户必须明确选择一张卡片接入；支持解除接入，删除配方也会触发 Widget 刷新。
+- 配方保存稳定 `instanceId`；`AdapterFactory` 只对绑定实例路由 `DashboardRecipeAdapter`，未绑定实例和其他卡片继续使用现有专用 Adapter。
+- `BalanceWidgetProvider` 和设置页预览只传实例身份并调用 AdapterFactory，不读取配方 Cookie、不解析站点 JSON。
+- 通用 Adapter 必须取得配方内全部已验证字段，才映射为 `WidgetData`；余额/额度等核心指标优先，普通用量/请求/Token 与辅助字段分区显示，不伪造百分比。
+- 通用数据源使用独立缓存命名空间，避免同一实例原专用 Adapter 的历史字段被误当作仪表盘配方数据；失败结果仍由现有实例缓存策略处理。
+- 配方与 Keystore 密文从多进程 `SharedPreferences` 迁移到 `noBackupFilesDir` 原子文件，主进程与独立实验进程每次读取磁盘事实；旧 beta.11 数据首次读取时自动迁移。
+- 当前仍只支持 P3 已验收的同 Origin、无查询参数 GET + Cookie + JSON；未扩展 POST、GraphQL、Bearer/OAuth、localStorage 或多配方。
+- 本机缺少 Android SDK 和 Java；XML 解析和 `git diff --check` 已通过，Android 编译只能由 GitHub Actions 执行。
 
 ## Stage 8F-P3 当前实现
 

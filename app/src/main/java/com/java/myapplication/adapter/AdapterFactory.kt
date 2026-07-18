@@ -6,6 +6,7 @@ import com.java.myapplication.config.InstanceKeyResolver
 import com.java.myapplication.config.ModelInstanceRepository
 import com.java.myapplication.config.ServiceType
 import com.java.myapplication.config.ServiceHostMatcher
+import com.java.myapplication.discovery.DashboardRecipeRepository
 
 /**
  * Adapter 工厂。
@@ -28,10 +29,26 @@ object AdapterFactory {
         return adapter?.let(::NetworkAwareAdapter)
     }
 
-    fun getAdapter(platformName: String, apiBase: String): PlatformAdapter? {
+    fun getAdapter(
+        platformName: String,
+        apiBase: String,
+        instanceId: String = platformName
+    ): PlatformAdapter? {
+        getDashboardRecipeAdapter(instanceId)?.let { return it }
         val persistedType = resolvePersistedServiceType(platformName, apiBase)
         val serviceType = persistedType ?: inferLegacyServiceType(platformName, apiBase)
         return getAdapterByServiceType(serviceType)
+    }
+
+    private fun getDashboardRecipeAdapter(instanceId: String): PlatformAdapter? {
+        val context = DashboardApplication.appContextOrNull() ?: return null
+        val recipe = DashboardRecipeRepository(context).loadRecipeMetadata() ?: return null
+        val canonicalInstance = InstanceKeyResolver.canonicalInstanceId(instanceId)
+        if (recipe.boundInstanceId != canonicalInstance) return null
+        return NetworkAwareAdapter(
+            delegate = DashboardRecipeAdapter(context),
+            cacheNamespace = DashboardRecipeAdapter.cacheNamespace(recipe)
+        )
     }
 
     private fun resolvePersistedServiceType(

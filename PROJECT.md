@@ -1959,7 +1959,6 @@ Secret 缺少任意一项时，Prerelease 工作流必须在编译前失败，�
 ---
 
 ## Stage 8F-P3：已验证 GET + Cookie 请求配方
-
 ### 用户目标
 
 在 Stage 8F-P2-J 已经能够从真实网页响应中识别并本机核对字段的基础上，把一次性识别结果变成可重复使用的本机请求配方：
@@ -2021,3 +2020,38 @@ Secret 缺少任意一项时，Prerelease 工作流必须在编译前失败，�
 - 删除配方后，规则 JSON 和加密 Cookie 同时清除。
 - 仓库和日志不出现 Cookie、API Key、Token、捕获正文或真实样本值。
 - GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug`，发布固定签名的新 Beta APK。
+
+---
+
+## Stage 8F-P4：已验证请求配方接入 Widget
+
+### 用户目标
+
+用户已经在 beta.11 真机确认：同 Origin、无查询参数的 `GET + Cookie + JSON` 配方能够加密保存，关闭并重新打开实验室后也能在不调用 AI 的情况下直接刷新。用户现明确确认“接入”，因此本阶段只把这条已经验收的配方链路接到现有模型实例卡片和 Widget，不扩展新的抓取协议。
+
+### 实现边界
+
+1. 一份已保存配方必须由用户明确选择绑定到一个已启用、已完整配置的模型实例；禁止按网址、模型名或固定槽位猜测绑定关系。
+2. 配方绑定使用稳定 `instanceId`。未绑定时现有 MiMo、DeepSeek、NewAPI、爱黄牛等专用 Adapter 路由保持不变。
+3. 绑定实例的数据请求必须经 `AdapterFactory` 路由到通用网页仪表盘 Adapter；`BalanceWidgetProvider` 不读取 Cookie、不解析站点 JSON、不硬编码站点接口。
+4. 通用 Adapter 只重放 P3 已通过二次真值核对的 endpoint 与 JSON 路径，并把真实字段确定性映射为 `WidgetData`：首个核心指标进入主指标，其余字段依次进入近期/辅助指标；没有真实百分比时不得伪造进度条。
+5. 配方请求失败时沿用当前模型实例自己的最近成功缓存；不得覆盖其他实例缓存，也不得用残缺或失败结果覆盖最近成功数据。
+6. 实验室运行在独立进程。配方与加密 Cookie 的持久化必须支持主进程可靠读取，绑定、解绑、替换和删除后不得因 `SharedPreferences` 多进程缓存读到旧状态。
+7. 绑定或解绑成功后主动刷新桌面 Widget；删除配方同时解除绑定。Cookie 仍只以 Android Keystore 密文保存在本机，日志、GitHub、Release 和开发者服务端均不得出现凭据或真实响应正文。
+8. 当前仍只支持 P3 已验收范围：同 Origin、无查询参数、GET、Cookie、JSON 和安全简单 JSON 路径；不增加 POST、GraphQL、Bearer/OAuth、localStorage 或跨 Origin 重放。
+
+### 验收标准
+
+- 实验室“已保存配方”区域可以选择一张已配置卡片并完成接入，也可以解除接入。
+- 接入后刷新 Widget，目标卡片显示配方中的真实指标；其他卡片继续使用原有专用 Adapter，互不影响。
+- 关闭并重开 App、重启 Widget 进程后，绑定和加密登录状态仍能被正确读取。
+- 断网或仪表盘临时失败时，目标卡片继续显示该实例自己的最近成功数据和既有俏皮状态角标；不串读其他卡片。
+- 删除或解除配方后，AdapterFactory 不再为该实例选择通用 Adapter，并恢复原有平台路由。
+- GitHub Actions 的单元测试、`assembleDebug`、固定 Beta 证书校验和公开 Prerelease 发布全部成功；用户覆盖安装并真机确认后才关闭 P4。
+
+### 明确不做
+
+- 不同时保存或管理多份仪表盘配方。
+- 不新增后台定时任务、开发者服务器或云端凭据同步。
+- 不修改现有专用 Adapter 的协议、网页授权仓库或模型检测逻辑。
+- 不合并到 `main`，不创建正式商店签名。

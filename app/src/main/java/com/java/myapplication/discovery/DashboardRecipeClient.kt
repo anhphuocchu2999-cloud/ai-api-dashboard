@@ -10,7 +10,17 @@ import java.net.URL
 
 data class DashboardReplayResult(
     val displayBody: String,
+    val metrics: List<DashboardReplayMetric>
+) {
     val metricCount: Int
+        get() = metrics.size
+}
+
+data class DashboardReplayMetric(
+    val type: String,
+    val label: String,
+    val value: String,
+    val unit: String
 )
 
 class DashboardRecipeClient {
@@ -31,6 +41,7 @@ class DashboardRecipeClient {
         }
 
         val outputMetrics = JSONArray()
+        val replayMetrics = mutableListOf<DashboardReplayMetric>()
         for (metric in recipe.metrics) {
             val root = responses[metric.endpoint]
                 ?: throw IllegalStateException("数据接口没有返回可用内容")
@@ -41,12 +52,20 @@ class DashboardRecipeClient {
             if (resolution.valueType != metric.valueType) {
                 throw IllegalStateException("“${metric.label}”的数据类型已经变化，请重新识别这个仪表盘")
             }
+            val sampleValue = DashboardJsonPathValidator.sampleValue(resolution.value)
+            val replayMetric = DashboardReplayMetric(
+                type = metric.type,
+                label = metric.label.ifBlank { metric.type },
+                value = sampleValue.toString(),
+                unit = metric.unit
+            )
+            replayMetrics += replayMetric
             outputMetrics.put(
                 JSONObject()
-                    .put("type", metric.type)
-                    .put("label", metric.label.ifBlank { metric.type })
-                    .put("value", DashboardJsonPathValidator.sampleValue(resolution.value))
-                    .put("unit", metric.unit)
+                    .put("type", replayMetric.type)
+                    .put("label", replayMetric.label)
+                    .put("value", sampleValue)
+                    .put("unit", replayMetric.unit)
                     .put("source", "本次直接请求")
             )
         }
@@ -54,7 +73,7 @@ class DashboardRecipeClient {
             .put("pagePurpose", recipe.pagePurpose)
             .put("refreshedAt", System.currentTimeMillis())
             .put("metrics", outputMetrics)
-        return DashboardReplayResult(output.toString(2), outputMetrics.length())
+        return DashboardReplayResult(output.toString(2), replayMetrics)
     }
 
     fun cancel() {

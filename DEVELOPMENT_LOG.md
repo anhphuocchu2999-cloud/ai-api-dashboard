@@ -1921,3 +1921,66 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 **下一项唯一任务**
 
 停止开发并等待用户确认下一阶段。建议 Stage 8F-P4：将已验收请求配方作为通用数据源接入 AdapterFactory 和 Widget；用户确认前不得开始。
+
+---
+
+## 2026-07-18｜Stage 8F-P4 已验证请求配方接入 Widget
+
+**目标和用户确认**
+
+- 用户已确认 beta.11 的配方保存与跨启动直接刷新通过，并明确回复“好的，接入”。
+- 本阶段只把这一份已验收配方接入现有模型实例、AdapterFactory 和 Widget，不扩展新的站点协议。
+
+**方案与数据边界**
+
+- 用户必须在实验室明确选择一张已启用且完整配置的卡片；配方保存稳定 `instanceId`，禁止按站点或模型名称猜测。
+- `AdapterFactory` 对绑定实例优先返回通用 `DashboardRecipeAdapter`；其他实例继续使用原有专用 Adapter。
+- Widget Provider 与设置页预览不读取 Cookie、不解析 JSON；通用 Adapter 重放 P3 已验证请求并将全部真实字段确定性映射为 `WidgetData`。
+- 任意配方字段缺失或类型变化时整次结果失败，不产生残缺成功数据；网络临时失败沿用现有实例缓存回退。
+- 通用配方使用单独缓存命名空间，避免同一实例的专用 Adapter 历史缓存串入通用仪表盘字段。
+- 实验室是独立进程，因此把配方元数据和 Keystore 加密 Cookie 从多进程 SharedPreferences 迁移到 `noBackupFilesDir` 原子文件；旧 beta.11 数据自动迁移，不保存明文凭据。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`005fe9ecf87ab0bd0a5c68c69c218747b1752f76`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件（提交前）**
+
+- `PROJECT.md`
+- `.github/workflows/android-prerelease.yml`
+- `app/src/main/java/com/java/myapplication/BalanceWidgetProvider.kt`
+- `app/src/main/java/com/java/myapplication/SlotDataCapability.kt`
+- `app/src/main/java/com/java/myapplication/adapter/AdapterFactory.kt`
+- `app/src/main/java/com/java/myapplication/adapter/NetworkAwareAdapter.kt`
+- `app/src/main/java/com/java/myapplication/adapter/DashboardRecipeAdapter.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeClient.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRecipeRepository.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardRequestRecipe.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardRecipeWidgetMapperTest.kt`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改 MiMo、DeepSeek、NewAPI、爱黄牛等专用 Adapter 的协议和解析。
+- 未新增多配方、定时后台任务、开发者服务器或云端凭据同步。
+- 未支持 POST、GraphQL、查询参数、跨 Origin、Bearer/OAuth 或 localStorage 重放。
+- 未合并 `main`，未创建正式商店签名。
+
+**提交前验证**
+
+- 本地与远端起点均为 `005fe9ecf87ab0bd0a5c68c69c218747b1752f76`，起始工作区干净。
+- `PROJECT.md` 已在业务代码前记录 P4 范围和验收标准。
+- `git diff --check`：通过，仅有 Windows 换行提示。
+- 实验布局 XML：按 UTF-8 解析通过。
+- 新增纯映射测试覆盖核心指标优先、用量/辅助字段分流、货币单位显示和不伪造百分比。
+- 本机没有 Java、Android SDK 或 ADB，无法执行 Android 编译和安装；GitHub Actions 是唯一测试、构建、签名和发布执行端。
+- 云端构建、beta.12 发布和真机验收：待执行，不得宣称通过。
+
+**下一项唯一任务**
+
+提交并推送 P4 到远端开发分支，等待 GitHub Actions 完成 `testDebugUnitTest + assembleDebug`、固定证书校验和 beta.12 发布；成功后交付一键覆盖安装命令并等待真机验收。

@@ -19,7 +19,8 @@ data class DashboardRequestRecipe(
     val endpoints: List<String>,
     val metrics: List<DashboardMetricRecipe>,
     val createdAt: Long,
-    val lastSuccessAt: Long
+    val lastSuccessAt: Long,
+    val boundInstanceId: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("version", 1)
@@ -41,6 +42,7 @@ data class DashboardRequestRecipe(
         )
         .put("createdAt", createdAt)
         .put("lastSuccessAt", lastSuccessAt)
+        .putOpt("boundInstanceId", boundInstanceId)
 
     companion object {
         fun fromJson(root: JSONObject): DashboardRequestRecipe? {
@@ -74,7 +76,10 @@ data class DashboardRequestRecipe(
                 endpoints = endpoints,
                 metrics = metrics,
                 createdAt = root.optLong("createdAt"),
-                lastSuccessAt = root.optLong("lastSuccessAt")
+                lastSuccessAt = root.optLong("lastSuccessAt"),
+                boundInstanceId = root.optString("boundInstanceId", "")
+                    .trim()
+                    .takeIf { it.isNotBlank() }
             ).takeIf { DashboardRecipeRules.validate(it) == null }
         }
     }
@@ -134,6 +139,9 @@ object DashboardRecipeRules {
     }
 
     fun validate(recipe: DashboardRequestRecipe): String? {
+        if (recipe.boundInstanceId?.let { !SAFE_INSTANCE_ID.matches(it) } == true) {
+            return "请求配方绑定的模型实例无效"
+        }
         if (DashboardDiscoveryRules.originOf(recipe.dashboardUrl) != recipe.origin) {
             return "仪表盘地址与保存站点不一致"
         }
@@ -161,4 +169,6 @@ object DashboardRecipeRules {
         }
         return null
     }
+
+    private val SAFE_INSTANCE_ID = Regex("[A-Za-z0-9_-]{1,128}")
 }
