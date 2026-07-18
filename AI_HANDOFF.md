@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-`Stage 8F-P4：已验证请求配方接入 Widget`
+`Stage 8F-P4.1：实验室自动检测并选择模型`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -30,7 +30,8 @@
 - Stage 8F-P3 JVM 测试环境修正与 Release 目标：`28b9df9ef6333154828a87caaa3a03624f6f78c6`
 - Stage 8F-P3 真机验收闭环与 Stage 8F-P4 起点：`005fe9ecf87ab0bd0a5c68c69c218747b1752f76`
 - Stage 8F-P4 业务提交与 Release 目标：`74375e472c779bed56ee2b420efaa4da4da91441`
-- 当前状态：P4 代码、GitHub Actions、固定签名和 beta.12 发布已完成；等待用户覆盖安装并真机验收 Widget 绑定、解绑和缓存回退
+- Stage 8F-P4.1 业务提交与 Release 目标：`39646786e021ce43654b47851467c7243b06caf2`
+- 当前状态：P4.1 代码、GitHub Actions、固定签名和 beta.13 发布已完成；等待用户覆盖安装并真机验收模型检测与选择
 
 ## 云端状态
 
@@ -72,7 +73,7 @@
 
 ## 当前唯一任务
 
-完成 Stage 8F-P4.1 云端构建和 beta.13 发布，然后由用户覆盖安装并验证：实验室只填写 API Base 与 API Key，真实获取模型列表并选择后才能打开仪表盘；地址或 Key 改动后旧选择必须立即失效。验收前不进入下一阶段。
+用户覆盖安装 beta.13 并验证：实验室只填写 API Base 与 API Key，真实获取模型列表并选择后才能打开仪表盘；地址或 Key 改动后旧选择必须立即失效。验收前不进入下一阶段。
 
 ## Stage 8F-P4.1 当前实现
 
@@ -82,8 +83,17 @@
 - 只接受标准 `data[].id`；单模型自动选中，多模型由用户明确选择；未成功检测时“打开仪表盘并登录”保持禁用。
 - API Base 或 API Key 变化会清空模型列表和选择，并递增 generation；检测期间修改输入后，旧请求结果不能重新显示或用于 AI 调用。
 - API Key 和模型选择只在实验 Activity 内存中存在；不写入请求配方、日志、GitHub 或 Widget 配置。
-- 本机缺少 Java、Android SDK 和 ADB；XML 解析与差异检查已通过，Android 单元测试和编译只能由 GitHub Actions 执行。
-- Release 目标：`v0.1.0-beta.13`；云端构建、固定签名校验、发布与真机验收待执行。
+- 本机缺少 Java、Android SDK 和 ADB；XML 解析与差异检查已通过，Android 单元测试和编译由 GitHub Actions 执行。
+
+## Stage 8F-P4.1 云端交付
+
+- 业务提交与 Release 目标：`39646786e021ce43654b47851467c7243b06caf2`。
+- GitHub Actions：`29642475652`，结论 `success`；`testDebugUnitTest + assembleDebug`、固定证书校验、Artifact 上传和 Prerelease 发布均一次通过。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.13`
+- APK：`ai-api-dashboard-v0.1.0-beta.13-debug.apk`，大小 `12168659` 字节。
+- 从公开 Release 下载后 SHA-256：`7100645467D32811FE0BBB9C3129DE98D2C92061EDA15BEFDBEBF8F211BA5166`。
+- 工作流固定 Beta 证书 SHA-256 校验：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。
+- 覆盖安装与真机模型检测验收：待用户执行，不得宣称通过。
 
 ## Stage 8F-P4 当前实现
 

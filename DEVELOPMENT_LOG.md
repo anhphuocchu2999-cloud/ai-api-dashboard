@@ -2035,9 +2035,23 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - `git diff --check`：通过，仅有现有 Windows 换行提示。
 - 实验布局 XML：按 UTF-8 解析通过。
 - 新增纯 URL 规则测试覆盖普通 Base、已有 `/v1`、HTTP、userinfo、查询参数和非法地址。
-- 本机没有 Java、Android SDK 或 ADB，无法执行 Android 单元测试、编译和安装；将由 GitHub Actions 执行唯一一轮 `testDebugUnitTest + assembleDebug`、固定证书校验和 beta.13 发布。
-- 云端构建、Release、覆盖安装与真机验收：待执行，不得宣称通过。
+- 本机没有 Java、Android SDK 或 ADB，无法执行 Android 单元测试、编译和安装；GitHub Actions 执行唯一一轮 `testDebugUnitTest + assembleDebug`、固定证书校验和 beta.13 发布。
+- GitHub Actions `29642475652`：全部步骤一次通过，没有修复后重跑。
+
+**阶段提交 SHA**
+
+- 业务提交与 Release 目标：`39646786e021ce43654b47851467c7243b06caf2`。
+
+**云端构建与交付结果**
+
+- GitHub Actions：`29642475652`，结论 `success`。
+- `testDebugUnitTest + assembleDebug`、固定 Beta 证书校验、Artifact 上传和 beta.13 Prerelease 发布：全部成功。
+- Release：`v0.1.0-beta.13`。
+- APK：`ai-api-dashboard-v0.1.0-beta.13-debug.apk`，大小 `12168659` 字节。
+- 从公开 Release 下载后 SHA-256：`7100645467D32811FE0BBB9C3129DE98D2C92061EDA15BEFDBEBF8F211BA5166`。
+- 工作流固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。
+- 覆盖安装与真机验收：待用户执行，不得宣称通过。
 
 **下一项唯一任务**
 
-推送当前提交并等待 GitHub Actions；成功后交付 beta.13，由用户真机验证真实模型列表、单/多模型选择和输入变化失效行为。
+用户覆盖安装 beta.13，真机验证真实模型列表、单/多模型选择和输入变化失效行为；用户确认前停止开发。
