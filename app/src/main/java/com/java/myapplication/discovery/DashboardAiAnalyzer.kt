@@ -57,8 +57,8 @@ class DashboardAiAnalyzer {
         activeConnection = connection
         return try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 60_000
+            connection.connectTimeout = DashboardAiRequestPolicy.CONNECT_TIMEOUT_MS
+            connection.readTimeout = DashboardAiRequestPolicy.READ_TIMEOUT_MS
             connection.doOutput = true
             connection.setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")

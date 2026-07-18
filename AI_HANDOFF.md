@@ -1,10 +1,10 @@
 # AI API Dashboard｜AI 交接状态
 
-> 最近更新：2026-07-17
+> 最近更新：2026-07-18
 
 ## 当前阶段
 
-`Stage 8F-P2：更早捕获与本机字段核对`
+`Stage 8F-P2-T：模型识别请求超时修复`
 
 - 开发分支：`feature/stage-8b-simple-connection-flow`
 - 前置已验收版本：`38c38bf7603b1d96784313f80f77e4c8b5ebc8c9`
@@ -21,7 +21,8 @@
 - Stage 8F-P1 业务提交与 Release 目标：`5cc1311eccc2465cd09eba5ed87d1e95c8c3d793`
 - Stage 8F-P1 文档闭环与 Stage 8F-P2 起点：`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
 - Stage 8F-P2 业务提交与 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`
-- 当前状态：用户已用 beta.7 跑通真实站点语义识别；P2 已实现提前捕获、真实路径取值核对和已验证/页面观察分流，beta.8 云端测试、编译、固定证书校验与发布均成功，待真机复测
+- Stage 8F-P2 文档闭环与 P2-T 起点：`9c734bad602756cd33d50049bf064a96ba28a753`
+- 当前状态：用户真机运行 beta.8 时在“调用一次 AI 识别”阶段触发 60 秒读取超时；已定位为 P2 最坏近 10 万字符输入叠加固定 60 秒时限，P2-T 正在缩减模型输入并保留完整本机核对候选，待 beta.9 云端验证
 
 ## 云端状态
 
@@ -63,7 +64,16 @@
 
 ## 当前唯一任务
 
-用户覆盖安装 `v0.1.0-beta.8`，使用 beta.7 的同一站点复测：`$.total_usage` 应进入 `verifiedMetrics`，四个缺少 endpoint/jsonPath 的页面文字指标应进入 `observations`；真机确认前不保存规则、不接入 Widget。
+提交 Stage 8F-P2-T 精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.9`；用户使用同一站点和模型复测识别超时，不接入 Widget。
+
+## Stage 8F-P2-T 当前实现
+
+- 实验首页版本：`Stage 8F-P2-T · Prototype 20260718-001`。
+- beta.8 最多向模型发送 12 条 × 8,000 字符响应片段和 6,000 字符页面文字；P2-T 改为最高优先级 8 条 × 4,000 字符和 4,000 字符页面文字。
+- 本机仍保留最多 12 条完整脱敏候选用于验证 AI 返回的 endpoint/jsonPath，没有降低真实性核对范围。
+- 连接超时保持 20 秒，读取超时由 60 秒改为 120 秒；不新增自动重试或无限等待。
+- 调用期间显示通常需要 10～90 秒；超过 120 秒时提供明确中文提示并恢复再次操作能力。
+- 仍不保存规则、不重放请求、不接入 Widget，不修改现有 Adapter、授权或缓存。
 
 ## Stage 8F-P2 当前实现
 

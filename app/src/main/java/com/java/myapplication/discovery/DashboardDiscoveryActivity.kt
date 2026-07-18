@@ -317,6 +317,11 @@ class DashboardDiscoveryActivity : Activity() {
                             }
                         }
                     } else {
+                        runOnUiThread {
+                            if (!isDestroyed) {
+                                browserStatus.text = "正在调用模型核对数据，通常需要 10～90 秒，请稍候…"
+                            }
+                        }
                         val result = aiAnalyzer.analyze(apiBase, apiKey, model, capture)
                         runOnUiThread {
                             if (!isDestroyed) showResult(result, capture)
@@ -429,7 +434,7 @@ class DashboardDiscoveryActivity : Activity() {
 
     private fun userFacingError(error: Exception): String {
         return when (error) {
-            is SocketTimeoutException -> "模型接口响应超时，请检查网络后重试"
+            is SocketTimeoutException -> "模型在 120 秒内没有完成识别，请稍后重试或换用响应更快的模型"
             is SSLException -> "模型接口 HTTPS 连接失败"
             is IllegalArgumentException, is IllegalStateException -> error.message ?: "识别失败"
             else -> "识别请求失败，请检查网络和接口配置"

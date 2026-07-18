@@ -20,8 +20,6 @@ data class CapturedResponseCandidate(
 
 object DashboardCaptureSanitizer {
     private const val MAX_CANDIDATES = 12
-    private const val MAX_BODY_CHARS = 8_000
-    private const val MAX_VISIBLE_TEXT_CHARS = 6_000
     private const val MAX_OBJECT_KEYS = 80
     private const val MAX_ARRAY_ITEMS = 20
     private const val MAX_STRING_CHARS = 600
@@ -59,9 +57,10 @@ object DashboardCaptureSanitizer {
             .map { it.second }
 
         val visibleText = DashboardDiscoveryRules.redactFreeText(
-            exported.optString("visibleText")
-                .replace(Regex("\\s+"), " ")
-                .take(MAX_VISIBLE_TEXT_CHARS)
+            DashboardAiRequestPolicy.limitVisibleText(
+                exported.optString("visibleText")
+                    .replace(Regex("\\s+"), " ")
+            )
         )
         val pageUrl = DashboardDiscoveryRules.withoutQuery(exported.optString("pageUrl"), lockedOrigin)
         val payload = JSONObject()
@@ -71,12 +70,12 @@ object DashboardCaptureSanitizer {
             .put(
                 "responses",
                 JSONArray(
-                    selected.map { candidate ->
+                    DashboardAiRequestPolicy.selectPromptCandidates(selected).map { candidate ->
                         JSONObject()
                             .put("endpoint", candidate.endpoint)
                             .put("method", candidate.method)
                             .put("status", candidate.status)
-                            .put("sanitizedJson", candidate.sanitizedJson.take(MAX_BODY_CHARS))
+                            .put("sanitizedJson", DashboardAiRequestPolicy.limitBody(candidate.sanitizedJson))
                     }
                 )
             )

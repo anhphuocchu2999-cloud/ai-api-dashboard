@@ -1621,3 +1621,74 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 **下一项唯一任务**
 
 用户覆盖安装 `v0.1.0-beta.8`，使用 beta.7 的同一站点复测：`$.total_usage` 应进入 `verifiedMetrics`，四个缺少 endpoint/jsonPath 的页面文字指标应进入 `observations`；通过前不保存规则、不接入 Widget。
+
+---
+
+## 2026-07-18｜Stage 8F-P2-T 模型识别请求超时修复
+
+**目标和真机问题**
+
+用户覆盖安装 beta.8 后完成页面捕获，但点击“调用一次 AI 识别”时提示模型接口超时。源码核对确认 `DashboardAiAnalyzer` 的读取超时固定为 60 秒；P2 的提示数据最多包含 12 条、每条 8,000 字符的响应片段和 6,000 字符页面文字，最坏接近 10 万字符，较慢中转模型可能无法在 60 秒内完成。
+
+**方案与取舍**
+
+- 只精简发送给模型的副本：最高优先级 8 条响应、每条 4,000 字符，页面文字 4,000 字符。
+- 本机继续保留最多 12 条完整脱敏候选，AI 返回后仍在完整候选中核对 endpoint、JSON 路径和值类型。
+- 连接时限保持 20 秒，读取时限调整为有限的 120 秒；不自动重试、不无限等待。
+- 调用期间显示“通常需要 10～90 秒”，超过 120 秒后给出普通用户可理解的中文建议。
+- 将请求限制集中到纯 Kotlin `DashboardAiRequestPolicy`，新增测试覆盖候选数、文本上限和有限超时。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`9c734bad602756cd33d50049bf064a96ba28a753`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件**
+
+- `PROJECT.md`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiRequestPolicy.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardAiAnalyzer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardCaptureSanitizer.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardAiRequestPolicyTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未改变已验证字段和页面观察的判定规则。
+- 未修改现有 Widget、Adapter、配置、授权和最近成功缓存。
+- 未保存映射、捕获正文或 API Key，未实现后台接口重放。
+- 未新增自动重试、并发模型请求或开发者服务器上传。
+- 未合并到 `main`。
+
+**验证状态（推送前）**
+
+- 用户真机证据：beta.8 在模型识别阶段报告超时。
+- 源码证据：读取时限为 60 秒；模型输入上限最坏接近 10 万字符。
+- `git diff --check`：通过，仅有现有工作区换行提示。
+- 实验布局 XML 解析：通过。
+- 新增纯 JVM 测试：待 GitHub Actions 执行。
+- 本机未执行 Android 编译；GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.9 发布待执行且只允许一次。
+- 覆盖安装与真机验收：待用户执行。
+
+**阶段提交 SHA**
+
+- 待提交并由云端核对后回填。
+
+**已知限制与待验证事项**
+
+- 如果目标中转或模型自身超过 120 秒仍未返回，本阶段会明确结束而不是无限等待。
+- 精简后的响应片段仍可能遗漏位于超长 JSON 尾部的语义线索；本机完整候选只负责验证 AI 已指出的路径。
+- 本阶段不解决 Service Worker、POST/GraphQL 重放或 Widget 集成。
+
+**回滚位置**
+
+`9c734bad602756cd33d50049bf064a96ba28a753`
+
+**下一项唯一任务**
+
+提交精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug`，发布固定签名 `v0.1.0-beta.9`；用户用同一站点和模型复测超时。
