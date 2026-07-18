@@ -22,7 +22,8 @@
 - Stage 8F-P1 文档闭环与 Stage 8F-P2 起点：`df46595608f6de9bc9b7f3ff7568ce6c0f309165`
 - Stage 8F-P2 业务提交与 Release 目标：`02aae94f2f9360cac30be0f255d156c04397b9d5`
 - Stage 8F-P2 文档闭环与 P2-T 起点：`9c734bad602756cd33d50049bf064a96ba28a753`
-- 当前状态：用户真机运行 beta.8 时在“调用一次 AI 识别”阶段触发 60 秒读取超时；已定位为 P2 最坏近 10 万字符输入叠加固定 60 秒时限，P2-T 正在缩减模型输入并保留完整本机核对候选，待 beta.9 云端验证
+- Stage 8F-P2-T 业务提交与 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`
+- 当前状态：用户真机运行 beta.8 时在“调用一次 AI 识别”阶段触发 60 秒读取超时；P2-T 已缩减模型输入、保留完整本机核对候选并把有限读取时限调整为 120 秒，beta.9 云端测试、编译、固定证书校验和发布均成功，待真机复测
 
 ## 云端状态
 
@@ -64,7 +65,7 @@
 
 ## 当前唯一任务
 
-提交 Stage 8F-P2-T 精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug` 并发布固定签名 `v0.1.0-beta.9`；用户使用同一站点和模型复测识别超时，不接入 Widget。
+用户覆盖安装 `v0.1.0-beta.9`，使用同一站点和模型复测“调用一次 AI 识别”；确认不再被原 60 秒时限提前终止，并核对 `verifiedMetrics` / `observations` 分流，不接入 Widget。
 
 ## Stage 8F-P2-T 当前实现
 
@@ -74,6 +75,17 @@
 - 连接超时保持 20 秒，读取超时由 60 秒改为 120 秒；不新增自动重试或无限等待。
 - 调用期间显示通常需要 10～90 秒；超过 120 秒时提供明确中文提示并恢复再次操作能力。
 - 仍不保存规则、不重放请求、不接入 Widget，不修改现有 Adapter、授权或缓存。
+
+## Stage 8F-P2-T 云端交付
+
+- 业务提交与 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`。
+- GitHub Actions：`29638659078`，结论 `success`，运行时间 `2026-07-18T09:08:20Z` 至 `2026-07-18T09:09:47Z`。
+- `testDebugUnitTest + assembleDebug`：成功；本阶段只触发这一轮云端测试与编译。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.9`
+- APK：`ai-api-dashboard-v0.1.0-beta.9-debug.apk`，大小 `12134847` 字节。
+- APK SHA-256：`135EF2063C22CC4F780F9B54C4172B01D1E69B9D5DB27D61F32E857DC59E3888`。
+- 从 APK v2 签名块独立提取的证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，与项目固定 Beta 证书一致。
+- 覆盖安装与真机超时复测：待用户执行，不得宣称通过。
 
 ## Stage 8F-P2 当前实现
 

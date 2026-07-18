@@ -1485,7 +1485,7 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - 未支持 Claude/Gemini 原生协议；实验首版只验证 OpenAI-Compatible 模型。
 - 未合并到 `main`。
 
-**验证状态（推送前）**
+**验证状态**
 
 - Git 基线与远端开发分支一致：`c14643ce50f643590065ebabfbb6de5a1424f2e2`。
 - `git diff --check`：通过，只有工作区换行格式提示。
@@ -1671,13 +1671,23 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 - 源码证据：读取时限为 60 秒；模型输入上限最坏接近 10 万字符。
 - `git diff --check`：通过，仅有现有工作区换行提示。
 - 实验布局 XML 解析：通过。
-- 新增纯 JVM 测试：待 GitHub Actions 执行。
-- 本机未执行 Android 编译；GitHub Actions `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.9 发布待执行且只允许一次。
+- 新增纯 JVM 测试：GitHub Actions 已执行通过。
+- 本机未执行 Android 编译；GitHub Actions `29638659078` 的 `testDebugUnitTest + assembleDebug`、固定证书校验与 beta.9 发布均成功，本阶段只执行这一轮云端测试与编译。
 - 覆盖安装与真机验收：待用户执行。
 
 **阶段提交 SHA**
 
-- 待提交并由云端核对后回填。
+- 业务与超时修复提交：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`。
+
+**云端构建与交付结果**
+
+- 远端开发分支和 Release 目标：`6d9dad75f5f083a49d4ec926ba995f33ac1056d3`。
+- GitHub Actions：`29638659078`，结论 `success`，运行时间 `2026-07-18T09:08:20Z` 至 `2026-07-18T09:09:47Z`。
+- Release：`v0.1.0-beta.9`，标记为 Prerelease。
+- APK：`ai-api-dashboard-v0.1.0-beta.9-debug.apk`，大小 `12134847` 字节。
+- 从公开 Release 下载后 SHA-256：`135EF2063C22CC4F780F9B54C4172B01D1E69B9D5DB27D61F32E857DC59E3888`。
+- 从 APK v2 签名块独立提取的证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，与固定 Beta 证书一致。
+- 覆盖安装与真机超时复测：待用户执行，不得宣称通过。
 
 **已知限制与待验证事项**
 
@@ -1691,4 +1701,4 @@ GitHub Actions 构建并发布 `v0.1.0-beta.2`，用户覆盖安装后验收 Sta
 
 **下一项唯一任务**
 
-提交精确修复，由 GitHub Actions 只执行一次 `testDebugUnitTest + assembleDebug`，发布固定签名 `v0.1.0-beta.9`；用户用同一站点和模型复测超时。
+用户覆盖安装 `v0.1.0-beta.9`，使用同一站点和模型复测“调用一次 AI 识别”；确认不再被原 60 秒时限提前终止，并核对 `verifiedMetrics` / `observations` 分流。
