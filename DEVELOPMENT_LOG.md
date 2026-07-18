@@ -1979,8 +1979,22 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 实验布局 XML：按 UTF-8 解析通过。
 - 新增纯映射测试覆盖核心指标优先、用量/辅助字段分流、货币单位显示和不伪造百分比。
 - 本机没有 Java、Android SDK 或 ADB，无法执行 Android 编译和安装；GitHub Actions 是唯一测试、构建、签名和发布执行端。
-- 云端构建、beta.12 发布和真机验收：待执行，不得宣称通过。
+- GitHub Actions `29641354417`：`testDebugUnitTest + assembleDebug`、固定证书校验、Artifact 上传和 beta.12 发布全部一次通过。
+- 覆盖安装与真机验收：待用户执行，不得宣称通过。
+
+**阶段提交 SHA**
+
+- 业务提交与 Release 目标：`74375e472c779bed56ee2b420efaa4da4da91441`。
+
+**云端构建与交付结果**
+
+- GitHub Actions：`29641354417`，结论 `success`，所有步骤一次通过。
+- Release：`v0.1.0-beta.12`，标记为 Prerelease。
+- APK：`ai-api-dashboard-v0.1.0-beta.12-debug.apk`，大小 `12168475` 字节。
+- 从公开 Release 下载后 SHA-256：`7219F8F288F265917624AD44CB139C3D2AD8BB839BDB556123D6EF3D1BAB83FB`。
+- 工作流固定 Beta 证书 SHA-256 校验：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。
+- 覆盖安装与真机 Widget 绑定、解绑、断网回退验收：待用户执行。
 
 **下一项唯一任务**
 
-提交并推送 P4 到远端开发分支，等待 GitHub Actions 完成 `testDebugUnitTest + assembleDebug`、固定证书校验和 beta.12 发布；成功后交付一键覆盖安装命令并等待真机验收。
+用户覆盖安装 beta.12，在实验室把已保存配方接入一张已配置卡片，刷新 Widget 核对真实字段；再验证解除接入恢复原 Adapter，以及断网时只读取该实例的配方缓存。验收前不进入下一阶段。

@@ -29,7 +29,8 @@
 - Stage 8F-P3 业务提交：`1f1c23b9f3fd00b3b107ccfde78577d274cb4cd2`
 - Stage 8F-P3 JVM 测试环境修正与 Release 目标：`28b9df9ef6333154828a87caaa3a03624f6f78c6`
 - Stage 8F-P3 真机验收闭环与 Stage 8F-P4 起点：`005fe9ecf87ab0bd0a5c68c69c218747b1752f76`
-- 当前状态：用户已明确确认“接入”。P4 代码和静态复核已完成，待 GitHub Actions 执行测试、`assembleDebug`、固定签名校验和 beta.12 发布；真机 Widget 验收尚未完成
+- Stage 8F-P4 业务提交与 Release 目标：`74375e472c779bed56ee2b420efaa4da4da91441`
+- 当前状态：P4 代码、GitHub Actions、固定签名和 beta.12 发布已完成；等待用户覆盖安装并真机验收 Widget 绑定、解绑和缓存回退
 
 ## 云端状态
 
@@ -84,6 +85,17 @@
 - 配方与 Keystore 密文从多进程 `SharedPreferences` 迁移到 `noBackupFilesDir` 原子文件，主进程与独立实验进程每次读取磁盘事实；旧 beta.11 数据首次读取时自动迁移。
 - 当前仍只支持 P3 已验收的同 Origin、无查询参数 GET + Cookie + JSON；未扩展 POST、GraphQL、Bearer/OAuth、localStorage 或多配方。
 - 本机缺少 Android SDK 和 Java；XML 解析和 `git diff --check` 已通过，Android 编译只能由 GitHub Actions 执行。
+
+## Stage 8F-P4 云端交付
+
+- GitHub Actions：`29641354417`，结论 `success`；全部步骤一次通过，未修复重跑。
+- `testDebugUnitTest + assembleDebug`：成功。
+- 固定 Beta 证书 SHA-256 校验：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，成功。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.12`
+- APK：`ai-api-dashboard-v0.1.0-beta.12-debug.apk`，大小 `12168475` 字节。
+- 从公开 Release 下载后 SHA-256：`7219F8F288F265917624AD44CB139C3D2AD8BB839BDB556123D6EF3D1BAB83FB`。
+- Release 目标提交：`74375e472c779bed56ee2b420efaa4da4da91441`。
+- 覆盖安装与真机 Widget 验收：待用户执行，不得宣称通过。
 
 ## Stage 8F-P3 当前实现
 
