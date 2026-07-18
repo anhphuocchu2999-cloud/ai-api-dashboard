@@ -33,7 +33,8 @@
 - Stage 8F-P4.1 业务提交与 Release 目标：`39646786e021ce43654b47851467c7243b06caf2`
 - Stage 8F-P4.1 真机验收：`用户真机确认`，beta.13 模型自动检测与选择可用。
 - Stage 8F-P5-A 起点：`417bde3ba69333bdccbcdab45063fce99958b5b0`
-- 当前状态：P5-A 业务代码和测试已修改，等待提交与 GitHub Actions beta.14 构建；不得宣称云端或真机通过
+- Stage 8F-P5-A 业务提交与 Release 目标：`16014a3a91cf5319d400d5ae1334cab1a285e56b`
+- 当前状态：P5-A 已完成云端测试、编译、固定签名和 beta.14 发布；等待用户覆盖安装并真机复测，不得宣称真机通过
 
 ## 云端状态
 
@@ -75,7 +76,7 @@
 
 ## 当前唯一任务
 
-完成 Stage 8F-P5-A 提交、GitHub Actions 和 beta.14 发布；用户使用同一站点复测“直接请求并二次核对”。真机通过前不进入 POST/GraphQL。
+用户覆盖安装 beta.14，重新捕获并保存同一站点配方，复测“直接请求并二次核对”与已绑定 Widget。真机通过前不进入 POST/GraphQL。
 
 ## Stage 8F-P5-A 当前实现
 
@@ -87,7 +88,18 @@
 - 实验室二次请求、已保存配方直刷与 `DashboardRecipeAdapter` 都使用相同的 Cookie + 允许认证头；任一 endpoint 两者都缺失时拒绝保存。
 - 401/403 不再直接断言“网页登录已失效”，改为说明登录可能过期或站点仍需要未支持的动态认证。
 - POST、GraphQL、请求体、查询参数、跨 Origin、Service Worker 和动态签名未实现。
-- 本机缺少 Java、Android SDK 和 ADB；差异与 XML 静态检查通过，GitHub Actions、固定签名 beta.14、覆盖安装和真机验收待执行。
+- 本机缺少 Java、Android SDK 和 ADB；差异与 XML 静态检查通过，GitHub Actions 已执行单元测试、Android 编译与固定签名校验；覆盖安装和真机验收待执行。
+
+## Stage 8F-P5-A 云端交付
+
+- 业务提交与 Release 目标：`16014a3a91cf5319d400d5ae1334cab1a285e56b`。
+- GitHub Actions：`29652425265`，结论 `success`；`testDebugUnitTest + assembleDebug`、固定证书校验、Artifact 上传和 Prerelease 发布均一次通过。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.14`
+- APK：`ai-api-dashboard-v0.1.0-beta.14-debug.apk`，大小 `12185043` 字节。
+- 从公开 Release 下载后 SHA-256：`A7B6D406AC9C2B49539131CE66AE9E1CBA5C2B4FD2C749FE1F1EED4E39CE7B49`。
+- 工作流固定 Beta 证书 SHA-256 校验：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。
+- beta.13 旧配方没有认证头，覆盖安装后必须重新捕获并保存同一站点配方；无需卸载或清除 App 数据。
+- 覆盖安装、认证头真机复测与 Widget 验收：待用户执行，不得宣称通过。
 
 ## Stage 8F-P4.1 当前实现
 

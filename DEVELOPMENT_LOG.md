@@ -2096,7 +2096,7 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 起始提交：`417bde3ba69333bdccbcdab45063fce99958b5b0`
 - 本地实施分支：`agent/stable-signing`
 
-**实际修改文件（提交前）**
+**实际修改文件**
 
 - `PROJECT.md`
 - `.github/workflows/android-prerelease.yml`
@@ -2128,12 +2128,16 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 实验布局 XML：按 UTF-8 解析通过。
 - 新增纯规则测试覆盖允许认证头、Cookie/Origin/未知头拒绝、换行注入拒绝、同源无查询 GET 请求键和跨 Origin/POST/查询参数拒绝。
 - 现有配方规则测试补充认证头随候选进入内存草稿且再次经过允许列表清洗。
-- 本机没有 Java、Android SDK 或 ADB；单元测试、Android 编译、固定签名和发布必须由 GitHub Actions 执行，当前尚未执行，不得宣称通过。
+- 本机没有 Java、Android SDK 或 ADB；单元测试、Android 编译、固定签名和发布由 GitHub Actions 执行。
 
 **编译、安装和验收状态**
 
-- GitHub Actions：待推送后执行唯一一轮。
-- 固定签名 beta.14：待发布。
+- 业务提交与 Release 目标：`16014a3a91cf5319d400d5ae1334cab1a285e56b`。
+- GitHub Actions：`29652425265`，结论 `success`；本阶段唯一一轮 `testDebugUnitTest + assembleDebug` 一次通过，没有修复重跑。
+- 固定 Beta 证书校验：成功，SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- Release：`v0.1.0-beta.14`，目标为上述业务提交。
+- APK：`ai-api-dashboard-v0.1.0-beta.14-debug.apk`，大小 `12185043` 字节。
+- 从公开 Release 下载后 SHA-256：`A7B6D406AC9C2B49539131CE66AE9E1CBA5C2B4FD2C749FE1F1EED4E39CE7B49`。
 - 覆盖安装：待用户执行。
 - 真机认证头捕获与 Widget 复测：待用户确认。
 
@@ -2143,4 +2147,4 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 
 **下一项唯一任务**
 
-完成 P5-A 静态检查、提交和 GitHub Actions；云端成功后交付 beta.14，等待用户使用同一站点复测二次直连。真机通过前不进入 POST/GraphQL。
+用户覆盖安装 beta.14；由于 beta.13 旧配方没有认证头，必须重新捕获并保存同一站点配方，再复测二次直连与 Widget。无需卸载或清除 App 数据。真机通过前不进入 POST/GraphQL。
