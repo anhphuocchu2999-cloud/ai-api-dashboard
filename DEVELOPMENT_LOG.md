@@ -1998,3 +1998,46 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 **下一项唯一任务**
 
 用户覆盖安装 beta.12，在实验室把已保存配方接入一张已配置卡片，刷新 Widget 核对真实字段；再验证解除接入恢复原 Adapter，以及断网时只读取该实例的配方缓存。验收前不进入下一阶段。
+
+---
+
+## 2026-07-18｜Stage 8F-P4.1 实验室自动检测并选择模型
+
+**目标和用户确认**
+
+- 用户明确要求实验室不再手动输入模型名称，而是发送一次真实模型列表请求后让用户选择。
+- 本阶段只修正实验室的模型配置入口；不改 Widget、配方协议、网页捕获范围、通用 Adapter 或现有平台 Adapter。
+
+**实现范围**
+
+- 把主 App 既有 `/v1/models` 请求与错误分类抽成共享 `ModelCatalogClient`，主 App 调用行为保持不变。
+- 实验室删除模型名称输入框，新增“测试连接并获取模型”按钮、连接状态与模型下拉选择器。
+- 单模型自动选择，多模型由用户选择；真实检测完成前禁用“打开仪表盘并登录”。
+- API Base 或 API Key 改动时立即作废旧选择；使用 generation 和输入快照阻止旧异步结果覆盖新输入。
+- 只接受 HTTPS API Base 和标准 `data[].id`，单次请求超时 10 秒且不自动重试；普通界面不显示响应正文或异常堆栈。
+- API Key 和模型选择只留在当前 Activity 内存，不写入配方、日志或仓库。
+
+**修改文件（提交前）**
+
+- `PROJECT.md`
+- `.github/workflows/android-prerelease.yml`
+- `app/src/main/java/com/java/myapplication/MainActivity.kt`
+- `app/src/main/java/com/java/myapplication/ModelCatalogClient.kt`
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/ModelCatalogClientTest.kt`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**提交前验证**
+
+- `PROJECT.md` 已在业务代码前记录 P4.1 正式范围和验收标准。
+- `git diff --check`：通过，仅有现有 Windows 换行提示。
+- 实验布局 XML：按 UTF-8 解析通过。
+- 新增纯 URL 规则测试覆盖普通 Base、已有 `/v1`、HTTP、userinfo、查询参数和非法地址。
+- 本机没有 Java、Android SDK 或 ADB，无法执行 Android 单元测试、编译和安装；将由 GitHub Actions 执行唯一一轮 `testDebugUnitTest + assembleDebug`、固定证书校验和 beta.13 发布。
+- 云端构建、Release、覆盖安装与真机验收：待执行，不得宣称通过。
+
+**下一项唯一任务**
+
+推送当前提交并等待 GitHub Actions；成功后交付 beta.13，由用户真机验证真实模型列表、单/多模型选择和输入变化失效行为。

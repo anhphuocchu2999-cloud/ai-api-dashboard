@@ -22,10 +22,13 @@ import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.widget.doAfterTextChanged
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.java.myapplication.ModelCatalogClient
 import com.java.myapplication.R
+import com.java.myapplication.TestResult
 import com.java.myapplication.config.ApiAccountConfig
 import com.java.myapplication.config.ConfigRepository
 import com.java.myapplication.config.InstanceKeyResolver
@@ -128,7 +131,10 @@ class DashboardDiscoveryActivity : Activity() {
     private lateinit var resultPanel: View
     private lateinit var apiBaseInput: EditText
     private lateinit var apiKeyInput: EditText
-    private lateinit var modelInput: EditText
+    private lateinit var modelDetectButton: Button
+    private lateinit var modelStatus: TextView
+    private lateinit var modelChoiceSpinner: Spinner
+    private lateinit var openDashboardButton: Button
     private lateinit var dashboardUrlInput: EditText
     private lateinit var thirdPartyCookiesInput: CheckBox
     private lateinit var setupError: TextView
@@ -163,6 +169,11 @@ class DashboardDiscoveryActivity : Activity() {
     private var apiBase = ""
     private var apiKey = ""
     private var model = ""
+    private var detectedModels: List<String> = emptyList()
+    private var detectedApiBase = ""
+    private var detectedApiKey = ""
+    private var modelDetectionGeneration = 0
+    private var modelDetectionInProgress = false
     private var currentAnalysis: DashboardAnalysisResult? = null
     private var currentCapture: PreparedDashboardCapture? = null
     private var recipeInProgress = false
@@ -206,7 +217,10 @@ class DashboardDiscoveryActivity : Activity() {
         resultPanel = findViewById(R.id.discovery_result_panel)
         apiBaseInput = findViewById(R.id.discovery_api_base)
         apiKeyInput = findViewById(R.id.discovery_api_key)
-        modelInput = findViewById(R.id.discovery_model)
+        modelDetectButton = findViewById(R.id.discovery_detect_models)
+        modelStatus = findViewById(R.id.discovery_model_status)
+        modelChoiceSpinner = findViewById(R.id.discovery_model_choice)
+        openDashboardButton = findViewById(R.id.discovery_open_dashboard)
         dashboardUrlInput = findViewById(R.id.discovery_dashboard_url)
         thirdPartyCookiesInput = findViewById(R.id.discovery_third_party_cookies)
         setupError = findViewById(R.id.discovery_setup_error)
@@ -272,7 +286,10 @@ class DashboardDiscoveryActivity : Activity() {
     }
 
     private fun bindActions() {
-        findViewById<Button>(R.id.discovery_open_dashboard).setOnClickListener { openDashboard() }
+        modelDetectButton.setOnClickListener { detectModels() }
+        openDashboardButton.setOnClickListener { openDashboard() }
+        apiBaseInput.doAfterTextChanged { invalidateModelSelection() }
+        apiKeyInput.doAfterTextChanged { invalidateModelSelection() }
         confirmButton.setOnClickListener { confirmAndCapture() }
         analyzeButton.setOnClickListener { analyzeCapture() }
         saveRecipeButton.setOnClickListener { testAndSaveRecipe() }
@@ -284,15 +301,103 @@ class DashboardDiscoveryActivity : Activity() {
         findViewById<Button>(R.id.discovery_restart).setOnClickListener { restartExperiment() }
     }
 
+    private fun detectModels() {
+        if (modelDetectionInProgress) return
+        val candidateApiBase = apiBaseInput.text.toString().trim()
+        val candidateApiKey = apiKeyInput.text.toString().trim()
+        val error = when {
+            ModelCatalogClient.modelListUrl(candidateApiBase) == null -> "模型 API Base 必须是有效的 HTTPS 地址"
+            candidateApiKey.isBlank() -> "请填写 API Key"
+            else -> null
+        }
+        if (error != null) {
+            invalidateModelSelection(error)
+            return
+        }
+
+        val generation = ++modelDetectionGeneration
+        modelDetectionInProgress = true
+        detectedModels = emptyList()
+        detectedApiBase = ""
+        detectedApiKey = ""
+        model = ""
+        modelDetectButton.isEnabled = false
+        modelChoiceSpinner.visibility = View.GONE
+        openDashboardButton.isEnabled = false
+        setupError.visibility = View.GONE
+        modelStatus.text = "正在连接并读取模型列表…"
+
+        Thread {
+            val result = ModelCatalogClient.fetch(candidateApiBase, candidateApiKey)
+            runOnUiThread {
+                if (
+                    isDestroyed ||
+                    generation != modelDetectionGeneration ||
+                    apiBaseInput.text.toString().trim() != candidateApiBase ||
+                    apiKeyInput.text.toString().trim() != candidateApiKey
+                ) {
+                    return@runOnUiThread
+                }
+                modelDetectionInProgress = false
+                modelDetectButton.isEnabled = true
+                when (result) {
+                    is TestResult.Success -> showDetectedModels(
+                        candidateApiBase,
+                        candidateApiKey,
+                        result.models
+                    )
+                    is TestResult.Error -> {
+                        modelStatus.text = "${result.title}\n${result.reason}\n${result.suggestion}"
+                        modelChoiceSpinner.visibility = View.GONE
+                        openDashboardButton.isEnabled = false
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun showDetectedModels(apiBase: String, apiKey: String, models: List<String>) {
+        detectedApiBase = apiBase
+        detectedApiKey = apiKey
+        detectedModels = models
+        modelChoiceSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            models
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        modelChoiceSpinner.setSelection(0)
+        modelChoiceSpinner.visibility = View.VISIBLE
+        modelStatus.text = if (models.size == 1) {
+            "连接成功，已选择 ${models.first()}"
+        } else {
+            "连接成功，找到 ${models.size} 个模型，请从下方选择"
+        }
+        openDashboardButton.isEnabled = true
+    }
+
+    private fun invalidateModelSelection(message: String = "地址或 Key 已改变，请重新测试连接") {
+        modelDetectionGeneration++
+        modelDetectionInProgress = false
+        detectedModels = emptyList()
+        detectedApiBase = ""
+        detectedApiKey = ""
+        model = ""
+        if (::modelDetectButton.isInitialized) modelDetectButton.isEnabled = true
+        if (::modelChoiceSpinner.isInitialized) modelChoiceSpinner.visibility = View.GONE
+        if (::openDashboardButton.isInitialized) openDashboardButton.isEnabled = false
+        if (::modelStatus.isInitialized) modelStatus.text = message
+    }
+
     private fun openDashboard() {
         val candidateApiBase = apiBaseInput.text.toString().trim()
         val candidateApiKey = apiKeyInput.text.toString().trim()
-        val candidateModel = modelInput.text.toString().trim()
+        val candidateModel = detectedModels.getOrNull(modelChoiceSpinner.selectedItemPosition).orEmpty()
         val candidateDashboardUrl = dashboardUrlInput.text.toString().trim()
         val error = when {
             DashboardDiscoveryRules.normalizeChatCompletionsUrl(candidateApiBase) == null -> "模型 API Base 必须是有效的 HTTPS 地址"
             candidateApiKey.isBlank() -> "请填写 API Key"
-            candidateModel.isBlank() -> "请填写模型名称"
+            candidateApiBase != detectedApiBase || candidateApiKey != detectedApiKey || candidateModel.isBlank() ->
+                "请先测试连接并选择模型"
             !DashboardDiscoveryRules.isHttpsUrl(candidateDashboardUrl) -> "仪表盘网址必须是有效的 HTTPS 地址"
             else -> null
         }
@@ -418,6 +523,7 @@ class DashboardDiscoveryActivity : Activity() {
         webView.loadUrl("about:blank")
         apiKey = ""
         apiKeyInput.text?.clear()
+        invalidateModelSelection("请先测试连接并选择模型")
         currentAnalysis = null
         currentCapture = null
         resultBody.text = ""
@@ -428,6 +534,7 @@ class DashboardDiscoveryActivity : Activity() {
         browserPanel.visibility = View.GONE
         resultPanel.visibility = View.GONE
         setupPanel.visibility = View.VISIBLE
+        setupError.visibility = View.GONE
         updateSavedRecipePanel()
     }
 
@@ -718,6 +825,8 @@ class DashboardDiscoveryActivity : Activity() {
     }
 
     override fun onDestroy() {
+        modelDetectionGeneration++
+        modelDetectionInProgress = false
         handler.removeCallbacksAndMessages(null)
         aiAnalyzer.cancel()
         recipeClient.cancel()

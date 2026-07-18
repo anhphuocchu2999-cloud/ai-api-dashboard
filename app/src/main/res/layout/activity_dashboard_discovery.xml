@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Stage 8F-P4 · Prototype 20260718-004"
+                android:text="Stage 8F-P4.1 · Prototype 20260718-005"
                 android:textColor="#6B625D"
                 android:textSize="13sp" />
 
@@ -124,14 +124,28 @@
                 android:saveEnabled="false"
                 android:singleLine="true" />
 
-            <EditText
-                android:id="@+id/discovery_model"
+            <Button
+                android:id="@+id/discovery_detect_models"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="模型名称"
-                android:inputType="text"
-                android:singleLine="true" />
+                android:layout_marginTop="10dp"
+                android:text="测试连接并获取模型" />
+
+            <TextView
+                android:id="@+id/discovery_model_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="请先测试连接并选择模型"
+                android:textColor="#6B625D"
+                android:textSize="13sp" />
+
+            <Spinner
+                android:id="@+id/discovery_model_choice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:visibility="gone" />
 
             <EditText
                 android:id="@+id/discovery_dashboard_url"
@@ -165,6 +179,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                android:enabled="false"
                 android:text="打开仪表盘并登录" />
 
             <TextView
