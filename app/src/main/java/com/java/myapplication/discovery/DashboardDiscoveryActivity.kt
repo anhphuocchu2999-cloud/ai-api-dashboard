@@ -569,37 +569,60 @@ class DashboardDiscoveryActivity : Activity() {
     }
 
     private fun testAndSaveRecipe() {
-        if (recipeInProgress) return
-        val analysis = currentAnalysis ?: return
-        val capture = currentCapture ?: return
-        val origin = lockedOrigin.orEmpty()
-        val draft = DashboardRecipeRules.create(
-            pagePurpose = analysis.pagePurpose,
-            dashboardUrl = webView.url.orEmpty(),
-            lockedOrigin = origin,
-            metrics = analysis.verifiedMetrics,
-            candidates = capture.candidates,
-            now = System.currentTimeMillis()
-        )
-        val recipe = draft.recipe
-        if (recipe == null) {
-            resultRecipeStatus.text = draft.error ?: "当前结果不能保存为请求配方"
+        if (recipeInProgress) {
+            resultRecipeStatus.text = "正在直接测试，请稍候…"
+            Toast.makeText(this, "直接测试仍在进行", Toast.LENGTH_SHORT).show()
             return
         }
-        val cookies = recipe.endpoints.associateWith { endpoint ->
-            CookieManager.getInstance().getCookie(endpoint).orEmpty()
+        val analysis = currentAnalysis
+        val capture = currentCapture
+        if (analysis == null || capture == null) {
+            showRecipePreparationError("当前识别结果已经失效，请返回仪表盘重新识别后再试")
+            return
+        }
+        saveRecipeButton.isEnabled = false
+        saveRecipeButton.text = "正在准备直连测试…"
+        resultRecipeStatus.text = "正在检查接口与本机登录状态…"
+        val origin = lockedOrigin.orEmpty()
+        val draft = runCatching {
+            DashboardRecipeRules.create(
+                pagePurpose = analysis.pagePurpose,
+                dashboardUrl = webView.url.orEmpty(),
+                lockedOrigin = origin,
+                metrics = analysis.verifiedMetrics,
+                candidates = capture.candidates,
+                now = System.currentTimeMillis()
+            )
+        }.getOrElse { error ->
+            val exception = error as? Exception ?: IllegalStateException("当前结果不能生成请求配方")
+            showRecipePreparationError(recipeUserFacingError(exception))
+            return
+        }
+        val recipe = draft.recipe
+        if (recipe == null) {
+            showRecipePreparationError(draft.error ?: "当前结果不能保存为请求配方")
+            return
+        }
+        val cookies = runCatching {
+            recipe.endpoints.associateWith { endpoint ->
+                CookieManager.getInstance().getCookie(endpoint).orEmpty()
+            }
+        }.getOrElse {
+            showRecipePreparationError("读取本机网页登录状态失败，请返回仪表盘重新登录后再试")
+            return
         }
         val replayHeaders = draft.replayHeadersByEndpoint
         if (recipe.endpoints.any { endpoint ->
                 cookies[endpoint].isNullOrBlank() && replayHeaders[endpoint].isNullOrEmpty()
             }
         ) {
-            resultRecipeStatus.text = "没有取得数据接口所需的 Cookie 或认证信息，请确认网页已经登录并重新捕获"
+            showRecipePreparationError("没有取得数据接口所需的 Cookie 或认证信息，请确认网页已经登录并重新捕获")
             return
         }
         recipeInProgress = true
-        saveRecipeButton.isEnabled = false
+        saveRecipeButton.text = "正在直接测试，请稍候…"
         resultRecipeStatus.text = "正在直接请求并二次核对 ${recipe.metrics.size} 个字段…"
+        Toast.makeText(this, "已开始直接测试", Toast.LENGTH_SHORT).show()
         Thread {
             try {
                 val replay = recipeClient.fetch(recipe, cookies, replayHeaders)
@@ -623,11 +646,22 @@ class DashboardDiscoveryActivity : Activity() {
                     if (!isDestroyed) {
                         recipeInProgress = false
                         saveRecipeButton.isEnabled = true
-                        resultRecipeStatus.text = recipeUserFacingError(error)
+                        saveRecipeButton.text = "重新直接测试并加密保存"
+                        val message = recipeUserFacingError(error)
+                        resultRecipeStatus.text = message
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                     }
                 }
             }
         }.start()
+    }
+
+    private fun showRecipePreparationError(message: String) {
+        recipeInProgress = false
+        saveRecipeButton.isEnabled = true
+        saveRecipeButton.text = "重新直接测试并加密保存"
+        resultRecipeStatus.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun refreshSavedRecipe() {

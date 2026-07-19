@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Stage 8F-P5-A · Prototype 20260719-001"
+                android:text="Stage 8F-P5-A · Prototype 20260719-002"
                 android:textColor="#6B625D"
                 android:textSize="13sp" />
 

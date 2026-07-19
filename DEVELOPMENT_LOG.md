@@ -2148,3 +2148,57 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 **下一项唯一任务**
 
 用户覆盖安装 beta.14；由于 beta.13 旧配方没有认证头，必须重新捕获并保存同一站点配方，再复测二次直连与 Widget。无需卸载或清除 App 数据。真机通过前不进入 POST/GraphQL。
+
+---
+
+## 2026-07-19｜Stage 8F-P5-A.1 直接测试按钮无反馈修复
+
+**目标和问题背景**
+
+- 用户在 beta.14 完成 PuppyRouter AI 识别后，点击“直接测试并加密保存”没有可见反应。
+- 用户提供的结果包含 `/api/user/self` 与 `/api/data/self` 两个同源、无查询参数 GET 接口，以及 9 个已通过本机核对的字段；因此本次只修复保存按钮动作反馈，不扩展 POST、GraphQL 或新站点协议。
+
+**根因与方案**
+
+- 源码中 `recipeInProgress`、`currentAnalysis` 或 `currentCapture` 不满足时会直接返回，既不修改状态文字也不提示用户。
+- 即使进入正常直连流程，按钮也保持原文字，只在按钮上方更改一行状态；用户无法从点击目标本身确认操作已经开始。
+- 修复为所有路径均有可见反馈：准备阶段和网络阶段分别更新按钮文字与状态，失效状态、凭据缺失、准备异常和网络异常均恢复按钮并显示中文原因。
+- 不持久化识别结果到 Activity 状态或磁盘；如果页面状态已失效，明确要求重新识别，避免把捕获响应或认证信息写进 Bundle。
+
+**起始分支和提交**
+
+- 远端分支：`feature/stage-8b-simple-connection-flow`
+- 起始提交：`e0078e6ade11449373aef83652e03ee0c87c6fa0`
+- 本地实施分支：`agent/stable-signing`
+
+**实际修改文件**
+
+- `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
+- `app/src/main/res/layout/activity_dashboard_discovery.xml`
+- `app/src/test/java/com/java/myapplication/DashboardRecipeRulesTest.kt`
+- `.github/workflows/android-prerelease.yml`
+- `AI_HANDOFF.md`
+- `DEVELOPMENT_LOG.md`
+
+**明确未修改**
+
+- 未修改认证头允许列表、Cookie/Keystore 格式、AI Prompt、配方协议、Widget Adapter、缓存或现有平台 Adapter。
+- 未增加 POST、GraphQL、查询参数、跨 Origin、动态签名、依赖、数据库或云端服务。
+- 未记录用户附件中的余额、用量样本或任何认证值。
+
+**验证状态**
+
+- 新增 PuppyRouter 两个真实 endpoint 形状的纯规则回归用例，验证可生成双接口配方并携带允许认证头。
+- `git diff --check`：通过，仅有现有 Windows 换行提示。
+- 实验布局 XML：按 UTF-8 解析通过；差异敏感信息模式检查未发现凭据。
+- 本机没有 Java、Android SDK 或 ADB；单元测试、Android 编译、固定签名和 beta.15 发布待 GitHub Actions 执行一次。
+- 覆盖安装和真机点击反馈：待用户确认，不得宣称通过。
+
+**提交与回滚**
+
+- 业务提交与 Release 目标：待提交后回填。
+- 回滚位置：`e0078e6ade11449373aef83652e03ee0c87c6fa0`
+
+**下一项唯一任务**
+
+完成静态检查、提交和一次 GitHub Actions，发布 beta.15 后等待用户复测同一个 PuppyRouter 流程。真机通过前不进入 POST/GraphQL。
