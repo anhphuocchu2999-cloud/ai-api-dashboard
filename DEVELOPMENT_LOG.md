@@ -2281,3 +2281,5 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 根因二是通用配方把冗长 AI 标签和占位性质的“额度单位/原始额度单位”原样映射；修复为仅对超长标签按指标类型压缩，并去掉没有信息量的占位单位，标准 USD/CNY/%/token 等单位保持不变。
 - 四张卡片的标题、主指标、用量和辅助指标增加单行末尾省略保护，避免任意第三方长文本撑坏固定高度 Widget。
 - 新增规则测试覆盖未配置角标、已配置同步/失败统一状态以及截图中的 66383/7147 长标签映射；beta.17 继续受 JVM、Lint、编译、模拟器覆盖安装、Instrumentation/UI Automator 和固定签名全门禁约束。
+- 发布目标提交 `ee2a03cf907c43bc6c965da775054bbf2c5d66ea` 的 Actions `29676789208` 全部成功，beta.16 → beta.17 模拟器覆盖升级、Activity 启动、全部 Instrumentation/UIAutomator 与固定证书复核均通过。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.17`；APK `12185107` 字节；公开 Release 重下载 SHA-256 为 `14D77C516E5ED9862E1B67EF9CFF8356EF677F8560B79464F3EE37F890F71F00`。
