@@ -300,7 +300,6 @@ data class WidgetData(
             usageMetrics.any { it.value != "暂无可计算数据" } ||
             percentage != null ||
             auxiliaryMetrics.isNotEmpty() ||
-            !modelName.isNullOrBlank() ||
             total != null ||
             used != null ||
             remaining != null ||

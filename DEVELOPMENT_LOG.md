@@ -2173,9 +2173,14 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 
 **实际修改文件**
 
+- `PROJECT.md`
 - `app/src/main/java/com/java/myapplication/discovery/DashboardDiscoveryActivity.kt`
 - `app/src/main/res/layout/activity_dashboard_discovery.xml`
 - `app/src/test/java/com/java/myapplication/DashboardRecipeRulesTest.kt`
+- `app/src/androidTest/java/com/java/myapplication/DashboardRecipeButtonInstrumentedTest.kt`
+- `app/src/androidTest/java/com/java/myapplication/ExampleInstrumentedTest.kt`
+- `app/build.gradle.kts`
+- `gradle/libs.versions.toml`
 - `.github/workflows/android-prerelease.yml`
 - `AI_HANDOFF.md`
 - `DEVELOPMENT_LOG.md`
@@ -2191,14 +2196,52 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 新增 PuppyRouter 两个真实 endpoint 形状的纯规则回归用例，验证可生成双接口配方并携带允许认证头。
 - `git diff --check`：通过，仅有现有 Windows 换行提示。
 - 实验布局 XML：按 UTF-8 解析通过；差异敏感信息模式检查未发现凭据。
-- 本机没有 Java、Android SDK 或 ADB；单元测试、Android 编译、固定签名和 beta.15 发布待 GitHub Actions 执行一次。
+- 业务提交 `2d1c3b566b7520424ec858dc72a3b76cb0ba0320` 的 GitHub Actions `29671216346` 一次成功，beta.15 已生成；但该工作流尚未运行 UI 自动化，按用户要求不交付安装命令。
+- 新增 UI Automator 跨进程测试，实际启动独立实验室 Activity、点击保存按钮，断言按钮文字与中文状态发生变化；测试入口只在 debuggable 包生效且不注入响应或凭据。
+- GitHub Actions 在发布前新增 Android 35 模拟器 `connectedDebugAndroidTest`；beta.16 必须同时通过 JVM 规则测试、模拟器 UI 测试、`assembleDebug` 和固定签名校验。
+- 本机没有 Java、Android SDK 或 ADB；上述 beta.16 云端测试待执行。
 - 覆盖安装和真机点击反馈：待用户确认，不得宣称通过。
 
 **提交与回滚**
 
-- 业务提交与 Release 目标：待提交后回填。
+- 首个业务提交：`2d1c3b566b7520424ec858dc72a3b76cb0ba0320`；beta.15 因验证不足不交付。
+- 模拟器测试与 beta.16 Release 目标：待提交后回填。
 - 回滚位置：`e0078e6ade11449373aef83652e03ee0c87c6fa0`
 
 **下一项唯一任务**
 
-完成静态检查、提交和一次 GitHub Actions，发布 beta.15 后等待用户复测同一个 PuppyRouter 流程。真机通过前不进入 POST/GraphQL。
+提交模拟器测试与已确认的 P5-U 产品方案，只运行一次 GitHub Actions；全部测试通过后发布 beta.16，再等待用户复测同一个 PuppyRouter 流程。P5-A.1 真机通过前不开始 P5-U1 业务代码。
+
+---
+
+## 2026-07-19｜Stage 8F-QA-1 Public Beta 全链路审计与发布门禁
+
+**用户确认范围**
+
+- 用户要求不再只处理按钮表象，而是对当前全部功能、代码、逻辑和数据链路集中梳理并修复；新安装包必须先由云端自动化实际测试到位。
+- `PROJECT.md` 已记录本轮审计范围、发布门禁和证据边界；P5-U1 通用 GET/POST 配方仍等待本轮稳定性与真机验收，不在本批次实现。
+
+**确认并修复的问题**
+
+- 平台公共授权迁移原先调用带兼容别名的 `load`，可把某个 MiMo/DeepSeek/爱黄牛槽位凭据当成公共旧凭据复制给其他槽位；新增精确键读取并只用于一次性迁移。
+- 公共凭据迁移与网页登录保存原先忽略部分 `commit` 失败；改为只有凭据和 profile 标记均成功才报告成功，迁移失败保留旧公共凭据。
+- 设置页能力识别原先对整段 URL 使用 `contains`，路径或相似域名可误报平台；统一改为解析后的精确 Host/子域匹配。
+- 模型检测原先把服务端错误正文放入技术详情且响应无大小上限；改为只保留请求地址/状态分类，成功正文限制为 1 MiB。
+- 携带 API Key、Cookie 或 Token 的模型、AI、专用 Adapter 和授权验证请求禁止自动跟随重定向；HTTP 连接在异常路径也必须关闭。
+- WebAuth WebView 禁止 file/content 访问、混合内容和多窗口，Android 8+ 启用安全浏览。
+- 最近成功缓存不再把“只有模型名称、没有任何真实指标”的空成功写入；Instrumentation 覆盖完整缓存不被余额单字段或空结果降级覆盖。
+- 删除跟踪的旧源码 `.bak` 与含本机 `local.properties` 的项目 ZIP；扩展敏感/本地文件忽略规则。
+
+**自动化与发布门禁**
+
+- 新增 Instrumentation 数据测试：平台公共键精确隔离、两个槽位 API Key 加密持久化与回读、缓存完整度和跨实例隔离。
+- 新增 UI Automator 跨进程测试：启动实验室测试状态，真实点击“直接测试并加密保存”，断言按钮恢复可重试且状态解释“结果已经失效”。
+- 工作流新增 `lintDebug`；Android 35 模拟器先校验并安装固定签名 beta.15，再执行当前 APK `adb install -r` 覆盖升级、启动和 `connectedDebugAndroidTest`。
+- beta.16 只允许在 JVM 测试、Lint、编译、覆盖安装、Instrumentation 和固定证书校验全部通过后发布。
+
+**提交前证据**
+
+- 当前基线：`2d1c3b566b7520424ec858dc72a3b76cb0ba0320`。
+- `git diff --check`：待最终差异完成后执行。
+- 当前树敏感模式扫描只命中脱敏规则测试中的假样本；未发现真实 API Key、PAT、Cookie、Token 或私钥文件。
+- 本机没有 Android SDK/ADB；本批次只触发一次新的 GitHub Actions 云端验收，结果待回填。

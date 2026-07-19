@@ -353,9 +353,15 @@ class WebAuthActivity : Activity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             userAgentString = MOBILE_USER_AGENT
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                safeBrowsingEnabled = true
+            }
         }
 
         webView.addJavascriptInterface(AuthBridge(), "DashboardAuth")
@@ -499,6 +505,7 @@ class WebAuthActivity : Activity() {
             val valid = try {
                 connection = URL(verificationUrl).openConnection() as HttpURLConnection
                 connection?.requestMethod = "GET"
+                connection?.instanceFollowRedirects = false
                 connection?.connectTimeout = 10_000
                 connection?.readTimeout = 10_000
                 connection?.setRequestProperty("Cookie", cookieHeader)
@@ -588,9 +595,14 @@ class WebAuthActivity : Activity() {
             return false
         }
 
-        prefs.edit()
+        val profileSaved = prefs.edit()
             .putString("web_auth_profile_${targetInstanceKey.lowercase()}", profile.profileId)
             .commit()
+        if (!profileSaved) {
+            BackgroundAuthRepository.clear(prefs, targetInstanceKey)
+            Toast.makeText(this, "账户连接保存失败，请重试", Toast.LENGTH_SHORT).show()
+            return false
+        }
 
         WidgetData.clearLastSuccessfulDataForInstance(targetInstanceKey)
 

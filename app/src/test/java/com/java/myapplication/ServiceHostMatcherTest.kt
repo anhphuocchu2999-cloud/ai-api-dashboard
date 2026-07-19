@@ -16,6 +16,8 @@ class ServiceHostMatcherTest {
     fun rejectsLookalikeAndPathInjection() {
         assertFalse(ServiceHostMatcher.matches("https://deepseek.com.attacker.example/v1", "deepseek.com"))
         assertFalse(ServiceHostMatcher.matches("https://attacker.example/deepseek.com/v1", "deepseek.com"))
+        assertFalse(ServiceHostMatcher.matches("https://attacker.example/?next=deepseek.com", "deepseek.com"))
+        assertFalse(ServiceHostMatcher.matches("https://notdeepseek.com/v1", "deepseek.com"))
     }
 
     @Test

@@ -33,6 +33,7 @@ import com.java.myapplication.adapter.HostRequestCoordinator
 import com.java.myapplication.adapter.WidgetData
 import com.java.myapplication.adapter.auth.BackgroundAuthConfig
 import com.java.myapplication.adapter.auth.BackgroundAuthRepository
+import com.java.myapplication.config.ServiceHostMatcher
 import com.java.myapplication.webauth.WebAuthProfile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -518,12 +519,11 @@ private fun detectService(apiBase: String, webProfile: WebAuthProfile?): SlotSer
         "deepseek" -> SlotServiceKind.DEEPSEEK
         "aihuangniu" -> SlotServiceKind.AIHUANGNIU
         else -> {
-            val normalized = apiBase.trim().lowercase()
             when {
-                normalized.contains("xiaomimimo.com") -> SlotServiceKind.MIMO
-                normalized.contains("deepseek.com") -> SlotServiceKind.DEEPSEEK
-                normalized.contains("aihuangniu.com") -> SlotServiceKind.AIHUANGNIU
-                normalized.contains("coolyeah.net") || normalized.contains("kimi") -> {
+                ServiceHostMatcher.matches(apiBase, "xiaomimimo.com") -> SlotServiceKind.MIMO
+                ServiceHostMatcher.matches(apiBase, "deepseek.com") -> SlotServiceKind.DEEPSEEK
+                ServiceHostMatcher.matches(apiBase, "aihuangniu.com") -> SlotServiceKind.AIHUANGNIU
+                ServiceHostMatcher.matches(apiBase, "coolyeah.net") -> {
                     SlotServiceKind.KIMI_NEW_API
                 }
                 else -> SlotServiceKind.GENERIC

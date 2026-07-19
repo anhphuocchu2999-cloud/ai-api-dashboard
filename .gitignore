@@ -4,6 +4,14 @@ build/
 
 # Local configuration file (sdk path, etc)
 local.properties
+.env
+.env.*
+secrets.properties
+keystore.properties
+credentials*.json
+service-account*.json
+*.bak
+*-project.zip
 
 # Log/OS Files
 *.log

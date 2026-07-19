@@ -25,12 +25,7 @@ object BackgroundAuthRepository {
     fun load(prefs: SharedPreferences, instanceKey: String): BackgroundAuthConfig {
         val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
 
-        readRaw(prefs, canonicalId)?.let { raw ->
-            decode(raw)?.let { decoded ->
-                if (containsPlaintextCredential(raw)) save(prefs, canonicalId, decoded)
-                return decoded
-            }
-        }
+        loadExact(prefs, canonicalId)?.let { return it }
 
         val fallbackKeys = buildList {
             addAll(InstanceKeyResolver.legacyAliases(instanceKey))
@@ -47,6 +42,21 @@ object BackgroundAuthRepository {
         }
 
         return BackgroundAuthConfig()
+    }
+
+    /**
+     * 只读取指定的规范键，不执行历史槽位或平台别名回退。
+     *
+     * 平台公共凭据的一次性迁移必须使用这个入口；否则 `platform-auth-mimo`
+     * 等公共键会通过兼容别名读到某个槽位自己的凭据，再复制到其他槽位，
+     * 破坏同平台不同账户的隔离。
+     */
+    fun loadExact(prefs: SharedPreferences, instanceKey: String): BackgroundAuthConfig? {
+        val canonicalId = InstanceKeyResolver.canonicalInstanceId(instanceKey)
+        val raw = readRaw(prefs, canonicalId) ?: return null
+        val decoded = decode(raw) ?: return null
+        if (containsPlaintextCredential(raw)) save(prefs, canonicalId, decoded)
+        return decoded
     }
 
     fun save(

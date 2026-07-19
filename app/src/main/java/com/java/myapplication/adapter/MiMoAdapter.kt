@@ -129,29 +129,33 @@ class MiMoAdapter : PlatformAdapter {
     private fun fetchJson(url: String, cookie: String): HttpJsonResult {
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Cookie", cookie)
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Referer", "$PLATFORM_BASE/")
-            conn.setRequestProperty("Origin", PLATFORM_BASE)
-            conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Cookie", cookie)
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Referer", "$PLATFORM_BASE/")
+                conn.setRequestProperty("Origin", PLATFORM_BASE)
+                conn.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            val responseBody = if (responseCode in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            }
-            conn.disconnect()
+                val responseCode = conn.responseCode
+                val responseBody = if (responseCode in 200..299) {
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    ""
+                }
 
-            when (responseCode) {
-                in 200..299 -> HttpJsonResult.Success(responseBody)
-                401, 403 -> HttpJsonResult.AuthExpired
-                429 -> HttpJsonResult.RateLimited
-                in 500..599 -> HttpJsonResult.ServerError
-                else -> HttpJsonResult.Unavailable
+                when (responseCode) {
+                    in 200..299 -> HttpJsonResult.Success(responseBody)
+                    401, 403 -> HttpJsonResult.AuthExpired
+                    429 -> HttpJsonResult.RateLimited
+                    in 500..599 -> HttpJsonResult.ServerError
+                    else -> HttpJsonResult.Unavailable
+                }
+            } finally {
+                conn.disconnect()
             }
         } catch (_: java.net.SocketTimeoutException) {
             HttpJsonResult.NetworkError

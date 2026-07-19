@@ -1,6 +1,7 @@
 package com.java.myapplication.discovery
 
 import android.app.Activity
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
@@ -46,6 +47,8 @@ class DashboardDiscoveryActivity : Activity() {
         private const val INJECTION_ATTEMPTS = 36
         private const val INJECTION_INTERVAL_MS = 150L
         private const val CAPTURE_STATUS_INTERVAL_MS = 800L
+        const val EXTRA_UI_TEST_STALE_RECIPE_STATE =
+            "com.java.myapplication.discovery.extra.UI_TEST_STALE_RECIPE_STATE"
 
         private val CAPTURE_SCRIPT = """
             (function() {
@@ -214,6 +217,22 @@ class DashboardDiscoveryActivity : Activity() {
         configureWebView()
         bindActions()
         updateSavedRecipePanel()
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable && intent.getBooleanExtra(EXTRA_UI_TEST_STALE_RECIPE_STATE, false)) {
+            showStaleRecipeUiTestState()
+        }
+    }
+
+    private fun showStaleRecipeUiTestState() {
+        setupPanel.visibility = View.GONE
+        browserPanel.visibility = View.GONE
+        resultPanel.visibility = View.VISIBLE
+        resultSummary.text = "自动化测试：已恢复识别结果页面"
+        resultBody.text = "{}"
+        resultRecipeStatus.text = "点击按钮验证状态反馈"
+        saveRecipeButton.visibility = View.VISIBLE
+        saveRecipeButton.isEnabled = true
+        saveRecipeButton.text = "直接测试并加密保存"
     }
 
     private fun bindViews() {

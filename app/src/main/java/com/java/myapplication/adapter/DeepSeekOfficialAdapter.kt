@@ -110,30 +110,33 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
 
         return try {
             val conn = URL("$normalizedBase/user/balance").openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val code = conn.responseCode
-            if (code == 200) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val code = conn.responseCode
+                if (code == 200) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    parseBalanceResponse(body, modelName, normalizedBase, apiKey)
+                } else {
+                    WidgetData.error(
+                        platformName,
+                        when (code) {
+                            401 -> "Key无效"
+                            403 -> "余额接口被拒绝"
+                            404 -> "余额接口不存在"
+                            429 -> "请求过于频繁"
+                            in 500..599 -> "服务器错误"
+                            else -> "请求失败 ($code)"
+                        }
+                    )
+                }
+            } finally {
                 conn.disconnect()
-                parseBalanceResponse(body, modelName, normalizedBase, apiKey)
-            } else {
-                conn.disconnect()
-                WidgetData.error(
-                    platformName,
-                    when (code) {
-                        401 -> "Key无效"
-                        403 -> "余额接口被拒绝"
-                        404 -> "余额接口不存在"
-                        429 -> "请求过于频繁"
-                        in 500..599 -> "服务器错误"
-                        else -> "请求失败 ($code)"
-                    }
-                )
             }
         } catch (_: java.net.SocketTimeoutException) {
             WidgetData.error(platformName, "连接超时")
@@ -248,30 +251,29 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
         if (cookie.isBlank()) return null
         return try {
             val conn = URL(CURRENT_USER_URL).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Cookie", cookie)
-            applyWebHeaders(conn)
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Cookie", cookie)
+                applyWebHeaders(conn)
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val code = conn.responseCode
-            val body = if (code in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val code = conn.responseCode
+                if (code !in 200..299) return null
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val root = JSONObject(body)
+                val data = root.optJSONObject("data") ?: return null
+                if (root.optInt("code", -1) != 0 || data.optInt("biz_code", -1) != 0) {
+                    return null
+                }
+                data.optJSONObject("biz_data")
+                    ?.optString("token", "")
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            } finally {
+                conn.disconnect()
             }
-            conn.disconnect()
-
-            if (code !in 200..299) return null
-            val root = JSONObject(body)
-            val data = root.optJSONObject("data") ?: return null
-            if (root.optInt("code", -1) != 0 || data.optInt("biz_code", -1) != 0) {
-                return null
-            }
-            data.optJSONObject("biz_data")
-                ?.optString("token", "")
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
         } catch (_: Exception) {
             null
         }
@@ -280,29 +282,33 @@ class DeepSeekOfficialAdapter : PlatformAdapter {
     private fun requestWebSummary(cookie: String, accessToken: String): WebSummaryResult {
         return try {
             val conn = URL(WEB_SUMMARY_URL).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
-            if (accessToken.isNotBlank()) {
-                conn.setRequestProperty("Authorization", "Bearer $accessToken")
-            }
-            applyWebHeaders(conn)
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
+                if (accessToken.isNotBlank()) {
+                    conn.setRequestProperty("Authorization", "Bearer $accessToken")
+                }
+                applyWebHeaders(conn)
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val code = conn.responseCode
-            val body = if (code in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            }
-            conn.disconnect()
+                val code = conn.responseCode
+                val body = if (code in 200..299) {
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    ""
+                }
 
-            when (code) {
-                401, 403 -> WebSummaryResult.AuthExpired
-                in 200..299 -> parseWebSummary(body)
-                    ?.let(WebSummaryResult::Success)
-                    ?: WebSummaryResult.Unavailable
-                else -> WebSummaryResult.Unavailable
+                when (code) {
+                    401, 403 -> WebSummaryResult.AuthExpired
+                    in 200..299 -> parseWebSummary(body)
+                        ?.let(WebSummaryResult::Success)
+                        ?: WebSummaryResult.Unavailable
+                    else -> WebSummaryResult.Unavailable
+                }
+            } finally {
+                conn.disconnect()
             }
         } catch (_: Exception) {
             WebSummaryResult.Unavailable

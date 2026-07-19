@@ -194,28 +194,31 @@ class AihuangniuAdapter : PlatformAdapter {
         val url = "$rootBase/api/v1/user/profile"
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Authorization", "Bearer $token")
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            if (responseCode in 200..299) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
-                parseProfileResponse(body)
-            } else {
-                conn.disconnect()
-                val message = when (responseCode) {
-                    401 -> "爱黄牛登录已失效，请重新登录"
-                    403 -> "平台账户访问被拒绝"
-                    404 -> "账户资料接口不存在"
-                    429 -> "请求过于频繁"
-                    in 500..599 -> "服务器错误"
-                    else -> "账户资料请求失败 ($responseCode)"
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    parseProfileResponse(body)
+                } else {
+                    val message = when (responseCode) {
+                        401 -> "爱黄牛登录已失效，请重新登录"
+                        403 -> "平台账户访问被拒绝"
+                        404 -> "账户资料接口不存在"
+                        429 -> "请求过于频繁"
+                        in 500..599 -> "服务器错误"
+                        else -> "账户资料请求失败 ($responseCode)"
+                    }
+                    WidgetData.error(platformName, message)
                 }
-                WidgetData.error(platformName, message)
+            } finally {
+                conn.disconnect()
             }
         } catch (_: java.net.SocketTimeoutException) {
             WidgetData.error(platformName, "连接超时")
@@ -240,32 +243,35 @@ class AihuangniuAdapter : PlatformAdapter {
         val url = "$rootBase/v1/usage"
         return try {
             val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer ${modelApiKey.trim()}")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Authorization", "Bearer ${modelApiKey.trim()}")
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 10_000
 
-            val responseCode = conn.responseCode
-            if (responseCode !in 200..299) {
+                val responseCode = conn.responseCode
+                if (responseCode !in 200..299) {
+                    UsageFetchResult.Error(
+                        when (responseCode) {
+                            401 -> "API Key 无效"
+                            403 -> "API 用量访问被拒绝"
+                            404 -> "用量接口不存在"
+                            429 -> "请求过于频繁"
+                            in 500..599 -> "用量服务器错误"
+                            else -> "用量请求失败 ($responseCode)"
+                        }
+                    )
+                } else {
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    parseUsageCumulative(body, modelName)
+                        ?.let { UsageFetchResult.Success(it) }
+                        ?: UsageFetchResult.ModelNotFound
+                }
+            } finally {
                 conn.disconnect()
-                return UsageFetchResult.Error(
-                    when (responseCode) {
-                        401 -> "API Key 无效"
-                        403 -> "API 用量访问被拒绝"
-                        404 -> "用量接口不存在"
-                        429 -> "请求过于频繁"
-                        in 500..599 -> "用量服务器错误"
-                        else -> "用量请求失败 ($responseCode)"
-                    }
-                )
             }
-
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            conn.disconnect()
-            parseUsageCumulative(body, modelName)
-                ?.let { UsageFetchResult.Success(it) }
-                ?: UsageFetchResult.ModelNotFound
         } catch (_: java.net.SocketTimeoutException) {
             UsageFetchResult.Error("用量连接超时")
         } catch (_: java.net.UnknownHostException) {

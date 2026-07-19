@@ -35,13 +35,16 @@ class NewApiAdapter : PlatformAdapter {
             val normalizedBase = apiBase.trim().trimEnd('/')
             val url = "$normalizedBase/api/usage/token"
             val conn = URL(url).openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            val code = conn.responseCode
-            conn.disconnect()
-            code == 200
+            try {
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.responseCode == 200
+            } finally {
+                conn.disconnect()
+            }
         } catch (_: Exception) {
             false
         }
@@ -73,6 +76,7 @@ class NewApiAdapter : PlatformAdapter {
             val conn = URL(url).openConnection() as HttpURLConnection
             try {
                 conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Authorization", "Bearer $apiKey")
                 conn.setRequestProperty("Accept", "application/json")
                 conn.connectTimeout = 10000
@@ -140,6 +144,7 @@ class NewApiAdapter : PlatformAdapter {
             val conn = URL(url).openConnection() as HttpURLConnection
             try {
                 conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Authorization", "Bearer $apiKey")
                 conn.setRequestProperty("Accept", "application/json")
                 conn.connectTimeout = 10000

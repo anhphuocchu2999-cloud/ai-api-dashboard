@@ -787,6 +787,7 @@ private fun synchronizePlatformAuthorizations(
     val profiles = slots.indices.map { index ->
         WebAuthProfileRegistry.findFor(slots[index], configs[index].apiBase)
     }
+    val failedSharedMigrations = mutableSetOf<String>()
     return profiles.mapIndexed { index, profile ->
         if (profile == null) return@mapIndexed BackgroundAuthConfig()
         val slotName = slots[index]
@@ -798,17 +799,27 @@ private fun synchronizePlatformAuthorizations(
 
         // One-time migration from the old platform-wide credential. Afterwards
         // every slot owns its credential and can use a different account.
-        val legacyShared = BackgroundAuthRepository.load(prefs, profile.instanceKey)
+        val legacyShared = BackgroundAuthRepository.loadExact(prefs, profile.instanceKey)
+            ?: BackgroundAuthConfig()
         if (isMatchingAuthorization(profile, legacyShared)) {
-            BackgroundAuthRepository.save(prefs, slotName, legacyShared)
-            prefs.edit().putString(webAuthProfileKey(slotName), profile.profileId).commit()
-            legacyShared
+            val credentialSaved = BackgroundAuthRepository.save(prefs, slotName, legacyShared)
+            val profileSaved = credentialSaved && prefs.edit()
+                .putString(webAuthProfileKey(slotName), profile.profileId)
+                .commit()
+            if (profileSaved) {
+                legacyShared
+            } else {
+                failedSharedMigrations += profile.instanceKey
+                BackgroundAuthConfig()
+            }
         } else {
             BackgroundAuthConfig()
         }
     }.also {
         profiles.filterNotNull().distinctBy { it.instanceKey }.forEach { profile ->
-            prefs.edit().remove("${profile.instanceKey}_auth").commit()
+            if (profile.instanceKey !in failedSharedMigrations) {
+                prefs.edit().remove("${profile.instanceKey}_auth").commit()
+            }
         }
     }
 }

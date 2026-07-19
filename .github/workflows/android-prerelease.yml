@@ -18,7 +18,7 @@ on:
       release_tag:
         description: Prerelease tag to publish
         required: true
-        default: v0.1.0-beta.15
+        default: v0.1.0-beta.16
 
 concurrency:
   group: android-prerelease-${{ github.ref }}
@@ -60,7 +60,34 @@ jobs:
       - name: Test and build installable debug APK
         run: |
           chmod +x ./gradlew
-          ./gradlew testDebugUnitTest assembleDebug
+          ./gradlew testDebugUnitTest lintDebug assembleDebug
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Android emulator UI tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          script: |
+            curl --fail --location --retry 3 \
+              https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/download/v0.1.0-beta.15/ai-api-dashboard-v0.1.0-beta.15-debug.apk \
+              --output /tmp/previous-beta.apk
+            apksigner_path="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            previous_cert="$($apksigner_path verify --print-certs /tmp/previous-beta.apk \
+              | sed -n 's/.*certificate SHA-256 digest:[[:space:]]*//p' \
+              | head -n 1 \
+              | tr -d '[:space:]:' \
+              | tr '[:lower:]' '[:upper:]')"
+            test "$previous_cert" = "$EXPECTED_SIGNING_CERT_SHA256"
+            adb install /tmp/previous-beta.apk
+            adb shell am start -W -n com.java.myapplication.dev/.MainActivity
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n com.java.myapplication.dev/.MainActivity
+            ./gradlew connectedDebugAndroidTest
       - name: Verify stable signing certificate
         shell: bash
         run: |
@@ -81,7 +108,7 @@ jobs:
         run: |
           release_tag="$GITHUB_REF_NAME"
           if [[ "$GITHUB_REF" == "refs/heads/feature/stage-8b-simple-connection-flow" ]]; then
-            release_tag="${{ inputs.release_tag || 'v0.1.0-beta.15' }}"
+            release_tag="${{ inputs.release_tag || 'v0.1.0-beta.16' }}"
           fi
           release_apk="ai-api-dashboard-${release_tag}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$release_apk"

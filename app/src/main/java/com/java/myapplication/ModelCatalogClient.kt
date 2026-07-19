@@ -26,9 +26,11 @@ object ModelCatalogClient {
                 reason = "API Base 必须是有效的 HTTPS 地址。",
                 suggestion = "请检查 API 地址后再试。"
             )
+        var conn: HttpURLConnection? = null
         return try {
-            val conn = URL(requestUrl).openConnection() as HttpURLConnection
+            conn = URL(requestUrl).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
+            conn.instanceFollowRedirects = false
             conn.setRequestProperty("Authorization", "Bearer $apiKey")
             conn.setRequestProperty("Accept", "application/json")
             conn.connectTimeout = 10_000
@@ -38,7 +40,6 @@ object ModelCatalogClient {
             try {
                 conn.connect()
             } catch (error: Exception) {
-                conn.disconnect()
                 return TestResult.Error(
                     title = "没有连接成功",
                     reason = "API 地址填写有误，或者服务器暂时无法访问。",
@@ -49,14 +50,8 @@ object ModelCatalogClient {
 
             val responseCode = conn.responseCode
             val response = if (responseCode == 200) {
-                conn.inputStream.bufferedReader().use { it.readText() }
+                conn.inputStream.bufferedReader().use(::readLimited)
             } else {
-                val errorText = try {
-                    conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                } catch (_: Exception) {
-                    ""
-                }
-                conn.disconnect()
                 val error = when (responseCode) {
                     401, 403 -> Triple(
                         "API Key 无法通过验证",
@@ -88,10 +83,9 @@ object ModelCatalogClient {
                     title = error.first,
                     reason = error.second,
                     suggestion = error.third,
-                    detail = "请求 URL: $requestUrl\nHTTP 状态码: $responseCode\n返回内容: ${errorText.take(500)}"
+                    detail = "请求 URL: $requestUrl\nHTTP 状态码: $responseCode"
                 )
             }
-            conn.disconnect()
 
             val root = JSONObject(response)
             val data = root.optJSONArray("data")
@@ -99,7 +93,7 @@ object ModelCatalogClient {
                     title = "没找到模型",
                     reason = "这个服务没有返回兼容的模型列表。",
                     suggestion = "确认服务支持 OpenAI 兼容的 /v1/models 接口。",
-                    detail = "请求 URL: $requestUrl\n返回内容: ${response.take(500)}"
+                    detail = "请求 URL: $requestUrl\n响应不是兼容的模型列表格式"
                 )
             val models = buildList {
                 for (index in 0 until data.length()) {
@@ -113,7 +107,7 @@ object ModelCatalogClient {
                     title = "没找到模型",
                     reason = "接口没有返回可使用的模型名称。",
                     suggestion = "稍后再试，或向服务提供方确认模型列表接口。",
-                    detail = "请求 URL: $requestUrl\n返回内容: ${response.take(500)}"
+                    detail = "请求 URL: $requestUrl\n模型列表为空"
                 )
             } else {
                 TestResult.Success(models)
@@ -131,6 +125,8 @@ object ModelCatalogClient {
                 suggestion = "检查 API 地址后再试一次。",
                 detail = "异常: ${error.javaClass.simpleName}\n${error.message}"
             )
+        } finally {
+            conn?.disconnect()
         }
     }
 
@@ -152,6 +148,22 @@ object ModelCatalogClient {
             "$normalizedBase/v1/models"
         }
     }
+
+    private fun readLimited(reader: java.io.BufferedReader): String {
+        val output = StringBuilder()
+        val buffer = CharArray(8_192)
+        while (output.length <= MAX_RESPONSE_CHARS) {
+            val read = reader.read(buffer)
+            if (read <= 0) break
+            output.append(buffer, 0, read)
+            if (output.length > MAX_RESPONSE_CHARS) {
+                throw IllegalStateException("模型列表响应过大")
+            }
+        }
+        return output.toString()
+    }
+
+    private const val MAX_RESPONSE_CHARS = 1_048_576
 }
 
 suspend fun fetchModels(apiBase: String, apiKey: String): TestResult =

@@ -35,7 +35,9 @@
 - Stage 8F-P5-A 起点：`417bde3ba69333bdccbcdab45063fce99958b5b0`
 - Stage 8F-P5-A 业务提交与 Release 目标：`16014a3a91cf5319d400d5ae1334cab1a285e56b`
 - Stage 8F-P5-A beta.14 真机结果：用户确认模型识别成功，但“直接测试并加密保存”点击后没有可见反馈，P5-A 未通过
-- 当前状态：正在修复保存按钮静默返回与无即时反馈，准备发布 beta.15；不得宣称云端或真机通过
+- Stage 8F-P5-A.1 业务提交：`2d1c3b566b7520424ec858dc72a3b76cb0ba0320`；beta.15 云端构建成功，但因缺少模拟器 UI 测试按用户要求不交付
+- Stage 8F-P5-U 通用第三方仪表盘配方引擎：方案已写入 `PROJECT.md` 并由用户确认是项目核心目标；P5-A.1 验收前不开始业务实现
+- 当前状态：正在增加 Android 模拟器按钮点击测试，准备由 GitHub Actions 测试通过后发布 beta.16；不得宣称真机通过
 
 ## 云端状态
 
@@ -77,7 +79,7 @@
 
 ## 当前唯一任务
 
-完成 P5-A 保存按钮反馈修复的提交、GitHub Actions 和 beta.15 发布；用户使用 PuppyRouter 重新捕获并复测“直接测试并加密保存”。真机通过前不进入 POST/GraphQL。
+先让 GitHub Actions 在 Android 模拟器中实际启动实验室并点击保存按钮；只有 JVM 规则测试、模拟器 UI 测试、编译和固定签名均通过才发布 beta.16。用户真机确认 P5-A.1 前不开始 P5-U1。
 
 ## Stage 8F-P5-A 当前实现
 
@@ -109,7 +111,10 @@
 - 修复后点击立即显示“正在准备直连测试”，网络开始后显示“正在直接测试，请稍候”；准备失败、状态失效、凭据缺失和网络失败均显示中文原因并恢复重试按钮。
 - 新增 PuppyRouter `/api/user/self` 与 `/api/data/self` 双接口配方回归用例；未记录用户余额、用量、Cookie、Token 或其他凭据值。
 - 实验首页版本：`Stage 8F-P5-A · Prototype 20260719-002`。
-- `git diff --check`、实验布局 XML 和差异敏感信息模式检查通过；本机仍缺少 Java、Android SDK 和 ADB，GitHub Actions beta.15、覆盖安装和真机验收待执行。
+- beta.15 GitHub Actions `29671216346` 一次成功并已生成 Release，但它只证明 JVM 测试、编译和签名通过；用户要求增加实际 UI 自动化后再交付，因此 beta.15 不提供安装命令。
+- 新增仅在 debuggable 包生效的无敏感数据测试入口，使用 UI Automator 跨进程启动实验室并点击按钮，断言按钮进入可重试状态且页面显示“识别结果已经失效”。
+- 工作流在 Release 之前增加 Android 35 模拟器 `connectedDebugAndroidTest`；任一 UI 断言失败不得发布 APK。
+- 本机仍缺少 Java、Android SDK 和 ADB；beta.16 云端测试、覆盖安装和真机验收待执行。
 
 ## Stage 8F-P4.1 当前实现
 
@@ -274,6 +279,16 @@
 ## 本地执行边界
 
 真机端只负责从 GitHub Release 下载并覆盖安装 APK、启动和汇报。不得卸载或清除应用数据，以免破坏现有配置和授权。
+
+## Stage 8F-QA-1 当前审计批次（2026-07-19）
+
+- 用户已确认先完成全功能与数据逻辑审计、自行自动化测试，再交付 APK；P5-U1 业务实现继续冻结。
+- 审计基线为 `2d1c3b566b7520424ec858dc72a3b76cb0ba0320`；beta.15 虽已构建，但未经过模拟器 UI/覆盖安装门禁，不提供安装命令。
+- 已修复：平台公共授权迁移误读槽位别名、迁移写入失败仍删除旧凭据、网页登录凭据与 profile 标记非原子保存、能力卡按整段 URL `contains` 误识别服务、模型错误详情暴露原始服务端响应、认证请求自动重定向、部分连接异常路径未释放、仅模型名空结果写入最近成功缓存。
+- Public 仓库当前树删除旧 `MainActivity.kt.bak` 和包含 `local.properties` 的旧项目压缩包，并补充 `.env`、凭据、签名与备份文件忽略规则；测试中的假密钥样本不是真实凭据。
+- 新增 Android Instrumentation：凭据精确迁移、API Key 加密回读、完整缓存抗残缺/空结果覆盖、跨实例缓存隔离；UI Automator 实际启动独立实验室并点击保存按钮验证可见失败反馈。
+- GitHub 门禁升级为 `testDebugUnitTest + lintDebug + assembleDebug`，Android 35 模拟器先安装 beta.15，再用 `adb install -r` 覆盖当前 APK、启动主 Activity并运行 `connectedDebugAndroidTest`；任一步失败不发布 beta.16。
+- beta.16 提交、Actions、Release、APK SHA-256 和证书复核：待本批次唯一一次云端运行后回填。
 
 ## 阶段验收
 

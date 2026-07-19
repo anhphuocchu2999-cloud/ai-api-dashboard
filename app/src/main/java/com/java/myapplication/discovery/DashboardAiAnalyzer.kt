@@ -60,6 +60,7 @@ class DashboardAiAnalyzer {
         activeConnection = connection
         return try {
             connection.requestMethod = "POST"
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = DashboardAiRequestPolicy.CONNECT_TIMEOUT_MS
             connection.readTimeout = DashboardAiRequestPolicy.READ_TIMEOUT_MS
             connection.doOutput = true
