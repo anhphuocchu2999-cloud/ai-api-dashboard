@@ -2349,3 +2349,11 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 业务提交 `fc26eacd8d0706cc4de1abe804262f1ae1274b81` 的 Actions `29686109506` 已通过 JVM 测试、`lintDebug` 与 `assembleDebug`；发布和签名步骤因模拟器门禁失败而正确跳过，没有发布 beta.19。
 - 唯一失败是既有 UI Automator 用例在 10 秒内未看到“直接测试并加密保存”按钮。该 Debug 专用测试入口在显示测试状态前仍会冷启动独立进程 WebView，云端本次启动超过等待窗口；业务按钮断言本身没有删除或放宽。
 - 最小修复只让带有内部 Debug 自动化标记的入口跳过与该用例无关的 WebView 初始化，立即绑定按钮并展示失效结果测试状态；正常用户入口、网页捕获、AI 调用和真实 WebView 初始化顺序保持不变。随后重新执行完整门禁，不只重跑失败步骤。
+
+**最终云端门禁与 beta.19 交付**
+
+- UI 门禁稳定性提交与 Release 目标：`0bf18a9050d32ee4e65ace0394de1a6312833f36`；Actions `29686369540` 结论为 `success`。
+- JVM 测试、`lintDebug`、`assembleDebug`、beta.18 固定证书复核与首次安装、beta.19 `adb install -r` 覆盖升级、旧/新主 Activity 启动、8 项 Instrumentation/UI Automator、当前 APK 固定证书复核、Artifact 与 Prerelease 全部通过。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.19`；APK：`ai-api-dashboard-v0.1.0-beta.19-debug.apk`，大小 `12201495` 字节。
+- GitHub 记录的摘要与公开 Release 独立重下载 SHA-256 均为 `0D261A45B96EB36F5917BDA80B5F8EAED083BFE63AB8B0C19574E21919B8CA7C`；固定 Beta 证书 SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 自动化证明安全状态分类、安装升级和回归门禁通过，不代表第三方模型服务已经恢复。用户需在同一真实站点再次调用 AI；若上游仍返回 5xx，beta.19 会显示具体 500/502/503/504 并保留捕获供原地手动重试。
