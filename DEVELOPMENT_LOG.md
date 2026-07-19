@@ -2343,3 +2343,9 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 起始分支：`feature/stage-8b-simple-connection-flow`；起始提交/回滚位置：`48b51a029306818bd3166a9e6ec389826c8932c6`。
 - 修改：`DashboardAiAnalyzer.kt`、`DashboardDiscoveryActivity.kt`、`activity_dashboard_discovery.xml`、`DashboardAiHttpErrorPolicyTest.kt`、`android-prerelease.yml`、`tools/ci-emulator-gate.sh`、`PROJECT.md`、`AI_HANDOFF.md`、`DEVELOPMENT_LOG.md`。
 - beta.19 门禁将执行 `testDebugUnitTest + lintDebug + assembleDebug`、beta.18 → beta.19 模拟器 `adb install -r`、主 Activity 启动、全部 Instrumentation/UI Automator 和固定证书复核；结果待 GitHub Actions 回填，当前不得宣称编译、安装或真机通过。
+
+**首次云端门禁结果与最小修复**
+
+- 业务提交 `fc26eacd8d0706cc4de1abe804262f1ae1274b81` 的 Actions `29686109506` 已通过 JVM 测试、`lintDebug` 与 `assembleDebug`；发布和签名步骤因模拟器门禁失败而正确跳过，没有发布 beta.19。
+- 唯一失败是既有 UI Automator 用例在 10 秒内未看到“直接测试并加密保存”按钮。该 Debug 专用测试入口在显示测试状态前仍会冷启动独立进程 WebView，云端本次启动超过等待窗口；业务按钮断言本身没有删除或放宽。
+- 最小修复只让带有内部 Debug 自动化标记的入口跳过与该用例无关的 WebView 初始化，立即绑定按钮并展示失效结果测试状态；正常用户入口、网页捕获、AI 调用和真实 WebView 初始化顺序保持不变。随后重新执行完整门禁，不只重跑失败步骤。

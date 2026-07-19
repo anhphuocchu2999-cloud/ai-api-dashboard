@@ -301,13 +301,17 @@ class DashboardDiscoveryActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_dashboard_discovery)
         bindViews()
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val staleRecipeUiTest =
+            debuggable && intent.getBooleanExtra(EXTRA_UI_TEST_STALE_RECIPE_STATE, false)
+        if (staleRecipeUiTest) {
+            bindActions()
+            showStaleRecipeUiTestState()
+            return
+        }
         configureWebView()
         bindActions()
         updateSavedRecipePanel()
-        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (debuggable && intent.getBooleanExtra(EXTRA_UI_TEST_STALE_RECIPE_STATE, false)) {
-            showStaleRecipeUiTestState()
-        }
     }
 
     private fun showStaleRecipeUiTestState() {
