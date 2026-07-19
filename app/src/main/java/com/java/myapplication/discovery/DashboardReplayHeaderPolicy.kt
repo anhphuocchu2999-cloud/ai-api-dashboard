@@ -49,11 +49,12 @@ object DashboardReplayHeaderPolicy {
     }
 
     fun requestKey(method: String, url: String, lockedOrigin: String): String? {
-        if (!method.equals("GET", ignoreCase = true)) return null
-        if (DashboardDiscoveryRules.originOf(url) != lockedOrigin) return null
-        if (DashboardDiscoveryRules.hasQueryOrFragment(url, lockedOrigin)) return null
-        val endpoint = DashboardDiscoveryRules.withoutQuery(url, lockedOrigin)
-        if (!DashboardDiscoveryRules.isHttpsUrl(endpoint)) return null
-        return "GET $endpoint"
+        val normalizedMethod = method.uppercase()
+        val requestUrl = DashboardReplayRequestPolicy.normalizeRequestUrl(
+            normalizedMethod,
+            url,
+            lockedOrigin
+        ) ?: return null
+        return "$normalizedMethod $requestUrl"
     }
 }

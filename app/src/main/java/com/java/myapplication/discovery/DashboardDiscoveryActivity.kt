@@ -56,7 +56,57 @@ class DashboardDiscoveryActivity : Activity() {
                 window.__aadCaptureInstalled = true;
                 window.__aadCaptureBuffer = [];
 
-                function keep(url, method, status, body) {
+                function captureBody(value) {
+                    try {
+                        if (value === undefined || value === null) {
+                            return { body: '', contentType: '', truncated: false, error: '' };
+                        }
+                        if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) {
+                            var formText = value.toString();
+                            return {
+                                body: formText.length > 16384 ? formText.substring(0, 16384) : formText,
+                                contentType: 'application/x-www-form-urlencoded;charset=UTF-8',
+                                truncated: formText.length > 16384,
+                                error: ''
+                            };
+                        }
+                        if (typeof FormData !== 'undefined' && value instanceof FormData) {
+                            return { body: '', contentType: 'multipart/form-data', truncated: false,
+                                error: 'multipart 或文件表单不能安全直接重放；需要网页登录辅助刷新' };
+                        }
+                        if (typeof Blob !== 'undefined' && value instanceof Blob) {
+                            return { body: '', contentType: value.type || '', truncated: false,
+                                error: '二进制请求体不能安全直接重放；需要网页登录辅助刷新' };
+                        }
+                        if (typeof ArrayBuffer !== 'undefined' &&
+                            (value instanceof ArrayBuffer || ArrayBuffer.isView(value))) {
+                            return { body: '', contentType: '', truncated: false,
+                                error: '二进制请求体不能安全直接重放；需要网页登录辅助刷新' };
+                        }
+                        var text = String(value);
+                        var truncated = text.length > 16384;
+                        return {
+                            body: truncated ? text.substring(0, 16384) : text,
+                            contentType: '',
+                            truncated: truncated,
+                            error: ''
+                        };
+                    } catch (e) {
+                        return { body: '', contentType: '', truncated: false,
+                            error: '请求体无法读取；需要网页登录辅助刷新' };
+                    }
+                }
+
+                function headerValue(headers, name) {
+                    try {
+                        var normalized = new Headers(headers || {});
+                        return normalized.get(name) || '';
+                    } catch (e) {
+                        return '';
+                    }
+                }
+
+                function keep(url, method, status, body, requestMeta) {
                     try {
                         var text = String(body || '');
                         if (!text || text.length > 60000) text = text.substring(0, 60000);
@@ -67,7 +117,11 @@ class DashboardDiscoveryActivity : Activity() {
                             url: String(url || '').substring(0, 2000),
                             method: String(method || 'GET').substring(0, 12),
                             status: Number(status || 0),
-                            body: text
+                            body: text,
+                            requestBody: String((requestMeta && requestMeta.body) || ''),
+                            requestContentType: String((requestMeta && requestMeta.contentType) || '').substring(0, 200),
+                            requestBodyTruncated: Boolean(requestMeta && requestMeta.truncated),
+                            requestCaptureError: String((requestMeta && requestMeta.error) || '').substring(0, 300)
                         });
                         if (window.__aadCaptureBuffer.length > 30) window.__aadCaptureBuffer.shift();
                     } catch (e) {}
@@ -78,11 +132,32 @@ class DashboardDiscoveryActivity : Activity() {
                     window.fetch = function(input, init) {
                         var method = (init && init.method) || (input && input.method) || 'GET';
                         var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+                        var requestHeaders = (init && init.headers) || (input && input.headers) || {};
+                        var requestMetaPromise;
+                        if (init && Object.prototype.hasOwnProperty.call(init, 'body')) {
+                            requestMetaPromise = Promise.resolve(captureBody(init.body));
+                        } else if (input && typeof input.clone === 'function' && String(method).toUpperCase() !== 'GET') {
+                            try {
+                                requestMetaPromise = input.clone().text().then(captureBody).catch(function() {
+                                    return { body: '', contentType: '', truncated: false,
+                                        error: '请求体无法读取；需要网页登录辅助刷新' };
+                                });
+                            } catch (e) {
+                                requestMetaPromise = Promise.resolve({ body: '', contentType: '', truncated: false,
+                                    error: '请求体无法读取；需要网页登录辅助刷新' });
+                            }
+                        } else {
+                            requestMetaPromise = Promise.resolve(captureBody(null));
+                        }
+                        requestMetaPromise = requestMetaPromise.then(function(meta) {
+                            meta.contentType = headerValue(requestHeaders, 'content-type') || meta.contentType || '';
+                            return meta;
+                        });
                         return originalFetch.apply(this, arguments).then(function(response) {
                             try {
                                 var clone = response.clone();
-                                clone.text().then(function(text) {
-                                    keep(clone.url || url, method, clone.status, text);
+                                Promise.all([clone.text(), requestMetaPromise]).then(function(values) {
+                                    keep(clone.url || url, method, clone.status, values[0], values[1]);
                                 }).catch(function() {});
                             } catch (e) {}
                             return response;
@@ -92,22 +167,34 @@ class DashboardDiscoveryActivity : Activity() {
 
                 var originalOpen = XMLHttpRequest.prototype.open;
                 var originalSend = XMLHttpRequest.prototype.send;
+                var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
                 XMLHttpRequest.prototype.open = function(method, url) {
                     this.__aadMethod = method || 'GET';
                     this.__aadUrl = url || '';
+                    this.__aadContentType = '';
                     return originalOpen.apply(this, arguments);
                 };
-                XMLHttpRequest.prototype.send = function() {
+                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                    if (String(name || '').toLowerCase() === 'content-type') {
+                        this.__aadContentType = String(value || '');
+                    }
+                    return originalSetRequestHeader.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function(body) {
                     var xhr = this;
+                    var requestMeta = captureBody(body);
+                    requestMeta.contentType = xhr.__aadContentType || requestMeta.contentType || '';
                     xhr.addEventListener('loadend', function() {
                         try {
                             var text = '';
-                            if (!xhr.responseType || xhr.responseType === 'text' || xhr.responseType === 'json') {
+                            if (xhr.responseType === 'json') {
+                                text = JSON.stringify(xhr.response || {});
+                            } else if (!xhr.responseType || xhr.responseType === 'text') {
                                 text = (typeof xhr.responseText === 'string')
                                     ? xhr.responseText
                                     : JSON.stringify(xhr.response || {});
                             }
-                            keep(xhr.responseURL || xhr.__aadUrl, xhr.__aadMethod, xhr.status, text);
+                            keep(xhr.responseURL || xhr.__aadUrl, xhr.__aadMethod, xhr.status, text, requestMeta);
                         } catch (e) {}
                     });
                     return originalSend.apply(this, arguments);
@@ -624,29 +711,24 @@ class DashboardDiscoveryActivity : Activity() {
         }
         val cookies = runCatching {
             recipe.endpoints.associateWith { endpoint ->
-                CookieManager.getInstance().getCookie(endpoint).orEmpty()
+                val requestUrl = draft.replayRequestsByEndpoint[endpoint]?.requestUrl ?: endpoint
+                CookieManager.getInstance().getCookie(requestUrl).orEmpty()
             }
         }.getOrElse {
             showRecipePreparationError("读取本机网页登录状态失败，请返回仪表盘重新登录后再试")
             return
         }
         val replayHeaders = draft.replayHeadersByEndpoint
-        if (recipe.endpoints.any { endpoint ->
-                cookies[endpoint].isNullOrBlank() && replayHeaders[endpoint].isNullOrEmpty()
-            }
-        ) {
-            showRecipePreparationError("没有取得数据接口所需的 Cookie 或认证信息，请确认网页已经登录并重新捕获")
-            return
-        }
+        val replayRequests = draft.replayRequestsByEndpoint
         recipeInProgress = true
         saveRecipeButton.text = "正在直接测试，请稍候…"
         resultRecipeStatus.text = "正在直接请求并二次核对 ${recipe.metrics.size} 个字段…"
         Toast.makeText(this, "已开始直接测试", Toast.LENGTH_SHORT).show()
         Thread {
             try {
-                val replay = recipeClient.fetch(recipe, cookies, replayHeaders)
+                val replay = recipeClient.fetch(recipe, cookies, replayHeaders, replayRequests)
                 val savedRecipe = recipe.copy(lastSuccessAt = System.currentTimeMillis())
-                if (!recipeRepository.save(savedRecipe, cookies, replayHeaders)) {
+                if (!recipeRepository.save(savedRecipe, cookies, replayHeaders, replayRequests)) {
                     throw IllegalStateException("本机加密保存失败，没有写入明文凭据")
                 }
                 runOnUiThread {
@@ -706,13 +788,15 @@ class DashboardDiscoveryActivity : Activity() {
                 val replay = recipeClient.fetch(
                     saved.recipe,
                     saved.cookiesByEndpoint,
-                    saved.replayHeadersByEndpoint
+                    saved.replayHeadersByEndpoint,
+                    saved.replayRequestsByEndpoint
                 )
                 val updated = saved.recipe.copy(lastSuccessAt = System.currentTimeMillis())
                 if (!recipeRepository.save(
                         updated,
                         saved.cookiesByEndpoint,
-                        saved.replayHeadersByEndpoint
+                        saved.replayHeadersByEndpoint,
+                        saved.replayRequestsByEndpoint
                     )
                 ) {
                     throw IllegalStateException("刷新成功，但本机状态更新时间保存失败")
@@ -772,12 +856,14 @@ class DashboardDiscoveryActivity : Activity() {
                 labels
             ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             val boundInstanceId = saved.recipe.boundInstanceId
+            val widgetEligible = saved.recipe.isWidgetReplayEligible()
             val selectedIndex = bindableConfigs.indexOfFirst { config ->
                 InstanceKeyResolver.canonicalInstanceId(config.id) == boundInstanceId
             }
             if (selectedIndex >= 0) recipeInstanceSpinner.setSelection(selectedIndex)
-            recipeInstanceSpinner.visibility = if (bindableConfigs.isEmpty()) View.GONE else View.VISIBLE
-            bindRecipeButton.isEnabled = bindableConfigs.isNotEmpty()
+            recipeInstanceSpinner.visibility = if (bindableConfigs.isEmpty() || !widgetEligible) View.GONE else View.VISIBLE
+            bindRecipeButton.visibility = if (widgetEligible) View.VISIBLE else View.GONE
+            bindRecipeButton.isEnabled = bindableConfigs.isNotEmpty() && widgetEligible
             unbindRecipeButton.visibility = if (boundInstanceId == null) View.GONE else View.VISIBLE
             val lastSuccess = saved.recipe.lastSuccessAt.takeIf { it > 0L }?.let {
                 DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
@@ -787,8 +873,13 @@ class DashboardDiscoveryActivity : Activity() {
                 selectedIndex >= 0 -> "已接入 ${labels[selectedIndex]}"
                 else -> "已接入实例 $boundInstanceId（当前卡片不可用）"
             }
-            val configHint = if (bindableConfigs.isEmpty()) "\n请先在主 App 完整配置并启用一张卡片" else ""
-            savedRecipeSummary.text = "${saved.recipe.pagePurpose}\n${saved.recipe.metrics.size} 个字段 · 上次成功 $lastSuccess\n$bindingText$configHint"
+            val configHint = when {
+                !widgetEligible -> "\nP5-U1 查询/POST 配方已保存；当前阶段只允许在实验室直接刷新，暂不接入 Widget"
+                bindableConfigs.isEmpty() -> "\n请先在主 App 完整配置并启用一张卡片"
+                else -> ""
+            }
+            val methods = saved.recipe.effectiveRequestSpecs().joinToString("/") { it.method }.ifBlank { "GET" }
+            savedRecipeSummary.text = "${saved.recipe.pagePurpose}\n${saved.recipe.metrics.size} 个字段 · $methods · 上次成功 $lastSuccess\n$bindingText$configHint"
         }
     }
 
@@ -804,6 +895,11 @@ class DashboardDiscoveryActivity : Activity() {
 
     private fun bindSavedRecipeToWidget() {
         if (recipeInProgress) return
+        val saved = recipeRepository.load()
+        if (saved == null || !saved.recipe.isWidgetReplayEligible()) {
+            Toast.makeText(this, "P5-U1 查询/POST 配方暂不接入 Widget，请先在实验室直接刷新", Toast.LENGTH_LONG).show()
+            return
+        }
         val config = bindableConfigs.getOrNull(recipeInstanceSpinner.selectedItemPosition)
         if (config == null) {
             Toast.makeText(this, "请先选择一张已配置卡片", Toast.LENGTH_SHORT).show()
@@ -929,6 +1025,8 @@ class DashboardDiscoveryActivity : Activity() {
         recipeClient.cancel()
         removeDocumentStartCapture()
         capturedReplayHeaders.clear()
+        currentCapture = null
+        currentAnalysis = null
         apiKey = ""
         if (::apiKeyInput.isInitialized) apiKeyInput.text?.clear()
         if (::webView.isInitialized) {

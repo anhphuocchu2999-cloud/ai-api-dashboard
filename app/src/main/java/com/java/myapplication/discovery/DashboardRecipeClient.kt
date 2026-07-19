@@ -30,22 +30,24 @@ class DashboardRecipeClient {
     fun fetch(
         recipe: DashboardRequestRecipe,
         cookiesByEndpoint: Map<String, String>,
-        replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
+        replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap(),
+        replayRequestsByEndpoint: Map<String, DashboardReplayRequestSecret> = emptyMap()
     ): DashboardReplayResult {
         DashboardRecipeRules.validate(recipe)?.let { throw IllegalArgumentException(it) }
         val responses = mutableMapOf<String, Any>()
         var previousRequestAt = 0L
-        for (endpoint in recipe.endpoints) {
+        for (spec in recipe.effectiveRequestSpecs()) {
+            val endpoint = spec.endpoint
             val cookie = cookiesByEndpoint[endpoint].orEmpty()
             val replayHeaders = DashboardReplayHeaderPolicy.sanitize(
                 replayHeadersByEndpoint[endpoint].orEmpty()
             )
-            if (cookie.isBlank() && replayHeaders.isEmpty()) {
-                throw IllegalStateException("直连认证信息缺失，请重新打开网页并登录后捕获")
-            }
+            val request = replayRequestsByEndpoint[endpoint]
+                ?: DashboardReplayRequestSecret(endpoint)
+            validateReplayRequest(recipe, spec, request)
             val waitMillis = MIN_HOST_INTERVAL_MS - (System.currentTimeMillis() - previousRequestAt)
             if (previousRequestAt > 0L && waitMillis > 0L) Thread.sleep(waitMillis)
-            responses[endpoint] = requestJson(endpoint, recipe, cookie, replayHeaders)
+            responses[endpoint] = requestJson(spec, request, recipe, cookie, replayHeaders)
             previousRequestAt = System.currentTimeMillis()
         }
 
@@ -91,15 +93,16 @@ class DashboardRecipeClient {
     }
 
     private fun requestJson(
-        endpoint: String,
+        spec: DashboardRequestSpec,
+        request: DashboardReplayRequestSecret,
         recipe: DashboardRequestRecipe,
         cookie: String,
         replayHeaders: Map<String, String>
     ): Any {
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        val connection = URL(request.requestUrl).openConnection() as HttpURLConnection
         activeConnection = connection
         return try {
-            connection.requestMethod = "GET"
+            connection.requestMethod = spec.method
             connection.instanceFollowRedirects = false
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
@@ -109,6 +112,20 @@ class DashboardRecipeClient {
             connection.setRequestProperty("Referer", recipe.dashboardUrl)
             connection.setRequestProperty("User-Agent", MOBILE_USER_AGENT)
             replayHeaders.forEach { (name, value) -> connection.setRequestProperty(name, value) }
+            if (spec.method == "POST") {
+                connection.doOutput = true
+                connection.setRequestProperty(
+                    "Content-Type",
+                    when (spec.bodyKind) {
+                        DashboardReplayRequestPolicy.BODY_JSON -> "application/json; charset=utf-8"
+                        DashboardReplayRequestPolicy.BODY_FORM -> "application/x-www-form-urlencoded; charset=utf-8"
+                        else -> throw IllegalArgumentException("POST 请求配方缺少安全请求体")
+                    }
+                )
+                connection.outputStream.use { stream ->
+                    stream.write(request.requestBody.toByteArray(Charsets.UTF_8))
+                }
+            }
             val status = connection.responseCode
             if (status !in 200..299) throw IllegalStateException(httpError(status))
             val responseText = connection.inputStream.use { stream ->
@@ -123,6 +140,45 @@ class DashboardRecipeClient {
         } finally {
             connection.disconnect()
             if (activeConnection === connection) activeConnection = null
+        }
+    }
+
+    private fun validateReplayRequest(
+        recipe: DashboardRequestRecipe,
+        spec: DashboardRequestSpec,
+        request: DashboardReplayRequestSecret
+    ) {
+        val requestUrl = DashboardReplayRequestPolicy.normalizeRequestUrl(
+            spec.method,
+            request.requestUrl,
+            recipe.origin
+        ) ?: throw IllegalArgumentException("请求地址已经失效，请重新识别这个仪表盘")
+        if (DashboardDiscoveryRules.withoutQuery(requestUrl, recipe.origin) != spec.endpoint) {
+            throw IllegalArgumentException("请求地址与保存配方不一致")
+        }
+        val queryNames = DashboardReplayRequestPolicy.queryParameterNames(requestUrl)
+            ?: throw IllegalArgumentException("保存的查询参数已经失效")
+        if (queryNames != spec.queryParameterNames) {
+            throw IllegalArgumentException("保存的查询参数与配方不一致")
+        }
+        val contentType = when (spec.bodyKind) {
+            DashboardReplayRequestPolicy.BODY_JSON -> "application/json"
+            DashboardReplayRequestPolicy.BODY_FORM -> "application/x-www-form-urlencoded"
+            else -> ""
+        }
+        val body = DashboardReplayRequestPolicy.classifyBody(
+            method = spec.method,
+            contentType = contentType,
+            rawBody = request.requestBody,
+            bodyTruncated = false,
+            captureError = null
+        )
+        if (
+            body.error != null ||
+            body.kind != spec.bodyKind ||
+            body.fieldNames.toSet() != spec.bodyFieldNames.toSet()
+        ) {
+            throw IllegalArgumentException("保存的请求体与配方不一致，请重新识别")
         }
     }
 

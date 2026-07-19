@@ -28,7 +28,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Stage 8F-P5-A · Prototype 20260719-002"
+                android:text="Stage 8F-P5-U1 · Prototype 20260719-001"
                 android:textColor="#6B625D"
                 android:textSize="13sp" />
 
@@ -38,7 +38,7 @@
                 android:layout_marginTop="16dp"
                 android:background="#FFFFE4"
                 android:padding="12dp"
-                android:text="AI 只负责首次识别。直接测试通过后，可把这一份本机加密配方明确接入一张已配置卡片；其他卡片仍走原有平台数据源。"
+                android:text="支持同站点 GET、带查询参数 GET、POST JSON/Form。查询值、请求体和登录凭据只在本机加密保存；P5-U1 新协议先在实验室直接刷新，不接入 Widget。"
                 android:textColor="#5B4200"
                 android:textSize="14sp" />
 

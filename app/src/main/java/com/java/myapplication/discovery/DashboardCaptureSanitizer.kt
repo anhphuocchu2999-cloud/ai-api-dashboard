@@ -17,7 +17,13 @@ data class CapturedResponseCandidate(
     val status: Int,
     val sanitizedJson: String,
     val hadQuery: Boolean,
-    val replayHeaders: Map<String, String> = emptyMap()
+    val replayHeaders: Map<String, String> = emptyMap(),
+    val requestUrl: String = endpoint,
+    val requestBodyKind: String = DashboardReplayRequestPolicy.BODY_NONE,
+    val requestBody: String = "",
+    val requestBodyFieldNames: List<String> = emptyList(),
+    val replayBlockReason: String? = null,
+    val captureIndex: Int = 0
 )
 
 object DashboardCaptureSanitizer {
@@ -46,11 +52,24 @@ object DashboardCaptureSanitizer {
             val rawBody = record.optString("body")
             val parsedBody = parseJson(rawBody) ?: continue
             val rawEndpoint = record.optString("url")
+            if (DashboardDiscoveryRules.originOf(rawEndpoint) != lockedOrigin) continue
             val endpoint = DashboardDiscoveryRules.withoutQuery(rawEndpoint, lockedOrigin)
             if (!DashboardDiscoveryRules.isHttpsUrl(endpoint)) continue
             val score = scoreCandidate(endpoint, record.optInt("status"))
             val sanitizedBody = sanitizeNode(parsedBody, null, 0).toString()
             val method = record.optString("method", "GET").uppercase().take(12)
+            val requestUrl = DashboardReplayRequestPolicy.normalizeRequestUrl(
+                method = method,
+                url = rawEndpoint,
+                lockedOrigin = lockedOrigin
+            ) ?: rawEndpoint.substringBefore('#').take(4_096)
+            val requestBody = DashboardReplayRequestPolicy.classifyBody(
+                method = method,
+                contentType = record.optString("requestContentType"),
+                rawBody = record.optString("requestBody"),
+                bodyTruncated = record.optBoolean("requestBodyTruncated"),
+                captureError = record.optString("requestCaptureError").takeIf { it.isNotBlank() }
+            )
             val requestKey = DashboardReplayHeaderPolicy.requestKey(
                 method = method,
                 url = rawEndpoint,
@@ -66,7 +85,13 @@ object DashboardCaptureSanitizer {
                 status = record.optInt("status"),
                 sanitizedJson = sanitizedBody,
                 hadQuery = DashboardDiscoveryRules.hasQueryOrFragment(rawEndpoint, lockedOrigin),
-                replayHeaders = replayHeaders
+                replayHeaders = replayHeaders,
+                requestUrl = requestUrl,
+                requestBodyKind = requestBody.kind,
+                requestBody = requestBody.rawBody,
+                requestBodyFieldNames = requestBody.fieldNames,
+                replayBlockReason = requestBody.error,
+                captureIndex = index
             )
         }
 

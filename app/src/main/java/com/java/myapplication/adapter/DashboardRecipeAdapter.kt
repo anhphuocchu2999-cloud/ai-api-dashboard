@@ -15,7 +15,7 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
-/** Adapter for the one user-validated dashboard recipe from Stage 8F-P3. */
+/** Adapter for legacy query-free GET recipes already accepted into Widget at Stage 8F-P4. */
 internal class DashboardRecipeAdapter(context: Context) : PlatformAdapter {
     private val repository = DashboardRecipeRepository(context.applicationContext)
     private val client = DashboardRecipeClient()
@@ -50,7 +50,8 @@ internal class DashboardRecipeAdapter(context: Context) : PlatformAdapter {
             val replay = client.fetch(
                 saved.recipe,
                 saved.cookiesByEndpoint,
-                saved.replayHeadersByEndpoint
+                saved.replayHeadersByEndpoint,
+                saved.replayRequestsByEndpoint
             )
             val projection = DashboardRecipeWidgetMapper.project(replay.metrics)
             WidgetData(

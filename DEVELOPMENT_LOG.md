@@ -2283,3 +2283,33 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 新增规则测试覆盖未配置角标、已配置同步/失败统一状态以及截图中的 66383/7147 长标签映射；beta.17 继续受 JVM、Lint、编译、模拟器覆盖安装、Instrumentation/UI Automator 和固定签名全门禁约束。
 - 发布目标提交 `ee2a03cf907c43bc6c965da775054bbf2c5d66ea` 的 Actions `29676789208` 全部成功，beta.16 → beta.17 模拟器覆盖升级、Activity 启动、全部 Instrumentation/UIAutomator 与固定证书复核均通过。
 - Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.17`；APK `12185107` 字节；公开 Release 重下载 SHA-256 为 `14D77C516E5ED9862E1B67EF9CFF8356EF677F8560B79464F3EE37F890F71F00`。
+
+## 2026-07-19｜Stage 8F-P5-U1 通用同 Origin GET/查询/POST 直接重放
+
+**用户确认与起点**
+
+- 用户用 beta.17 真机截图确认 QA-2：未配置槽位不再误显俏皮角标，通用指标“剩余额度 66383 / 用量 7147”保持单行，已保存网页数据能够进入 Widget；随后明确回复“开始干”，批准按 `PROJECT.md` 已确认的 P5-U1 实施。
+- 起始分支：`feature/stage-8b-simple-connection-flow`；起始提交：`bdb1fa55e2d17a2fd433171d6bbbc3355c12394e`；回滚位置同该提交。
+
+**实现方案与安全取舍**
+
+- 捕获层继续只观察用户确认的精确 HTTPS Origin。AI Prompt 只包含去掉查询参数的 endpoint 和脱敏响应；完整查询值、POST 请求体、Cookie 与允许认证头不进入 AI、普通日志或配方明文。
+- 配方升级为 v2：明文只记录 GET/POST、查询参数名、JSON/Form 顶层字段名和响应映射；完整请求 URL 与最多 16KB 的 JSON/Form 原文进入 Android Keystore 密文容器。旧 v1 无查询 GET 配方继续读取、刷新和 Widget 绑定。
+- 只允许 GET、带查询 GET、POST JSON 和 `application/x-www-form-urlencoded`；multipart、文件/二进制、超限请求体、其他方法和不安全字段名明确标记“需要网页登录辅助刷新”，不保存注定失败的直接配方。
+- 保存前使用捕获到的完整请求做一次真实重放并核对全部字段；同 Host 仍串行且间隔至少 500ms，不重试、不跟随重定向。
+- P5-U1 新查询/POST 配方只能在实验室直接刷新；绑定按钮和 `AdapterFactory` 双重拒绝接入 Widget，避免提前进入尚未验收的 P5-U4。既有无查询 GET 配方不受影响。
+
+**验证计划与边界**
+
+- JVM 规则测试覆盖同 Origin GET、查询 GET、POST Form、方法/Origin/请求头边界；Android Instrumentation 覆盖 POST JSON 分类、查询值/请求体不进入 AI Prompt 与明文配方、Keystore 密文落盘及往返、v1 配方兼容。
+- 发布门禁继续执行 `testDebugUnitTest + lintDebug + assembleDebug`、beta.17 → beta.18 模拟器覆盖安装、Activity 启动、全部 Instrumentation/UI Automator 和固定证书复核；任一步失败不发布。
+- 本阶段不实现跨 Origin、GraphQL 专用语义、Service Worker、动态签名、localStorage 或网页登录辅助刷新，也不改现有平台 Adapter 和 Widget 布局。至少一个真实查询 GET 或 POST 站点仍需用户真机二次核对，未验收前不得进入 P5-U2。
+
+**实际修改文件与提交前状态**
+
+- 请求捕获与 UI：`DashboardDiscoveryActivity.kt`、`activity_dashboard_discovery.xml`。
+- 配方、策略、重放与持久化：`DashboardCaptureSanitizer.kt`、`DashboardReplayRequestPolicy.kt`、`DashboardReplayHeaderPolicy.kt`、`DashboardRequestRecipe.kt`、`DashboardRecipeClient.kt`、`DashboardRecipeRepository.kt`。
+- 阶段隔离：`AdapterFactory.kt`、`DashboardRecipeAdapter.kt`；只增加新协议不得进入 Widget 的防线，没有修改现有专用 Adapter 或 Widget 布局。
+- 测试：`DashboardRecipeRulesTest.kt`、`DashboardReplayHeaderPolicyTest.kt`、`DashboardReplayRequestPolicyTest.kt`、`DashboardUniversalRecipeInstrumentedTest.kt`。
+- 发布与交接：`android-prerelease.yml`、`tools/ci-emulator-gate.sh`、`AI_HANDOFF.md`、`DEVELOPMENT_LOG.md`。
+- `git diff --check`、实验室 XML 解析与生产源码敏感模式扫描已通过；本机没有 Android SDK/ADB，编译、模拟器覆盖安装、Instrumentation/UIAutomator 和固定签名结果等待本阶段唯一一次 GitHub Actions 全门禁。

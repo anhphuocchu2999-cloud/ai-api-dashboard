@@ -41,18 +41,65 @@ class DashboardRecipeRulesTest {
     }
 
     @Test
-    fun rejectsPostAndQueryDependentCaptures() {
-        val post = DashboardRecipeRules.create(
-            "用量", "https://dashboard.example.com/console", "https://dashboard.example.com",
-            listOf(metric), listOf(candidate(method = "POST", hadQuery = false)), 1L
-        )
-        assertTrue(post.error.orEmpty().contains("GET"))
-
+    fun createsQueryGetAndPostJsonFormRecipesWithoutPlaintextSecrets() {
         val query = DashboardRecipeRules.create(
             "用量", "https://dashboard.example.com/console", "https://dashboard.example.com",
-            listOf(metric), listOf(candidate(method = "GET", hadQuery = true)), 1L
+            listOf(metric), listOf(
+                candidate(
+                    method = "GET",
+                    requestUrl = "$endpoint?month=current&access_token=local-secret"
+                )
+            ), 1L
         )
-        assertTrue(query.error.orEmpty().contains("查询参数"))
+        assertNull(query.error)
+        val queryRecipe = requireNotNull(query.recipe)
+        assertEquals(listOf("month", "access_token"), queryRecipe.requestSpecs.single().queryParameterNames)
+        assertEquals("local-secret", query.replayRequestsByEndpoint[endpoint]?.requestUrl?.substringAfter("access_token="))
+
+        val json = DashboardRecipeRules.create(
+            "用量", "https://dashboard.example.com/console", "https://dashboard.example.com",
+            listOf(metric), listOf(
+                candidate(
+                    method = "POST",
+                    requestBodyKind = "json",
+                    requestBody = "{\"range\":\"month\",\"account_id\":\"local-secret\"}",
+                    requestBodyFieldNames = listOf("range", "account_id")
+                )
+            ), 1L
+        )
+        assertNull(json.error)
+        val jsonRecipe = requireNotNull(json.recipe)
+        assertEquals("POST", jsonRecipe.requestSpecs.single().method)
+        assertEquals("json", jsonRecipe.requestSpecs.single().bodyKind)
+
+        val form = DashboardRecipeRules.create(
+            "用量", "https://dashboard.example.com/console", "https://dashboard.example.com",
+            listOf(metric), listOf(
+                candidate(
+                    method = "POST",
+                    requestBodyKind = "form",
+                    requestBody = "range=month&csrf_token=local-secret",
+                    requestBodyFieldNames = listOf("range", "csrf_token")
+                )
+            ), 1L
+        )
+        assertNull(form.error)
+        assertEquals("form", requireNotNull(form.recipe).requestSpecs.single().bodyKind)
+    }
+
+    @Test
+    fun rejectsUnsupportedPostBodyAsBrowserAssisted() {
+        val draft = DashboardRecipeRules.create(
+            "用量", "https://dashboard.example.com/console", "https://dashboard.example.com",
+            listOf(metric), listOf(
+                candidate(
+                    method = "POST",
+                    replayBlockReason = "multipart 或文件表单不能安全直接重放；需要网页登录辅助刷新"
+                )
+            ), 1L
+        )
+
+        assertTrue(draft.error.orEmpty().contains("网页登录辅助刷新"))
     }
 
     @Test
@@ -104,7 +151,12 @@ class DashboardRecipeRulesTest {
     private fun candidate(
         endpoint: String = this.endpoint,
         method: String = "GET",
-        hadQuery: Boolean = false
+        hadQuery: Boolean = false,
+        requestUrl: String = endpoint,
+        requestBodyKind: String = "none",
+        requestBody: String = "",
+        requestBodyFieldNames: List<String> = emptyList(),
+        replayBlockReason: String? = null
     ) = CapturedResponseCandidate(
         endpoint = endpoint,
         method = method,
@@ -114,6 +166,11 @@ class DashboardRecipeRulesTest {
         replayHeaders = mapOf(
             "Authorization" to "Bearer local-secret",
             "Cookie" to "must-not-enter-replay-headers"
-        )
+        ),
+        requestUrl = requestUrl,
+        requestBodyKind = requestBodyKind,
+        requestBody = requestBody,
+        requestBodyFieldNames = requestBodyFieldNames,
+        replayBlockReason = replayBlockReason
     )
 }

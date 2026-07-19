@@ -32,7 +32,7 @@ class DashboardReplayHeaderPolicyTest {
     }
 
     @Test
-    fun requestKeyAcceptsOnlySameOriginQueryFreeGet() {
+    fun requestKeyAcceptsSameOriginGetQueryAndPostWithoutLeakingAcrossOrigins() {
         val origin = "https://dashboard.example.com"
         assertEquals(
             "GET https://dashboard.example.com/api/usage",
@@ -42,10 +42,19 @@ class DashboardReplayHeaderPolicyTest {
                 origin
             )
         )
-        assertNull(
+        assertEquals(
+            "POST https://dashboard.example.com/api/usage",
             DashboardReplayHeaderPolicy.requestKey(
                 "POST",
                 "https://dashboard.example.com/api/usage",
+                origin
+            )
+        )
+        assertEquals(
+            "GET https://dashboard.example.com/api/usage?month=current",
+            DashboardReplayHeaderPolicy.requestKey(
+                "GET",
+                "https://dashboard.example.com/api/usage?month=current",
                 origin
             )
         )
@@ -58,8 +67,8 @@ class DashboardReplayHeaderPolicyTest {
         )
         assertNull(
             DashboardReplayHeaderPolicy.requestKey(
-                "GET",
-                "https://dashboard.example.com/api/usage?month=current",
+                "PUT",
+                "https://dashboard.example.com/api/usage",
                 origin
             )
         )

@@ -10,7 +10,8 @@ import java.io.File
 data class SavedDashboardRecipe(
     val recipe: DashboardRequestRecipe,
     val cookiesByEndpoint: Map<String, String>,
-    val replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
+    val replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap(),
+    val replayRequestsByEndpoint: Map<String, DashboardReplayRequestSecret> = emptyMap()
 )
 
 /**
@@ -36,18 +37,19 @@ class DashboardRecipeRepository(context: Context) {
     fun save(
         recipe: DashboardRequestRecipe,
         cookiesByEndpoint: Map<String, String>,
-        replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap()
+        replayHeadersByEndpoint: Map<String, Map<String, String>> = emptyMap(),
+        replayRequestsByEndpoint: Map<String, DashboardReplayRequestSecret> = emptyMap()
     ): Boolean {
         if (DashboardRecipeRules.validate(recipe) != null) return false
         val safeHeaders = recipe.endpoints.associateWith { endpoint ->
             DashboardReplayHeaderPolicy.sanitize(replayHeadersByEndpoint[endpoint].orEmpty())
         }
-        if (recipe.endpoints.any { endpoint ->
-                cookiesByEndpoint[endpoint].isNullOrBlank() && safeHeaders[endpoint].isNullOrEmpty()
-            }
-        ) {
-            return false
+        val safeRequests = recipe.effectiveRequestSpecs().associate { spec ->
+            val secret = replayRequestsByEndpoint[spec.endpoint]
+                ?: DashboardReplayRequestSecret(spec.endpoint)
+            spec.endpoint to secret
         }
+        if (!requestSecretsMatchRecipe(recipe, safeRequests)) return false
         val credentialPayload = JSONObject()
             .put("version", CREDENTIAL_VERSION)
             .put(
@@ -66,6 +68,20 @@ class DashboardRecipeRepository(context: Context) {
                     }
                 }
             )
+            .put(
+                "requestsByEndpoint",
+                JSONObject().apply {
+                    recipe.endpoints.forEach { endpoint ->
+                        val request = requireNotNull(safeRequests[endpoint])
+                        put(
+                            endpoint,
+                            JSONObject()
+                                .put("requestUrl", request.requestUrl)
+                                .put("requestBody", request.requestBody)
+                        )
+                    }
+                }
+            )
             .toString()
         val encryptedCredentials = LocalCredentialCipher.encrypt(credentialPayload) ?: return false
         if (!LocalCredentialCipher.isEncrypted(encryptedCredentials)) return false
@@ -81,7 +97,8 @@ class DashboardRecipeRepository(context: Context) {
         return save(
             saved.recipe.copy(boundInstanceId = canonical),
             saved.cookiesByEndpoint,
-            saved.replayHeadersByEndpoint
+            saved.replayHeadersByEndpoint,
+            saved.replayRequestsByEndpoint
         )
     }
 
@@ -90,7 +107,8 @@ class DashboardRecipeRepository(context: Context) {
         return save(
             saved.recipe.copy(boundInstanceId = null),
             saved.cookiesByEndpoint,
-            saved.replayHeadersByEndpoint
+            saved.replayHeadersByEndpoint,
+            saved.replayRequestsByEndpoint
         )
     }
 
@@ -138,6 +156,7 @@ class DashboardRecipeRepository(context: Context) {
         val credentialRoot = runCatching { JSONObject(credentialPayload) }.getOrNull() ?: return null
         val cookieRoot = credentialRoot.optJSONObject("cookiesByEndpoint") ?: credentialRoot
         val headersRoot = credentialRoot.optJSONObject("headersByEndpoint")
+        val requestsRoot = credentialRoot.optJSONObject("requestsByEndpoint")
         val cookies = container.recipe.endpoints.associateWith { endpoint -> cookieRoot.optString(endpoint) }
         val replayHeaders = container.recipe.endpoints.associateWith { endpoint ->
             val endpointHeaders = headersRoot?.optJSONObject(endpoint) ?: JSONObject()
@@ -149,13 +168,50 @@ class DashboardRecipeRepository(context: Context) {
             }
             DashboardReplayHeaderPolicy.sanitize(rawHeaders)
         }
-        if (container.recipe.endpoints.any { endpoint ->
-                cookies[endpoint].isNullOrBlank() && replayHeaders[endpoint].isNullOrEmpty()
-            }
-        ) {
-            return null
+        val replayRequests = container.recipe.endpoints.associateWith { endpoint ->
+            val request = requestsRoot?.optJSONObject(endpoint)
+            DashboardReplayRequestSecret(
+                requestUrl = request?.optString("requestUrl").orEmpty().ifBlank { endpoint },
+                requestBody = request?.optString("requestBody").orEmpty()
+            )
         }
-        return SavedDashboardRecipe(container.recipe, cookies, replayHeaders)
+        if (!requestSecretsMatchRecipe(container.recipe, replayRequests)) return null
+        return SavedDashboardRecipe(container.recipe, cookies, replayHeaders, replayRequests)
+    }
+
+    private fun requestSecretsMatchRecipe(
+        recipe: DashboardRequestRecipe,
+        requests: Map<String, DashboardReplayRequestSecret>
+    ): Boolean {
+        return recipe.effectiveRequestSpecs().all { spec ->
+            val request = requests[spec.endpoint] ?: return@all false
+            val normalizedUrl = DashboardReplayRequestPolicy.normalizeRequestUrl(
+                spec.method,
+                request.requestUrl,
+                recipe.origin
+            ) ?: return@all false
+            if (DashboardDiscoveryRules.withoutQuery(normalizedUrl, recipe.origin) != spec.endpoint) {
+                return@all false
+            }
+            val queryNames = DashboardReplayRequestPolicy.queryParameterNames(normalizedUrl)
+                ?: return@all false
+            if (queryNames != spec.queryParameterNames) return@all false
+            val contentType = when (spec.bodyKind) {
+                DashboardReplayRequestPolicy.BODY_JSON -> "application/json"
+                DashboardReplayRequestPolicy.BODY_FORM -> "application/x-www-form-urlencoded"
+                else -> ""
+            }
+            val body = DashboardReplayRequestPolicy.classifyBody(
+                method = spec.method,
+                contentType = contentType,
+                rawBody = request.requestBody,
+                bodyTruncated = false,
+                captureError = null
+            )
+            body.error == null &&
+                body.kind == spec.bodyKind &&
+                body.fieldNames.toSet() == spec.bodyFieldNames.toSet()
+        }
     }
 
     private fun migrateLegacyRecipe(): SavedDashboardRecipe? {
@@ -179,8 +235,8 @@ class DashboardRecipeRepository(context: Context) {
     )
 
     private companion object {
-        const val CONTAINER_VERSION = 2
-        const val CREDENTIAL_VERSION = 2
+        const val CONTAINER_VERSION = 3
+        const val CREDENTIAL_VERSION = 3
         const val FILE_NAME = "dashboard_recipe_v1.json"
         const val LEGACY_PREFS_NAME = "dashboard_recipe_v1"
         const val LEGACY_KEY_RECIPE = "latest_recipe"

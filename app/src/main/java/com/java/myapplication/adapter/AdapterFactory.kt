@@ -43,6 +43,7 @@ object AdapterFactory {
     private fun getDashboardRecipeAdapter(instanceId: String): PlatformAdapter? {
         val context = DashboardApplication.appContextOrNull() ?: return null
         val recipe = DashboardRecipeRepository(context).loadRecipeMetadata() ?: return null
+        if (!recipe.isWidgetReplayEligible()) return null
         val canonicalInstance = InstanceKeyResolver.canonicalInstanceId(instanceId)
         if (recipe.boundInstanceId != canonicalInstance) return null
         return NetworkAwareAdapter(
