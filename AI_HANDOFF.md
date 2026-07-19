@@ -40,7 +40,7 @@
 - Stage 8F-QA-1 发布目标：`7c8cf24b26b44ea5f80585b5d543aaec6bb69623`；Actions `29672478591` 全部门禁通过并发布 beta.16
 - Stage 8F-QA-2 Widget 真机回归修复与 beta.17 目标：`ee2a03cf907c43bc6c965da775054bbf2c5d66ea`；Actions `29676789208` 全部门禁通过；真机第三方站点与 Widget 仍待用户验收
 - Stage 8F-QA-2 beta.17 真机截图：用户确认未配置槽位角标消失、长指标单行显示、通用数据已进入 Widget；随后明确批准开始 P5-U1
-- P5-U1 当前状态：配方 v2、查询/POST 捕获、密文持久化、真实重放、旧配方兼容与新协议 Widget 阻断已实现；beta.18 GitHub 全门禁待执行，不得宣称真机通过
+- P5-U1 当前状态：配方 v2、查询/POST 捕获、密文持久化、真实重放、旧配方兼容与新协议 Widget 阻断已实现；beta.18 GitHub 全门禁已通过并发布，等待至少一个真实查询或 POST 站点真机验收
 
 ## 云端状态
 
@@ -82,7 +82,7 @@
 
 ## 当前唯一任务
 
-完成 P5-U1 同 Origin 直接重放首批能力：真实 GET、带查询 GET、POST JSON/Form 的最小配方、敏感请求值加密、二次核对和回归测试；发布 beta.18 后等待用户使用至少一个真实查询或 POST 站点验收。P5-U1 通过前不进入跨 Origin P5-U2。
+使用 beta.18 在至少一个真实同 Origin 查询 GET 或 POST JSON/Form 站点完成“捕获 → AI 识别 → 直接测试并加密保存 → 关闭重开实验室 → 直接刷新”真机验收。P5-U1 真机通过前不进入跨 Origin P5-U2。
 
 ## Stage 8F-P5-A 当前实现
 
@@ -298,6 +298,8 @@
 - 固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。自动化证据不代替用户真机上的第三方登录、VPN/OEM Widget 与真实站点验收。
 - beta.17 修复未配置卡片误显“😂 数据在路上～”、通用长指标标签/占位单位撑坏卡片，并为全部卡片文本增加单行保护；发布目标 `ee2a03cf907c43bc6c965da775054bbf2c5d66ea`。
 - beta.17 Actions `29676789208` 全部成功；Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.17`；APK 大小 `12185107` 字节；公开下载 SHA-256：`14D77C516E5ED9862E1B67EF9CFF8356EF677F8560B79464F3EE37F890F71F00`；固定证书复核通过。
+- P5-U1 最终提交：`9b526a1ed3cee953d85f4998bfaafd1a4d8c29cb`；Actions `29678583673` 全部门禁通过并发布 beta.18。
+- beta.18 Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.18`；APK `ai-api-dashboard-v0.1.0-beta.18-debug.apk`，大小 `12201495` 字节；公开下载 SHA-256：`E55E84446B3D60596FF45AE9065FDF8FB558E39CE1583F759450E5DCB94577C7`；固定证书 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860` 复核通过。
 
 ## 阶段验收
 

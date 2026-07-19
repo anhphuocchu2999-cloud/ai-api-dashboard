@@ -2313,3 +2313,13 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 测试：`DashboardRecipeRulesTest.kt`、`DashboardReplayHeaderPolicyTest.kt`、`DashboardReplayRequestPolicyTest.kt`、`DashboardUniversalRecipeInstrumentedTest.kt`。
 - 发布与交接：`android-prerelease.yml`、`tools/ci-emulator-gate.sh`、`AI_HANDOFF.md`、`DEVELOPMENT_LOG.md`。
 - `git diff --check`、实验室 XML 解析与生产源码敏感模式扫描已通过；本机没有 Android SDK/ADB，编译、模拟器覆盖安装、Instrumentation/UIAutomator 和固定签名结果等待本阶段唯一一次 GitHub Actions 全门禁。
+
+**云端门禁与 beta.18 交付**
+
+- 业务实现提交：`b9fa1c9209aae94e7a794a6f9ae5d168c73e745b`。首轮 Actions `29678167812` 的 JVM、Lint 与 APK 编译通过，Android Instrumentation 仅有“在序列化 JSON 字符串中搜索 endpoint”断言误报，发布被正确阻断。
+- 定位提交 `c040e957346fed4f08e0940c343198fe461f4c14` 证明查询值、POST 正文值均未进入 AI Prompt，完整 URL/正文仍保留在本地候选；Actions `29678420448` 只失败于 query-free endpoint 的文本搜索断言。
+- 最小修正提交 `9b526a1ed3cee953d85f4998bfaafd1a4d8c29cb` 改为解析 Prompt JSON 后结构化核对 `responses[0].endpoint`，没有放宽脱敏规则或修改业务路径。
+- 最终 Actions `29678583673` 结论 `success`：`testDebugUnitTest`、`lintDebug`、`assembleDebug`、beta.17 → beta.18 模拟器 `adb install -r` 覆盖升级、主 Activity 启动、8 项 Instrumentation/UI Automator、固定证书复核、Artifact 与 Prerelease 全部通过。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.18`；APK：`ai-api-dashboard-v0.1.0-beta.18-debug.apk`，大小 `12201495` 字节。
+- 公开 Release 重下载 SHA-256：`E55E84446B3D60596FF45AE9065FDF8FB558E39CE1583F759450E5DCB94577C7`；固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
+- 自动化没有使用用户真实第三方凭据。至少一个真实同 Origin 查询 GET 或 POST JSON/Form 站点仍需用户真机完成二次重放与关闭重开验收；通过前不进入 P5-U2，也不把 P5-U1 新协议接入 Widget。
