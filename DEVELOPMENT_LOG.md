@@ -2264,3 +2264,4 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 提交 `3325880d987cba2acee50d184c71459377016ae7` 的 Actions `29672237996` 再次通过 JVM、Lint、编译和 KVM；模拟器成功下载 beta.15、复核固定证书并完成首次 `adb install`。
 - 失败发生在启动旧版时使用 `com.java.myapplication.dev/.MainActivity`。Debug 的 applicationId 带 `.dev`，但 Activity 类包名仍是 `com.java.myapplication.MainActivity`；相对组件名被系统解析成不存在的 `com.java.myapplication.dev.MainActivity`。
 - 最小修复只把门禁组件名改为 `com.java.myapplication.dev/com.java.myapplication.MainActivity`，不修改 Android 业务代码或放宽任何测试。
+- 首次推送该脚本修复后未触发新工作流，原因是 `push.paths` 尚未包含 `tools/ci-emulator-gate.sh`；已将脚本加入工作流触发范围，确保以后任何门禁脚本变更都会重新执行完整验证。

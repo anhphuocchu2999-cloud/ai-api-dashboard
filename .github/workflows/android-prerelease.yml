@@ -12,6 +12,7 @@ on:
       - 'settings.gradle.kts'
       - 'gradle/**'
       - 'gradle.properties'
+      - 'tools/ci-emulator-gate.sh'
       - '.github/workflows/android-prerelease.yml'
   workflow_dispatch:
     inputs:
