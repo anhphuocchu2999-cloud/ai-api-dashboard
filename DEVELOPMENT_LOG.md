@@ -2252,3 +2252,9 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 发布、模拟器和签名步骤均被门禁跳过，没有生成或发布 beta.16。
 - 最小修复仅调整仓库来源：GitHub Actions 使用官方 Google Maven、Maven Central 和 Gradle Plugin Portal；本地/Operit 继续保留阿里云与华为云镜像优先，避免破坏国内构建路径。
 - 修复后重新执行完整门禁；不得只重跑失败步骤或跳过模拟器测试。
+
+**第二次云端门禁结果与最小修复**
+
+- 提交 `3ebe7de85f6e988ac1bde5cb89011f90adf6adc9` 的 Actions `29672084841` 已通过 JVM 测试、`lintDebug`、`assembleDebug` 和 KVM 启用；模拟器在 33 秒内正常启动。
+- 失败点发生在 emulator runner 执行多行 `script` 输入时：动作只把第一行 `curl ... \\` 作为命令交给 `/usr/bin/sh -c`，导致 URL 未进入同一命令并报 `curl: (3) URL rejected: Bad hostname`。Instrumentation 尚未开始，签名与 Release 继续被跳过。
+- 最小修复是把覆盖安装、启动和 Instrumentation 门禁写入单独的 `tools/ci-emulator-gate.sh`，工作流只传递一条 `bash tools/ci-emulator-gate.sh`；脚本本身使用 `set -euo pipefail`，任何下载、证书、安装、启动或测试失败都会中止发布。
