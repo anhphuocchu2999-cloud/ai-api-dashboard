@@ -136,9 +136,14 @@ class DashboardUniversalRecipeInstrumentedTest {
         assertFalse("prompt contains query value", capture.promptPayload.contains("tenant-value-unique"))
         assertFalse("prompt contains POST range value", capture.promptPayload.contains("month-value-unique"))
         assertFalse("prompt contains POST account value", capture.promptPayload.contains("account-secret-unique"))
-        assertTrue(
-            "prompt omits query-free endpoint",
-            capture.promptPayload.contains("https://dashboard.example.com/api/usage")
+        val promptEndpoint = JSONObject(capture.promptPayload)
+            .getJSONArray("responses")
+            .getJSONObject(0)
+            .getString("endpoint")
+        assertEquals(
+            "prompt endpoint must omit query values",
+            "https://dashboard.example.com/api/usage",
+            promptEndpoint
         )
         val candidate = capture.candidates.single()
         assertTrue("local candidate lost full request URL", candidate.requestUrl.contains("tenant-value-unique"))
