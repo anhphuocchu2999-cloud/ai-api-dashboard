@@ -2265,3 +2265,11 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 失败发生在启动旧版时使用 `com.java.myapplication.dev/.MainActivity`。Debug 的 applicationId 带 `.dev`，但 Activity 类包名仍是 `com.java.myapplication.MainActivity`；相对组件名被系统解析成不存在的 `com.java.myapplication.dev.MainActivity`。
 - 最小修复只把门禁组件名改为 `com.java.myapplication.dev/com.java.myapplication.MainActivity`，不修改 Android 业务代码或放宽任何测试。
 - 首次推送该脚本修复后未触发新工作流，原因是 `push.paths` 尚未包含 `tools/ci-emulator-gate.sh`；已将脚本加入工作流触发范围，确保以后任何门禁脚本变更都会重新执行完整验证。
+
+**最终云端门禁与 beta.16 交付**
+
+- 发布目标提交 `7c8cf24b26b44ea5f80585b5d543aaec6bb69623` 的 Actions `29672478591` 结论为 `success`。
+- JVM 测试、`lintDebug`、`assembleDebug`、KVM、Android 35 模拟器、beta.15 固定证书复核与首次安装、当前 APK `adb install -r` 覆盖升级、旧/新 Activity 启动、全部 Instrumentation/UI Automator、当前 APK 固定证书复核、Artifact 与 Prerelease 全部成功。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.16`。
+- APK：`ai-api-dashboard-v0.1.0-beta.16-debug.apk`，大小 `12185043` 字节；公开 Release 重下载 SHA-256 为 `B6BD69087DA80F4DA990B8F04E6394062B8108CA0DE6B1DB66B55D7603A313AD`。
+- 固定 Beta 证书 SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。云端自动化验收完成；第三方站点真实凭据、VPN/OEM Widget 行为仍由用户真机验收，不宣称已通过。

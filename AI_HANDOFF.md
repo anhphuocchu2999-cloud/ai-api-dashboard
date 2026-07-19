@@ -37,7 +37,7 @@
 - Stage 8F-P5-A beta.14 真机结果：用户确认模型识别成功，但“直接测试并加密保存”点击后没有可见反馈，P5-A 未通过
 - Stage 8F-P5-A.1 业务提交：`2d1c3b566b7520424ec858dc72a3b76cb0ba0320`；beta.15 云端构建成功，但因缺少模拟器 UI 测试按用户要求不交付
 - Stage 8F-P5-U 通用第三方仪表盘配方引擎：方案已写入 `PROJECT.md` 并由用户确认是项目核心目标；P5-A.1 验收前不开始业务实现
-- 当前状态：正在增加 Android 模拟器按钮点击测试，准备由 GitHub Actions 测试通过后发布 beta.16；不得宣称真机通过
+- Stage 8F-QA-1 发布目标：`7c8cf24b26b44ea5f80585b5d543aaec6bb69623`；Actions `29672478591` 全部门禁通过并发布 beta.16；真机第三方站点与 Widget 仍待用户验收
 
 ## 云端状态
 
@@ -79,7 +79,7 @@
 
 ## 当前唯一任务
 
-先让 GitHub Actions 在 Android 模拟器中实际启动实验室并点击保存按钮；只有 JVM 规则测试、模拟器 UI 测试、编译和固定签名均通过才发布 beta.16。用户真机确认 P5-A.1 前不开始 P5-U1。
+由用户覆盖安装 beta.16，在真机复测同一个 PuppyRouter“捕获 → AI 识别 → 直接测试并加密保存 → Widget”流程。P5-A.1 真机通过前不开始 P5-U1。
 
 ## Stage 8F-P5-A 当前实现
 
@@ -114,7 +114,7 @@
 - beta.15 GitHub Actions `29671216346` 一次成功并已生成 Release，但它只证明 JVM 测试、编译和签名通过；用户要求增加实际 UI 自动化后再交付，因此 beta.15 不提供安装命令。
 - 新增仅在 debuggable 包生效的无敏感数据测试入口，使用 UI Automator 跨进程启动实验室并点击按钮，断言按钮进入可重试状态且页面显示“识别结果已经失效”。
 - 工作流在 Release 之前增加 Android 35 模拟器 `connectedDebugAndroidTest`；任一 UI 断言失败不得发布 APK。
-- 本机仍缺少 Java、Android SDK 和 ADB；beta.16 云端测试、覆盖安装和真机验收待执行。
+- beta.16 已通过云端模拟器覆盖安装与 UI 自动化；用户真机上的第三方登录、真实接口和 Widget 验收待执行。
 
 ## Stage 8F-P4.1 当前实现
 
@@ -288,7 +288,11 @@
 - Public 仓库当前树删除旧 `MainActivity.kt.bak` 和包含 `local.properties` 的旧项目压缩包，并补充 `.env`、凭据、签名与备份文件忽略规则；测试中的假密钥样本不是真实凭据。
 - 新增 Android Instrumentation：凭据精确迁移、API Key 加密回读、完整缓存抗残缺/空结果覆盖、跨实例缓存隔离；UI Automator 实际启动独立实验室并点击保存按钮验证可见失败反馈。
 - GitHub 门禁升级为 `testDebugUnitTest + lintDebug + assembleDebug`，Android 35 模拟器先安装 beta.15，再用 `adb install -r` 覆盖当前 APK、启动主 Activity并运行 `connectedDebugAndroidTest`；任一步失败不发布 beta.16。
-- beta.16 提交、Actions、Release、APK SHA-256 和证书复核：待本批次唯一一次云端运行后回填。
+- beta.16 发布目标提交：`7c8cf24b26b44ea5f80585b5d543aaec6bb69623`。
+- GitHub Actions：`29672478591`，JVM 测试、`lintDebug`、`assembleDebug`、Android 35 模拟器覆盖安装、Activity 启动、Instrumentation/UI Automator、固定证书复核、Artifact 与 Prerelease 全部成功。
+- Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.16`。
+- APK：`ai-api-dashboard-v0.1.0-beta.16-debug.apk`，大小 `12185043` 字节；从公开 Release 重下载后的 SHA-256：`B6BD69087DA80F4DA990B8F04E6394062B8108CA0DE6B1DB66B55D7603A313AD`。
+- 固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`，通过。自动化证据不代替用户真机上的第三方登录、VPN/OEM Widget 与真实站点验收。
 
 ## 阶段验收
 
