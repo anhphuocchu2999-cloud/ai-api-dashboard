@@ -2245,3 +2245,10 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - `git diff --check`：待最终差异完成后执行。
 - 当前树敏感模式扫描只命中脱敏规则测试中的假样本；未发现真实 API Key、PAT、Cookie、Token 或私钥文件。
 - 本机没有 Android SDK/ADB；本批次只触发一次新的 GitHub Actions 云端验收，结果待回填。
+
+**首次云端门禁结果与最小修复**
+
+- 提交 `102d26ce29bd8be03b91a276fee48a0b5e5cb29f` 的 Actions `29671993233` 在依赖解析阶段失败；最后 100 行确认根因是阿里云 Gradle Plugin 镜像对 AGP 9.0.0 依赖返回 HTTP 502，不是 Kotlin、Lint、测试或签名失败。
+- 发布、模拟器和签名步骤均被门禁跳过，没有生成或发布 beta.16。
+- 最小修复仅调整仓库来源：GitHub Actions 使用官方 Google Maven、Maven Central 和 Gradle Plugin Portal；本地/Operit 继续保留阿里云与华为云镜像优先，避免破坏国内构建路径。
+- 修复后重新执行完整门禁；不得只重跑失败步骤或跳过模拟器测试。
