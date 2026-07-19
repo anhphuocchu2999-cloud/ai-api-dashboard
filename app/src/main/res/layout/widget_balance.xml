@@ -41,9 +41,12 @@
 
                 <TextView
                     android:id="@+id/kimi_title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="Kimi"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -52,9 +55,11 @@
 
             <TextView
                 android:id="@+id/kimi_tokens"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="16sp"
                 android:textStyle="bold"
@@ -62,9 +67,11 @@
 
             <TextView
                 android:id="@+id/kimi_balance"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="11sp"
                 android:textColor="#FF8E8E93" />
@@ -100,7 +107,9 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
                     android:gravity="end"
+                    android:maxLines="1"
                     android:text=""
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
@@ -150,9 +159,12 @@
 
                 <TextView
                     android:id="@+id/mimo_title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="MiMo"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -161,9 +173,11 @@
 
             <TextView
                 android:id="@+id/mimo_tokens"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="16sp"
                 android:textStyle="bold"
@@ -171,9 +185,11 @@
 
             <TextView
                 android:id="@+id/mimo_balance"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="11sp"
                 android:textColor="#FF8E8E93" />
@@ -209,7 +225,9 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
                     android:gravity="end"
+                    android:maxLines="1"
                     android:text=""
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
@@ -269,9 +287,12 @@
 
                 <TextView
                     android:id="@+id/ds_title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="DeepSeek"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -280,9 +301,11 @@
 
             <TextView
                 android:id="@+id/ds_tokens"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="16sp"
                 android:textStyle="bold"
@@ -290,9 +313,11 @@
 
             <TextView
                 android:id="@+id/ds_balance"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="11sp"
                 android:textColor="#FF8E8E93" />
@@ -328,7 +353,9 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
                     android:gravity="end"
+                    android:maxLines="1"
                     android:text=""
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />
@@ -378,9 +405,12 @@
 
                 <TextView
                     android:id="@+id/oai_title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="OpenAI"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -389,9 +419,11 @@
 
             <TextView
                 android:id="@+id/oai_tokens"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="16sp"
                 android:textStyle="bold"
@@ -399,9 +431,11 @@
 
             <TextView
                 android:id="@+id/oai_balance"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text=""
                 android:textSize="11sp"
                 android:textColor="#FF8E8E93" />
@@ -437,7 +471,9 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
                     android:gravity="end"
+                    android:maxLines="1"
                     android:text=""
                     android:textSize="9sp"
                     android:textColor="#FF8E8E93" />

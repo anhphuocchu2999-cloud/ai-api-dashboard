@@ -35,6 +35,21 @@ class DashboardRecipeWidgetMapperTest {
         assertEquals(0, projection.auxiliary.size)
     }
 
+    @Test
+    fun compactsVerboseQuotaLabelsAndDropsPlaceholderUnitsForWidget() {
+        val projection = DashboardRecipeWidgetMapper.project(
+            listOf(
+                metric("quota", "账户剩余额度（原始额度单位）", "66383", "额度单位"),
+                metric("usage", "已使用额度（原始额度单位）", "7147", "原始额度单位")
+            )
+        )
+
+        assertEquals("剩余额度", projection.primary.label)
+        assertEquals("66383", projection.primary.value)
+        assertEquals("用量", projection.usage.single().label)
+        assertEquals("7147", projection.usage.single().value)
+    }
+
     private fun metric(type: String, label: String, value: String, unit: String) =
         DashboardReplayMetric(type, label, value, unit)
 }

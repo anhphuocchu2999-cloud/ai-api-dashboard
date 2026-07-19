@@ -2273,3 +2273,11 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.16`。
 - APK：`ai-api-dashboard-v0.1.0-beta.16-debug.apk`，大小 `12185043` 字节；公开 Release 重下载 SHA-256 为 `B6BD69087DA80F4DA990B8F04E6394062B8108CA0DE6B1DB66B55D7603A313AD`。
 - 固定 Beta 证书 SHA-256 为 `A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。云端自动化验收完成；第三方站点真实凭据、VPN/OEM Widget 行为仍由用户真机验收，不宣称已通过。
+
+## 2026-07-19｜Stage 8F-QA-2 真机 Widget 状态与长指标回归
+
+- 用户安装 beta.16 后的真机截图确认：三个未配置槽位错误显示“😂 数据在路上～”；通用仪表盘的“账户剩余额度（原始额度单位） 66383 额度单位”在主指标区换成三行并挤压卡片。
+- 根因一是最终渲染按 `!isSuccess || !isAvailable` 点亮角标，未排除 `WidgetData.empty()`；修复为只有完整配置的卡片才允许显示同步/失败统一角标。
+- 根因二是通用配方把冗长 AI 标签和占位性质的“额度单位/原始额度单位”原样映射；修复为仅对超长标签按指标类型压缩，并去掉没有信息量的占位单位，标准 USD/CNY/%/token 等单位保持不变。
+- 四张卡片的标题、主指标、用量和辅助指标增加单行末尾省略保护，避免任意第三方长文本撑坏固定高度 Widget。
+- 新增规则测试覆盖未配置角标、已配置同步/失败统一状态以及截图中的 66383/7147 长标签映射；beta.17 继续受 JVM、Lint、编译、模拟器覆盖安装、Instrumentation/UI Automator 和固定签名全门禁约束。

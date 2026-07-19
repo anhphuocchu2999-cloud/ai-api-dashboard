@@ -135,14 +135,48 @@ internal object DashboardRecipeWidgetMapper {
     }
 
     private fun DashboardReplayMetric.projected() = DashboardProjectedMetric(
-        label = label.trim().ifBlank { type },
+        label = compactLabel(type, label),
         value = formatValue(value, unit)
     )
+
+    private fun compactLabel(type: String, rawLabel: String): String {
+        val label = rawLabel.trim().ifBlank { type }
+        if (label.length <= 10) return label
+        val lower = label.lowercase()
+        val remaining = listOf("剩余", "可用", "remaining", "remain", "available").any(lower::contains)
+        val used = listOf("已用", "使用", "used", "usage").any(lower::contains)
+        return when (type) {
+            "balance" -> when {
+                remaining -> "可用余额"
+                used -> "已用余额"
+                else -> "余额"
+            }
+            "quota" -> when {
+                remaining -> "剩余额度"
+                used -> "已用额度"
+                else -> "额度"
+            }
+            "tokens" -> when {
+                remaining -> "剩余 Token"
+                used -> "已用 Token"
+                else -> "Token"
+            }
+            "usage" -> "用量"
+            "requests" -> "请求"
+            "subscription" -> "套餐"
+            "reset_time" -> "重置时间"
+            else -> label.take(10) + "…"
+        }
+    }
 
     private fun formatValue(rawValue: String, rawUnit: String): String {
         val value = rawValue.trim()
         val unit = rawUnit.trim()
-        if (unit.isBlank()) return value
+        val normalizedUnit = unit.lowercase()
+        if (
+            unit.isBlank() ||
+            normalizedUnit in setOf("额度单位", "原始额度单位", "quota unit", "raw quota unit")
+        ) return value
         return when (unit.uppercase()) {
             "USD" -> if (value.startsWith('$')) value else "\$$value"
             "CNY", "RMB" -> if (value.startsWith('¥') || value.startsWith('￥')) value else "¥$value"

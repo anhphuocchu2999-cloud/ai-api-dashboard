@@ -263,7 +263,12 @@ class BalanceWidgetProvider : AppWidgetProvider() {
                         setSyncing(
                             views,
                             p,
-                            data.isFallback || !data.isSuccess || !data.isAvailable
+                            WidgetRenderPolicy.showPlayfulStatus(
+                                isConfigured = isConfigured(visibleEntries[index].second),
+                                isFallback = data.isFallback,
+                                isSuccess = data.isSuccess,
+                                isAvailable = data.isAvailable
+                            )
                         )
                     }
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -501,5 +506,14 @@ class BalanceWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_root, pending)
         }
     }
+}
+
+internal object WidgetRenderPolicy {
+    fun showPlayfulStatus(
+        isConfigured: Boolean,
+        isFallback: Boolean,
+        isSuccess: Boolean,
+        isAvailable: Boolean
+    ): Boolean = isConfigured && (isFallback || !isSuccess || !isAvailable)
 }
 
