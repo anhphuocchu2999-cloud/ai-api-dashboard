@@ -132,14 +132,17 @@ class DashboardUniversalRecipeInstrumentedTest {
             lockedOrigin = "https://dashboard.example.com"
         )
 
-        assertEquals(1, capture.candidateCount)
-        assertFalse(capture.promptPayload.contains("tenant-value-unique"))
-        assertFalse(capture.promptPayload.contains("month-value-unique"))
-        assertFalse(capture.promptPayload.contains("account-secret-unique"))
-        assertTrue(capture.promptPayload.contains("https://dashboard.example.com/api/usage"))
+        assertEquals("capture candidate count", 1, capture.candidateCount)
+        assertFalse("prompt contains query value", capture.promptPayload.contains("tenant-value-unique"))
+        assertFalse("prompt contains POST range value", capture.promptPayload.contains("month-value-unique"))
+        assertFalse("prompt contains POST account value", capture.promptPayload.contains("account-secret-unique"))
+        assertTrue(
+            "prompt omits query-free endpoint",
+            capture.promptPayload.contains("https://dashboard.example.com/api/usage")
+        )
         val candidate = capture.candidates.single()
-        assertTrue(candidate.requestUrl.contains("tenant-value-unique"))
-        assertTrue(candidate.requestBody.contains("account-secret-unique"))
+        assertTrue("local candidate lost full request URL", candidate.requestUrl.contains("tenant-value-unique"))
+        assertTrue("local candidate lost POST body", candidate.requestBody.contains("account-secret-unique"))
     }
 
     @Test
