@@ -3,7 +3,7 @@ set -euo pipefail
 
 previous_apk=/tmp/ai-api-dashboard-previous-beta.apk
 current_apk=app/build/outputs/apk/debug/app-debug.apk
-previous_url=https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/download/v0.1.0-beta.17/ai-api-dashboard-v0.1.0-beta.17-debug.apk
+previous_url=https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/download/v0.1.0-beta.18/ai-api-dashboard-v0.1.0-beta.18-debug.apk
 main_component=com.java.myapplication.dev/com.java.myapplication.MainActivity
 
 curl --fail --location --retry 3 --output "$previous_apk" "$previous_url"

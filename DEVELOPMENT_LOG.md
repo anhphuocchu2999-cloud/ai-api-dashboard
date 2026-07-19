@@ -2323,3 +2323,23 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - Release：`https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/tag/v0.1.0-beta.18`；APK：`ai-api-dashboard-v0.1.0-beta.18-debug.apk`，大小 `12201495` 字节。
 - 公开 Release 重下载 SHA-256：`E55E84446B3D60596FF45AE9065FDF8FB558E39CE1583F759450E5DCB94577C7`；固定 Beta 证书 SHA-256：`A8F816B106F23274F35E3DDC8B19C464A31F7A7BD0871E3294AA6E6922954860`。
 - 自动化没有使用用户真实第三方凭据。至少一个真实同 Origin 查询 GET 或 POST JSON/Form 站点仍需用户真机完成二次重放与关闭重开验收；通过前不进入 P5-U2，也不把 P5-U1 新协议接入 Widget。
+
+## 2026-07-19｜Stage 8F-P5-U1.1 模型 5xx 状态与原地重试反馈
+
+**目标和根因**
+
+- 用户在 beta.18 真机完成网页捕获并调用 AI 后收到“模型服务暂时异常”。源码确认捕获已进入 `DashboardAiAnalyzer`，失败来自用户配置的 `/v1/chat/completions` 返回 HTTP 500～599，不是数据库、网页捕获或配方重放失败。
+- 原实现把全部 5xx 合并成一句话且没有在按钮上显示可重试状态，无法区分模型内部错误、上游网关异常、服务不可用或上游响应超时。
+
+**方案与边界**
+
+- 500、502、503、504 分别显示安全中文原因和具体状态码，其他 5xx 显示实际 HTTP 状态；不读取或展示服务端原始错误正文。
+- AI 调用开始时按钮显示“AI 识别中…”，失败后保留当前网页捕获并恢复为“重新调用一次 AI 识别”；仍由用户手动重试，不增加自动重试或额外模型调用。
+- 新增纯 JVM 规则测试，覆盖常见 5xx、未知 5xx、认证、限流和兼容性分类；实验首页更新为 `Stage 8F-P5-U1.1 · Prototype 20260719-002`。
+- 不修改 AI Prompt、捕获脱敏、请求配方、Keystore、Widget、Adapter、缓存或现有平台协议。
+
+**起点、文件与待验证状态**
+
+- 起始分支：`feature/stage-8b-simple-connection-flow`；起始提交/回滚位置：`48b51a029306818bd3166a9e6ec389826c8932c6`。
+- 修改：`DashboardAiAnalyzer.kt`、`DashboardDiscoveryActivity.kt`、`activity_dashboard_discovery.xml`、`DashboardAiHttpErrorPolicyTest.kt`、`android-prerelease.yml`、`tools/ci-emulator-gate.sh`、`PROJECT.md`、`AI_HANDOFF.md`、`DEVELOPMENT_LOG.md`。
+- beta.19 门禁将执行 `testDebugUnitTest + lintDebug + assembleDebug`、beta.18 → beta.19 模拟器 `adb install -r`、主 Activity 启动、全部 Instrumentation/UI Automator 和固定证书复核；结果待 GitHub Actions 回填，当前不得宣称编译、安装或真机通过。

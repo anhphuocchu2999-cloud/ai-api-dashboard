@@ -575,6 +575,7 @@ class DashboardDiscoveryActivity : Activity() {
         if (!captureArmed || analysisInProgress || !isOnLockedOrigin()) return
         analysisInProgress = true
         analyzeButton.isEnabled = false
+        analyzeButton.text = "AI 识别中…"
         browserStatus.text = "正在读取并脱敏本次捕获…"
         webView.evaluateJavascript(EXPORT_SCRIPT) { rawValue ->
             val exported = decodeJavascriptString(rawValue)
@@ -617,6 +618,7 @@ class DashboardDiscoveryActivity : Activity() {
 
     private fun showResult(result: DashboardAnalysisResult, capture: PreparedDashboardCapture) {
         analysisInProgress = false
+        analyzeButton.text = "调用一次 AI 识别"
         currentAnalysis = result
         currentCapture = capture
         browserPanel.visibility = View.GONE
@@ -637,6 +639,7 @@ class DashboardDiscoveryActivity : Activity() {
     private fun finishAnalysisWithError(message: String) {
         analysisInProgress = false
         analyzeButton.isEnabled = captureArmed
+        analyzeButton.text = if (captureArmed) "重新调用一次 AI 识别" else "调用一次 AI 识别"
         browserStatus.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
@@ -971,6 +974,7 @@ class DashboardDiscoveryActivity : Activity() {
         handler.removeCallbacks(captureStatusRunnable)
         confirmButton.isEnabled = true
         analyzeButton.isEnabled = false
+        analyzeButton.text = "调用一次 AI 识别"
         browserStatus.text = message
     }
 

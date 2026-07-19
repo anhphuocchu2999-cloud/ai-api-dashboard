@@ -74,7 +74,9 @@ class DashboardAiAnalyzer {
             val responseText = stream?.use {
                 readLimited(BufferedReader(InputStreamReader(it, Charsets.UTF_8)), maxResponseChars)
             }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(httpErrorMessage(status))
+            if (status !in 200..299) {
+                throw IllegalStateException(DashboardAiHttpErrorPolicy.message(status))
+            }
 
             parseCompatibleResponse(responseText, capture)
         } finally {
@@ -282,13 +284,22 @@ class DashboardAiAnalyzer {
         return output.toString()
     }
 
-    private fun httpErrorMessage(status: Int): String {
-        return when (status) {
-            401, 403 -> "模型接口拒绝授权，请检查 API Key"
-            404 -> "模型接口地址不兼容，请检查 API Base"
-            429 -> "模型接口请求过于频繁，请稍后再试"
-            in 500..599 -> "模型服务暂时异常"
-            else -> "模型接口请求失败（HTTP $status）"
-        }
+}
+
+/**
+ * Only exposes the HTTP status and a safe recovery hint. Provider response bodies can contain
+ * request fragments or credentials and must never be copied into the normal user-facing error.
+ */
+internal object DashboardAiHttpErrorPolicy {
+    fun message(status: Int): String = when (status) {
+        401, 403 -> "模型接口拒绝授权，请检查 API Key"
+        404 -> "模型接口地址不兼容，请检查 API Base"
+        429 -> "模型接口请求过于频繁。本次捕获已保留，请稍后重试"
+        500 -> "模型服务内部错误（HTTP 500）。本次捕获已保留，请重试；如果连续出现，请返回配置页更换模型"
+        502 -> "模型上游网关异常（HTTP 502）。本次捕获已保留，请稍后重试"
+        503 -> "模型服务当前不可用（HTTP 503）。本次捕获已保留，请稍后重试"
+        504 -> "模型上游响应超时（HTTP 504）。本次捕获已保留，请稍后重试"
+        in 500..599 -> "模型服务返回 HTTP $status。本次捕获已保留，请稍后重试"
+        else -> "模型接口请求失败（HTTP $status）"
     }
 }
