@@ -4,6 +4,7 @@ set -euo pipefail
 previous_apk=/tmp/ai-api-dashboard-previous-beta.apk
 current_apk=app/build/outputs/apk/debug/app-debug.apk
 previous_url=https://github.com/anhphuocchu2999-cloud/ai-api-dashboard/releases/download/v0.1.0-beta.15/ai-api-dashboard-v0.1.0-beta.15-debug.apk
+main_component=com.java.myapplication.dev/com.java.myapplication.MainActivity
 
 curl --fail --location --retry 3 --output "$previous_apk" "$previous_url"
 
@@ -18,12 +19,12 @@ test -n "$previous_cert"
 test "$previous_cert" = "$EXPECTED_SIGNING_CERT_SHA256"
 
 adb install "$previous_apk"
-previous_start="$(adb shell am start -W -n com.java.myapplication.dev/.MainActivity)"
+previous_start="$(adb shell am start -W -n "$main_component")"
 printf '%s\n' "$previous_start"
 grep -q 'Status: ok' <<<"$previous_start"
 
 adb install -r "$current_apk"
-current_start="$(adb shell am start -W -n com.java.myapplication.dev/.MainActivity)"
+current_start="$(adb shell am start -W -n "$main_component")"
 printf '%s\n' "$current_start"
 grep -q 'Status: ok' <<<"$current_start"
 

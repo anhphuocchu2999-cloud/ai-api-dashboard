@@ -2258,3 +2258,9 @@ Stage 8F-P2-J 已由用户真机确认：MiMo 页面能够捕获真实 `/api/v1/
 - 提交 `3ebe7de85f6e988ac1bde5cb89011f90adf6adc9` 的 Actions `29672084841` 已通过 JVM 测试、`lintDebug`、`assembleDebug` 和 KVM 启用；模拟器在 33 秒内正常启动。
 - 失败点发生在 emulator runner 执行多行 `script` 输入时：动作只把第一行 `curl ... \\` 作为命令交给 `/usr/bin/sh -c`，导致 URL 未进入同一命令并报 `curl: (3) URL rejected: Bad hostname`。Instrumentation 尚未开始，签名与 Release 继续被跳过。
 - 最小修复是把覆盖安装、启动和 Instrumentation 门禁写入单独的 `tools/ci-emulator-gate.sh`，工作流只传递一条 `bash tools/ci-emulator-gate.sh`；脚本本身使用 `set -euo pipefail`，任何下载、证书、安装、启动或测试失败都会中止发布。
+
+**第三次云端门禁结果与最小修复**
+
+- 提交 `3325880d987cba2acee50d184c71459377016ae7` 的 Actions `29672237996` 再次通过 JVM、Lint、编译和 KVM；模拟器成功下载 beta.15、复核固定证书并完成首次 `adb install`。
+- 失败发生在启动旧版时使用 `com.java.myapplication.dev/.MainActivity`。Debug 的 applicationId 带 `.dev`，但 Activity 类包名仍是 `com.java.myapplication.MainActivity`；相对组件名被系统解析成不存在的 `com.java.myapplication.dev.MainActivity`。
+- 最小修复只把门禁组件名改为 `com.java.myapplication.dev/com.java.myapplication.MainActivity`，不修改 Android 业务代码或放宽任何测试。
